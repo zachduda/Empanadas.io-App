@@ -1,0 +1,9 @@
+# Ignore larger files
+*.exe
+*win-unpacked/
+/dist/.icon-ico
+node_modules/
+*.pfx
+*.ttf
+*.gif
+*.png

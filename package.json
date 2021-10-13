@@ -1,0 +1,43 @@
+{
+  "name": "Empanadas.io",
+  "version": "1.0.7",
+  "description": "The only app for all your Empanada needs!",
+  "main": "main.js",
+  "publisherName": "Empanadas.io",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "author": {
+    "name": "Zachary Duda",
+    "url": "https://zachduda.github.io"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^15.1.2",
+    "electron-builder": "^22.13.1",
+    "electron-packager": "^15.4.0"
+  },
+  "build": {
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://empanadas.io/Content/Downloads/Windows/latest.json"
+      }
+    ],
+    "appId": "empanadas.io",
+    "mac": {
+      "category": "games",
+      "target": [
+        "zip",
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": "nsis",
+      "verifyUpdateCodeSignature": false
+    }
+  },
+  "postinstall": "electron-builder install-app-deps"
+}
