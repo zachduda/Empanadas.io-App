@@ -1,5 +1,6 @@
 # Ignore larger files
 *win-unpacked/
+*.exe
 /dist/.icon-ico
 node_modules/
 *.pfx
