@@ -6,8 +6,6 @@
 Windows: https://empanadas.io/download
 
 
-# Disclaimers
-
 ## Windows Antivirus
 As you may notice, when launching the Empanadas.io installer, Windows will mark the program as dangerous. This is because Windows want to charge a $200 "code signing" fee yearly to "protect it's users". In reality, all you're paying for is what Windows should allow apps to do: run. To bypass this, click "more info" on the prompt then click "run anyways". We promise our app is filled with nothing but Empanadas.
 
