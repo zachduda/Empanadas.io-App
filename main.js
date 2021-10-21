@@ -52,7 +52,7 @@ function createDefaultWindow() {
       nodeIntegration: false,
 	  disableBlinkFeatures: "Auxclick",
 	  "sandbox": true,
-	  devTools: true
+	  devTools: false
 	},
 	zoomFactor: 1.05,
 	javascript: true,
@@ -73,9 +73,7 @@ function createDefaultWindow() {
   return win;
 }
 
-app.on('ready', function() {
-  createDefaultWindow();
-});
+app.whenReady().then(createDefaultWindow);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

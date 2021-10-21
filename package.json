@@ -1,6 +1,6 @@
 {
   "name": "Empanadas.io",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "The only app for all your Empanada needs!",
   "main": "main.js",
   "publisherName": "Empanadas.io",
@@ -15,9 +15,9 @@
   },
   "license": "ISC",
   "devDependencies": {
-    "electron": "^15.1.2",
     "electron-builder": "^22.13.1",
-    "electron-packager": "^15.4.0"
+    "electron-packager": "^15.4.0",
+	"electron": "^13.6.0"
   },
   "build": {
     "publish": [
