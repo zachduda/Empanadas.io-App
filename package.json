@@ -1,6 +1,6 @@
 {
   "name": "Empanadas.io",
-  "version": "1.0.8",
+  "version": "1.1.0",
   "description": "The only app for all your Empanada needs!",
   "main": "main.js",
   "publisherName": "Empanadas.io",
@@ -17,7 +17,7 @@
   "devDependencies": {
     "electron-builder": "^22.13.1",
     "electron-packager": "^15.4.0",
-	"electron": "^13.6.0"
+    "electron": "^13.6.0"
   },
   "build": {
     "publish": [
@@ -39,5 +39,8 @@
       "verifyUpdateCodeSignature": false
     }
   },
-  "postinstall": "electron-builder install-app-deps"
+  "postinstall": "electron-builder install-app-deps",
+  "dependencies": {
+    "v8-compile-cache": "^2.3.0"
+  }
 }

@@ -1,6 +1,12 @@
-const {app, BrowserWindow, Menu, shell} = require('electron');
+const {app, BrowserWindow} = require('electron');
+
+
+app.commandLine.appendSwitch('no-proxy-server​')
+app.commandLine.appendSwitch('force_high_performance_gpu')
 
 let win;
+
+app.enableSandbox();
 
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -26,12 +32,6 @@ if (!gotTheLock) {
 }
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = false;
-//log.info('App starting...');
-
-function sendStatusToWindow(text) {
-  //log.info(text);
-  win.webContents.send('message', text);
-}
 
 function createDefaultWindow() {
   win = new BrowserWindow({
