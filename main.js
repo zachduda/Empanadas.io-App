@@ -35,12 +35,12 @@ process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = false;
 
 function createDefaultWindow() {
   win = new BrowserWindow({
-    width: 995,
+    width: 1000,
     height: 600,
 	webviewTag: true,
 	frame: false,
 	minWidth: 995,
-	minHeight: 480,
+	minHeight: 500,
 	movable: true,
 	minimizable: true,
 	resizeable: true,

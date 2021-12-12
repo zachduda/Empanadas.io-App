@@ -1,0 +1,17 @@
+directories:
+  output: dist
+  buildResources: build
+publish:
+  - provider: generic
+    url: https://empanadas.io/download
+appId: empanadas.io
+mac:
+  category: games
+  target:
+    - zip
+    - dmg
+win:
+  target: nsis
+  verifyUpdateCodeSignature: false
+files: []
+electronVersion: 13.6.3
