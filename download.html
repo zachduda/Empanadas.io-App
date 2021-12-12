@@ -65,9 +65,8 @@ function noInt() {
 	msg.innerHTML = "&#x1F61E; Check Your Internet";
 	status.innerHTML = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
 	setTimeout(function(){
-		var end = document.body, script = document.createElement('script');script = document.createElement('script');
-		script.src = 'https://api.empanadas.io/app/startup.js';
-		script.appendChild(end);
+		status.innerHTML = "Checking...";
+		location.reload(true);
 	}, 5000);
 }
 function finishedLoading() {
@@ -104,7 +103,7 @@ function finishedLoading() {
 	}
 }
 
-let downloaded = 1;
+let downloaded = 0;
 function download(ds) {
 	var i, max = 0;
     var o = null;
@@ -113,7 +112,7 @@ function download(ds) {
         o = document.createElement('object');
 		o.onload = function() {
 			downloaded++;
-			status.innerHTML = "&#x1F4C1;  Updating:  <b>" + Math.round((downloaded / max)*100) + "%</b>";
+			status.innerHTML = "&#x1F4C1;  Updating:  <b>" + Math.min(Math.round((downloaded / max)*100), 100) + "%</b>";
             if (downloaded == max) {
 				logo.style.marginTop = "200px";
 				status.innerHTML = "";
