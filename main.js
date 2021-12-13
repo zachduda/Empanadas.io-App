@@ -58,6 +58,7 @@ function createDefaultWindow() {
 	javascript: true,
 	icon: 'icon.png' 
   })
+  win.webContents.setFrameRate(60);
   win.on('closed', () => {
     win = null;
   });
