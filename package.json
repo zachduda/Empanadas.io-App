@@ -5,24 +5,18 @@
   "main": "main.js",
   "publisherName": "Empanadas.io",
   "scripts": {
-    "start": "electron --enable-accelerated-mjpeg-decode --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --enable-gpu-rasterization .",
+    "start": "electron --enable-accelerated-mjpeg-decode --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --enable-gpu-rasterization --force-gpu-rasterization.",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
   "author": "Zachary Duda (https://zachduda.github.io)",
   "license": "ISC",
   "devDependencies": {
-    "electron": "^13.6.3",
-    "electron-builder": "^22.13.1",
+    "electron": "^16.0.4",
+    "electron-builder": "^22.14.5",
     "electron-packager": "^15.4.0"
   },
   "build": {
-    "publish": [
-      {
-        "provider": "generic",
-        "url": "https://empanadas.io/download"
-      }
-    ],
     "appId": "empanadas.io",
     "mac": {
       "category": "games",
@@ -32,17 +26,26 @@
       ]
     },
     "win": {
+	  "publish": [{
+		 "provider": "github",
+		 "owner": "zachduda",
+		 "repo": "Empanadas.io-App"
+	  }],
       "target": "nsis",
-      "verifyUpdateCodeSignature": false
-    }
+      "verifyUpdateCodeSignature": true
+    },
+	"nsis": {
+		"deleteAppDataOnUninstall": true
+	}
   },
   "postinstall": "electron-builder install-app-deps",
   "dependencies": {
+    "electron-updater": "^4.6.1",
     "v8-compile-cache": "^2.3.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zachduda/Empanadas.io-App.git"
+    "url": "https://github.com/zachduda/Empanadas.io-App.git"
   },
   "bugs": {
     "url": "https://github.com/zachduda/Empanadas.io-App/issues"

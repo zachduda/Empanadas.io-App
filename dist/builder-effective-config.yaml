@@ -1,9 +1,6 @@
 directories:
   output: dist
   buildResources: build
-publish:
-  - provider: generic
-    url: https://empanadas.io/download
 appId: empanadas.io
 mac:
   category: games
@@ -11,7 +8,13 @@ mac:
     - zip
     - dmg
 win:
+  publish:
+    - provider: github
+      owner: zachduda
+      repo: Empanadas.io-App
   target: nsis
-  verifyUpdateCodeSignature: false
+  verifyUpdateCodeSignature: true
+nsis:
+  deleteAppDataOnUninstall: true
 files: []
-electronVersion: 13.6.3
+electronVersion: 16.0.4

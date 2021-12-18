@@ -1,5 +1,5 @@
+const {autoUpdater} = require("electron-updater");
 const {app, BrowserWindow} = require('electron');
-
 
 app.commandLine.appendSwitch('no-proxy-server​')
 app.commandLine.appendSwitch('force_high_performance_gpu')
@@ -39,8 +39,8 @@ function createDefaultWindow() {
     height: 600,
 	webviewTag: true,
 	frame: false,
-	minWidth: 995,
-	minHeight: 500,
+	minWidth: 975,
+	minHeight: 480,
 	movable: true,
 	minimizable: true,
 	resizeable: true,
@@ -52,13 +52,13 @@ function createDefaultWindow() {
       nodeIntegration: false,
 	  disableBlinkFeatures: "Auxclick",
 	  "sandbox": true,
-	  devTools: false
+	  devTools: true
 	},
-	zoomFactor: 1.05,
+	zoomFactor: 1.1,
 	javascript: true,
 	icon: 'icon.png' 
   })
-  win.webContents.setFrameRate(60);
+  win.webContents.setFrameRate(144);
   win.on('closed', () => {
     win = null;
   });
@@ -74,7 +74,10 @@ function createDefaultWindow() {
   return win;
 }
 
-app.whenReady().then(createDefaultWindow);
+app.on('ready', function()  {
+  autoUpdater.checkForUpdatesAndNotify();
+  createDefaultWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
