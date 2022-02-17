@@ -51,26 +51,52 @@ footer p {
 <footer>
 <p class="animated fadeInUp" style="animation-delay:525ms;" id="status">Communicating to Server...</p>
 </footer>
+<script src="Content/JS/jquery-3.5.1.min.js"></script>
 <script>
 const appbase = "https://empanadas.io/server/dashboard";
-let appparam = "?usingnativeapp=1";
+const appparam = "?usingnativeapp=1";
 const start = Date.now();
 const logo = document.getElementById("logo");
 const msg = document.getElementById("msg");
 const status = document.getElementById("status");
 const minwait = 2250;
+let noint = false;
 function noInt() {
-	logo.src = "jeff.gif";
-	logo.style.marginTop = "120px";
-	msg.innerHTML = "&#x1F61E; Check Your Internet";
-	status.innerHTML = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
+	allowdownload = true;
+	let noinmsg = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
+	if(!noint) {
+		logo.src = "jeff.gif";
+		logo.style.marginTop = "120px";
+		// remove :( -> &#x1F61E; 
+		msg.innerHTML = "Check Your Internet";
+		status.innerHTML = noinmsg;
+	}
+	noint = true;
 	setTimeout(function(){
-		status.innerHTML = "Checking...";
-		location.reload(true);
+		$.ajax({
+			url: "https://empanadas.io/server/ping.php",
+			type: "GET",
+			data: { usingnativeapp: 1, firsthello: 1}, 
+			beforeSend: function() {
+				//status.innerHTML += "\nChecking...";
+			},
+			success: function(data) {
+				status.innerHTML = "Connected!";
+				finishedLoading("&retried_network=1")
+			},
+			error: function() {
+				//status.innerHTML = noinmsg;
+				noInt();
+				return;
+			},
+			dataType: 'text',
+			cache: false
+		});
 	}, 5000);
 }
-function finishedLoading() {
-	if(navigator.onLine) {
+function finishedLoading(params="") {
+	if(navigator.onLine && !noint) {
+		allowdownload = false;
 		const end = Date.now();	
 		setTimeout(function(){ 
 			setTimeout(function(){ 
@@ -84,7 +110,8 @@ function finishedLoading() {
 				msg.classList.remove("animated", "fadeOut", "faster");
 				logo.classList.remove("animated", "fadeOut", "faster");
 				status.classList.remove("animated", "fadeOut", "faster");
-				window.location.href = appbase+appparam;
+				console.log("GO: " + params);
+				window.location.href = appbase+appparam+params;
 			}, 480);
 			logo.classList.remove("animated", "fadeIn", "faster");
 			msg.classList.remove("animated", "fadeInUp");
@@ -103,29 +130,88 @@ function finishedLoading() {
 	}
 }
 
+let allowdownload = true;
 let downloaded = 0;
+let canFinish = false;
+let downloadsDone = false;
 function download(ds) {
-	var i, max = 0;
-    var o = null;
-
-    for (i = 0, max = ds.length; i < max; i += 1) {
-        o = document.createElement('object');
-		o.onload = function() {
-			downloaded++;
-			status.innerHTML = "&#x1F4C1;  Updating:  <b>" + Math.min(Math.round((downloaded / max)*100), 100) + "%</b>";
-            if (downloaded == max) {
+	if(!navigator.onLine || noint) { allowdownload = false; noInt(); return; }
+	if(!allowdownload) { return; }
+	
+	$.ajax({
+        url: "https://empanadas.io/server/ping.php",
+        type: "GET",
+		data: { usingnativeapp: 1, firsthello: 1}, 
+        beforeSend: function() {
+            status.innerHTML = "Waiting for Server...";
+        },
+        success: function(data) {
+            if(data == "Pong!") {
+				canFinish = true;
+				//if(downloadsDone) {
+				//	finishedLoading("&sucessfulstart=1&fromping=1");
+				//}
+				status.innerHTML = "Connected";
+				
+				// just do it 
+				downloadsDone = true;
 				logo.style.marginTop = "200px";
 				status.innerHTML = "";
-                finishedLoading();
+				finishedLoading("&sucessfulstart=1&fromdownload=1");
             }
-        };
-        o.data = ds[i];
-        o.width  = 0;
-        o.height = 0;
-        document.body.appendChild(o);
-	}
+        },
+        error: function() {
+            allowdownload = false;
+			noInt();
+			return;
+        },
+        dataType: 'text',
+        cache: false
+    });
+	
+	return; // just don't even try;
+	
+	//var i, max = 0;
+    //var o = null;
+
+    //for (i = 0, max = ds.length; i < max; i += 1) {
+	//	try {
+	//		if(!allowdownload) { return; }
+	//		o = document.createElement('object');
+	//		o.onload = function() {
+	//			downloaded++;
+	//			const pdone = Math.min(Math.round((downloaded / max)*100), 100);
+	//			status.innerHTML = "&#x1F4C1;  Updating:  <b>" + pdone + "%</b>";
+	//			if (downloaded == max) {
+	//				logo.style.marginTop = "200px";
+	//				status.innerHTML = "";
+	//				downloadsDone = true;
+	//				if(canFinish) {
+	//					finishedLoading("&sucessfulstart=1&fromdownload=1");
+	//				}
+	//			}
+	//		};
+	//		o.data = ds[i];
+	//		o.width  = 0;
+	//		o.height = 0;
+	//		document.body.appendChild(o);
+	//	} catch (err) {
+	//		console.log("Error while getting cache: " + err.message);
+	//		finishedLoading("&appcatcherr="+encodeURIComponent(err.message()));
+	//	}
+	//}
 }
+
+setTimeout(function(){
+	if(navigator.onLine && !noint) {
+		finishedLoading("&forceapptimeout=1");
+	}
+}, 10000);
+
+// whatever just run it
+download(null);
 </script>
-<script src="https://api.empanadas.io/app/startup.js" onerror="noInt()"></script>
+
+<!--<script src="https://api.empanadas.io/app/startup.js" onerror="noInt()"></script>-->
 </body>
 </html>

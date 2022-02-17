@@ -1,11 +1,11 @@
 {
   "name": "Empanadas.io",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "The only app for all your Empanada needs!",
   "main": "main.js",
   "publisherName": "Empanadas.io",
   "scripts": {
-    "start": "electron --enable-accelerated-mjpeg-decode --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --enable-gpu-rasterization --force-gpu-rasterization.",
+    "start": "electron --disable-gpu-sandbox --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --in-process-gpu --use-gl=desktop --enable-hardware-overlays  --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization --force-gpu-rasterization .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -26,21 +26,24 @@
       ]
     },
     "win": {
-	  "publish": [{
-		 "provider": "github",
-		 "owner": "zachduda",
-		 "repo": "Empanadas.io-App"
-	  }],
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "zachduda",
+          "repo": "Empanadas.io-App"
+        }
+      ],
       "target": "nsis",
       "verifyUpdateCodeSignature": true
     },
-	"nsis": {
-		"deleteAppDataOnUninstall": true
-	}
+    "nsis": {
+      "deleteAppDataOnUninstall": true
+    }
   },
   "postinstall": "electron-builder install-app-deps",
   "dependencies": {
-    "electron-updater": "^4.6.1",
+    "electron-dl": "^3.3.0",
+    "electron-store": "^8.0.1",
     "v8-compile-cache": "^2.3.0"
   },
   "repository": {

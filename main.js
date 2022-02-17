@@ -1,5 +1,17 @@
-const {autoUpdater} = require("electron-updater");
-const {app, BrowserWindow} = require('electron');
+// no updater stuff -- const {autoUpdater} = require("electron-updater");
+const {app, BrowserWindow, ipcMain} = require('electron');
+
+
+const Store = require('electron-store');
+
+const store = new Store();
+
+store.set('Settings.Theme', 0);
+console.log(store.get('Settings.Theme'));
+
+store.set('Settings.Volume', 100);
+console.log(store.get('Settings.Volume'));
+
 
 app.commandLine.appendSwitch('no-proxy-server​')
 app.commandLine.appendSwitch('force_high_performance_gpu')
@@ -7,6 +19,18 @@ app.commandLine.appendSwitch('force_high_performance_gpu')
 let win;
 
 app.enableSandbox();
+console.log(process.argv);
+
+//app.setUserTasks([
+//  {
+//    program: process.execPath,
+//    arguments: '--new-window',
+//    iconPath: process.execPath,
+//    iconIndex: 0,
+//    title: 'New Window',
+//    description: 'Create a new window'
+//  }
+//])
 
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -34,6 +58,7 @@ if (!gotTheLock) {
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = false;
 
 function createDefaultWindow() {
+	console.log("new");
   win = new BrowserWindow({
     width: 1000,
     height: 600,
@@ -49,10 +74,10 @@ function createDefaultWindow() {
 	transparent: false,
 	webPreferences: {
       webSecurity: true,
-      nodeIntegration: false,
+      nodeIntegration: true,
 	  disableBlinkFeatures: "Auxclick",
 	  "sandbox": true,
-	  devTools: true
+	  devTools: false
 	},
 	zoomFactor: 1.1,
 	javascript: true,
@@ -61,7 +86,18 @@ function createDefaultWindow() {
   win.webContents.setFrameRate(144);
   win.on('closed', () => {
     win = null;
-  });
+  })
+  
+	//const electronDl = require('electron-dl');
+	//electronDl();
+	
+// {download} = require('electron-dl');
+
+//ipcMain.on('download-button', async (event, {url}) => {
+ 	//const win = BrowserWindow.getFocusedWindow();
+ 	//console.log(await download(win, url));
+//});
+
   win.webContents.on('will-navigate', (event, newURL) => {
 	  //log.info("Going from: "+  win.webContents.getURL());
 	  //log.info("Redirecting To: " + newURL);
@@ -75,7 +111,7 @@ function createDefaultWindow() {
 }
 
 app.on('ready', function()  {
-  autoUpdater.checkForUpdatesAndNotify();
+//  autoUpdater.checkForUpdatesAndNotify();
   createDefaultWindow();
 });
 
