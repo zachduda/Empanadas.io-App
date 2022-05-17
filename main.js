@@ -68,11 +68,11 @@ function createDefaultWindow() {
 	minimizable: true,
 	resizeable: true,
 	title: 'Empanadas.io',
-	backgroundColor: '#3a57e8',
+	backgroundColor: '#1e1e91',
 	transparent: false,
 	webPreferences: {
       webSecurity: true,
-      nodeIntegration: true,
+      nodeIntegration: false,
 	  disableBlinkFeatures: "Auxclick",
 	  "sandbox": true,
 	  devTools: false
