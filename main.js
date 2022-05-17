@@ -1,17 +1,15 @@
 // no updater stuff -- const {autoUpdater} = require("electron-updater");
 const {app, BrowserWindow, ipcMain} = require('electron');
 
+//const Store = require('electron-store');
 
-const Store = require('electron-store');
+//const store = new Store();
 
-const store = new Store();
+//store.set('Settings.Theme', 0);
+//console.log(store.get('Settings.Theme'));
 
-store.set('Settings.Theme', 0);
-console.log(store.get('Settings.Theme'));
-
-store.set('Settings.Volume', 100);
-console.log(store.get('Settings.Volume'));
-
+//store.set('Settings.Volume', 100);
+//console.log(store.get('Settings.Volume'));
 
 app.commandLine.appendSwitch('no-proxy-server​')
 app.commandLine.appendSwitch('force_high_performance_gpu')
