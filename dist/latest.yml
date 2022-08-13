@@ -1,8 +1,8 @@
-version: 1.5.0
+version: 1.6.0
 files:
-  - url: Empanadas.io-Setup-1.5.0.exe
-    sha512: Od3xxsMDQyXmc4stzl74fel7dNYmTA5NtvUi4BjqPBonfSQIReaVTdLK4sLNu9kwvo8IkfkM+B01hgv7FvqipQ==
-    size: 63607886
-path: Empanadas.io-Setup-1.5.0.exe
-sha512: Od3xxsMDQyXmc4stzl74fel7dNYmTA5NtvUi4BjqPBonfSQIReaVTdLK4sLNu9kwvo8IkfkM+B01hgv7FvqipQ==
-releaseDate: '2022-05-17T14:53:44.419Z'
+  - url: Empanadas.io-Setup-1.6.0.exe
+    sha512: q5edqfnVNpZNQv7tOu36W09yMHvStTveNTjmInSMN1dNJshn0UPTegl/P001xRWKFD8rFtkfPQtYOTt4pZzkxQ==
+    size: 67670045
+path: Empanadas.io-Setup-1.6.0.exe
+sha512: q5edqfnVNpZNQv7tOu36W09yMHvStTveNTjmInSMN1dNJshn0UPTegl/P001xRWKFD8rFtkfPQtYOTt4pZzkxQ==
+releaseDate: '2022-08-13T13:20:20.000Z'

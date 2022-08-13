@@ -67,7 +67,6 @@ function noInt() {
 	if(!noint) {
 		logo.src = "jeff.gif";
 		logo.style.marginTop = "120px";
-		// remove :( -> &#x1F61E; 
 		msg.innerHTML = "Check Your Internet";
 		status.innerHTML = noinmsg;
 	}
@@ -78,14 +77,15 @@ function noInt() {
 			type: "GET",
 			data: { usingnativeapp: 1, firsthello: 1}, 
 			beforeSend: function() {
-				//status.innerHTML += "\nChecking...";
+				//status.innerHTML = noinmsg + "<br><br>Checking...";
 			},
 			success: function(data) {
+				noint = false;
 				status.innerHTML = "Connected!";
-				finishedLoading("&retried_network=1")
+				finishedLoading("&retried_network=1", true);
 			},
 			error: function() {
-				//status.innerHTML = noinmsg;
+				status.innerHTML = noinmsg;
 				noInt();
 				return;
 			},
@@ -94,13 +94,13 @@ function noInt() {
 		});
 	}, 5000);
 }
-function finishedLoading(params="") {
-	if(navigator.onLine && !noint) {
+function finishedLoading(params="", force=false) {
+	if((navigator.onLine && !noint) || force) {
 		allowdownload = false;
 		const end = Date.now();	
 		setTimeout(function(){ 
 			setTimeout(function(){ 
-				if(!navigator.onLine) {
+				if(!navigator.onLine && !force) {
 					noInt();
 					return;
 				}
@@ -148,16 +148,11 @@ function download(ds) {
         success: function(data) {
             if(data == "Pong!") {
 				canFinish = true;
-				//if(downloadsDone) {
-				//	finishedLoading("&sucessfulstart=1&fromping=1");
-				//}
 				status.innerHTML = "Connected";
-				
-				// just do it 
 				downloadsDone = true;
 				logo.style.marginTop = "200px";
 				status.innerHTML = "";
-				finishedLoading("&sucessfulstart=1&fromdownload=1");
+				finishedLoading("&sucessfulstart=1");
             }
         },
         error: function() {
@@ -169,37 +164,7 @@ function download(ds) {
         cache: false
     });
 	
-	return; // just don't even try;
-	
-	//var i, max = 0;
-    //var o = null;
-
-    //for (i = 0, max = ds.length; i < max; i += 1) {
-	//	try {
-	//		if(!allowdownload) { return; }
-	//		o = document.createElement('object');
-	//		o.onload = function() {
-	//			downloaded++;
-	//			const pdone = Math.min(Math.round((downloaded / max)*100), 100);
-	//			status.innerHTML = "&#x1F4C1;  Updating:  <b>" + pdone + "%</b>";
-	//			if (downloaded == max) {
-	//				logo.style.marginTop = "200px";
-	//				status.innerHTML = "";
-	//				downloadsDone = true;
-	//				if(canFinish) {
-	//					finishedLoading("&sucessfulstart=1&fromdownload=1");
-	//				}
-	//			}
-	//		};
-	//		o.data = ds[i];
-	//		o.width  = 0;
-	//		o.height = 0;
-	//		document.body.appendChild(o);
-	//	} catch (err) {
-	//		console.log("Error while getting cache: " + err.message);
-	//		finishedLoading("&appcatcherr="+encodeURIComponent(err.message()));
-	//	}
-	//}
+	return;
 }
 
 setTimeout(function(){
@@ -208,7 +173,6 @@ setTimeout(function(){
 	}
 }, 10000);
 
-// whatever just run it
 download(null);
 </script>
 

@@ -59,7 +59,7 @@ function createDefaultWindow() {
 	console.log("new");
   win = new BrowserWindow({
     width: 1000,
-    height: 600,
+    height: 650,
 	webviewTag: true,
 	frame: false,
 	minWidth: 975,
