@@ -17,7 +17,8 @@ app.commandLine.appendSwitch('force_high_performance_gpu')
 let win;
 
 app.enableSandbox();
-console.log(process.argv);
+
+//console.log(process.argv);
 
 //app.setUserTasks([
 //  {
@@ -58,8 +59,8 @@ process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = false;
 function createDefaultWindow() {
 	console.log("new");
   win = new BrowserWindow({
-    width: 1000,
-    height: 650,
+    width: 1100,
+    height: 700,
 	webviewTag: true,
 	frame: false,
 	minWidth: 975,
