@@ -57,8 +57,7 @@ if (!gotTheLock) {
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = false;
 
 function createDefaultWindow() {
-	console.log("new");
-  win = new BrowserWindow({
+	win = new BrowserWindow({
     width: 1100,
     height: 700,
 	webviewTag: true,

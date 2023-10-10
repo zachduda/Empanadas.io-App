@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="referrer" content="origin">
-<meta name="application-name" content="Cloudflare">
+<meta name="application-name" content="Empanadas.io">
 <meta name="msapplication-TileColor" content="#1e1e91">
 <style>
 @font-face {
@@ -43,10 +43,10 @@ footer p {
 	color:#abbefc;
 }
 </style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.0/animate.compat.css" crossorigin="anonymous">
+<link rel="stylesheet" href="Content/CSS/animated.css" crossorigin="anonymous">
 </head>
 <body>
-<img class="animated fadeIn faster" style="animation-delay:250ms" id="logo" src="logo.png"></img>
+<img class="animated fadeIn faster" style="animation-delay:250ms" id="logo" src="Content/Images/logo.png"></img>
 <div class="animated fadeInUp" style="animation-delay:500ms;margin-top:20px;font-weight:1000;" id="msg">Empanadas.io</div>
 <footer>
 <p class="animated fadeInUp" style="animation-delay:525ms;" id="status">Communicating to Server...</p>
@@ -65,7 +65,7 @@ function noInt() {
 	allowdownload = true;
 	let noinmsg = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
 	if(!noint) {
-		logo.src = "jeff.gif";
+		logo.src = "Content/Images/jeff.gif";
 		logo.style.marginTop = "120px";
 		msg.innerHTML = "Check Your Internet";
 		status.innerHTML = noinmsg;
