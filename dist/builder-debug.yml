@@ -14,8 +14,8 @@ x64:
   nodeModuleFilePatterns: []
 nsis:
   script: |-
-    !include "C:\Users\zest\Documents\GitHub\Empanadas.io-App\node_modules\app-builder-lib\templates\nsis\include\StdUtils.nsh"
-    !addincludedir "C:\Users\zest\Documents\GitHub\Empanadas.io-App\node_modules\app-builder-lib\templates\nsis\include"
+    !include "C:\Users\vay0m\Documents\GitHub\Empanadas.io-App\node_modules\app-builder-lib\templates\nsis\include\StdUtils.nsh"
+    !addincludedir "C:\Users\vay0m\Documents\GitHub\Empanadas.io-App\node_modules\app-builder-lib\templates\nsis\include"
     !macro _isUpdated _a _b _t _f
       ${StdUtils.TestParameter} $R9 "updated"
       StrCmp "$R9" "true" `${_t}` `${_f}`
@@ -87,8 +87,8 @@ nsis:
       !insertmacro MUI_LANGUAGE "Vietnamese"
     !macroend
 
-    !include "C:\Users\zest\AppData\Local\Temp\t-KI3NHn\0-messages.nsh"
-    !addplugindir /x86-unicode "C:\Users\zest\AppData\Local\electron-builder\Cache\nsis\nsis-resources-3.4.1\plugins\x86-unicode"
+    !include "C:\Users\vay0m\AppData\Local\Temp\t-HtJfw5\0-messages.nsh"
+    !addplugindir /x86-unicode "C:\Users\vay0m\AppData\Local\electron-builder\Cache\nsis\nsis-resources-3.4.1\plugins\x86-unicode"
 
     Var newStartMenuLink
     Var oldStartMenuLink
