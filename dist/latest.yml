@@ -1,8 +1,8 @@
-version: 1.8.0
+version: 1.8.1
 files:
-  - url: empanadas.io-Setup-1.8.0.exe
-    sha512: n1ppF4Bqi+uhVQ6jmvIcWVBgxAj5yC91Ys9QGJVjbjuK5tXY4GM+FGUEFiKJmZ5fZp3j0SUUlgjg+aPi6AUMIg==
-    size: 103271026
-path: empanadas.io-Setup-1.8.0.exe
-sha512: n1ppF4Bqi+uhVQ6jmvIcWVBgxAj5yC91Ys9QGJVjbjuK5tXY4GM+FGUEFiKJmZ5fZp3j0SUUlgjg+aPi6AUMIg==
-releaseDate: '2024-12-16T19:46:17.514Z'
+  - url: empanadas.io-Setup-1.8.1.exe
+    sha512: bjOiefYA5lmCbK5e4KWsUD4qcFQJHYs8quCEQFfJjuC+Edl6luqKxGRUj+ogEpft2ZmI5cppgNjb8IcZPd2VbA==
+    size: 103270970
+path: empanadas.io-Setup-1.8.1.exe
+sha512: bjOiefYA5lmCbK5e4KWsUD4qcFQJHYs8quCEQFfJjuC+Edl6luqKxGRUj+ogEpft2ZmI5cppgNjb8IcZPd2VbA==
+releaseDate: '2024-12-20T03:22:01.564Z'
