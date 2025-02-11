@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron --disable-gpu-sandbox --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --in-process-gpu --use-gl=desktop --enable-hardware-overlays  --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization --force-gpu-rasterization .",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "build": "electron-builder"
   },
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",
@@ -17,10 +17,12 @@
   },
   "build": {
     "appId": "empanadas.io",
+    "directories": {
+      "output": "dist"
+    },
     "mac": {
       "category": "games",
       "target": [
-        "zip",
         "dmg"
       ]
     },
