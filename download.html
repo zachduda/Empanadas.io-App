@@ -53,6 +53,12 @@ footer p {
 </footer>
 <script src="Content/JS/jquery-3.5.1.min.js"></script>
 <script>
+let appid;
+if(localStorage.getItem("AppID") != null) {
+	appid = localStorage.getItem("AppID");
+} else {
+	localStorage.setItem("AppID", window.crypto.randomUUID());
+}
 const appbase = "https://empanadas.io/v2/dashboard";
 const appparam = "?usingnativeapp=1";
 const start = Date.now();
@@ -111,7 +117,7 @@ function finishedLoading(params="", force=false) {
 				logo.classList.remove("animated", "fadeOut", "faster");
 				status.classList.remove("animated", "fadeOut", "faster");
 				console.log("GO: " + params);
-				window.location.href = appbase+appparam+params;
+				window.location.href = appbase+appparam+params+"&appid="+appid;
 			}, 480);
 			logo.classList.remove("animated", "fadeIn", "faster");
 			msg.classList.remove("animated", "fadeInUp");
