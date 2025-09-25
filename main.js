@@ -82,7 +82,7 @@ function createDefaultWindow() {
 	javascript: true,
 	icon: 'icon.png' 
   })
-  win.webContents.setFrameRate(144);
+  // don't ovverride win.webContents.setFrameRate(144);
   win.on('closed', () => {
     win = null;
   })
