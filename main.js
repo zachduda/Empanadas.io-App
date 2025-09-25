@@ -72,10 +72,11 @@ function createDefaultWindow() {
 	transparent: false,
 	webPreferences: {
       webSecurity: true,
+	  contextIsolation: true,
       nodeIntegration: false,
 	  disableBlinkFeatures: "Auxclick",
 	  "sandbox": true,
-	  devTools: false
+	  devTools: true
 	},
 	zoomFactor: 1.1,
 	javascript: true,
