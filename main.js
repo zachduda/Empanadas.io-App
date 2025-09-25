@@ -1,5 +1,6 @@
 // no updater stuff -- const {autoUpdater} = require("electron-updater");
 const {app, BrowserWindow, ipcMain} = require('electron');
+const path = require('path');
 
 //const Store = require('electron-store');
 
@@ -33,7 +34,6 @@ app.enableSandbox();
 
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
-	const path = require('path');
     app.setAsDefaultProtocolClient('empanadas-io', process.execPath, [path.resolve(process.argv[1])])
   }
 } else {
@@ -71,12 +71,13 @@ function createDefaultWindow() {
 	backgroundColor: '#1e1e91',
 	transparent: false,
 	webPreferences: {
+	  preload: path.join(__dirname, 'Content/JS/preload.js'),
       webSecurity: true,
 	  contextIsolation: true,
       nodeIntegration: false,
 	  disableBlinkFeatures: "Auxclick",
 	  "sandbox": true,
-	  devTools: true
+	  devTools: false
 	},
 	zoomFactor: 1.1,
 	javascript: true,
@@ -96,6 +97,15 @@ function createDefaultWindow() {
  	//const win = BrowserWindow.getFocusedWindow();
  	//console.log(await download(win, url));
 //});
+
+	ipcMain.handle('window-minimize', () => win.minimize());
+	ipcMain.handle('window-maximize', () => {
+		if (win.isMaximized()) win.unmaximize();
+		else win.maximize();
+		return win.isMaximized();
+	});
+	ipcMain.handle('window-close', () => win.close());
+
 
   win.webContents.on('will-navigate', (event, newURL) => {
 	  //log.info("Going from: "+  win.webContents.getURL());
