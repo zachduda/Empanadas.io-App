@@ -11,9 +11,10 @@ win:
     - provider: github
       owner: zachduda
       repo: Empanadas.io-App
+      releaseType: release
   target: nsis
   verifyUpdateCodeSignature: true
 nsis:
-  deleteAppDataOnUninstall: true
+  deleteAppDataOnUninstall: false
 files: []
-electronVersion: 38.2.0
+electronVersion: 38.2.2
