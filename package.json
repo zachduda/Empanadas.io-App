@@ -1,6 +1,6 @@
 {
   "name": "empanadas.io",
-  "version": "1.8.9",
+  "version": "1.9.0",
   "description": "The only app for all your Empanada needs!",
   "main": "main.js",
   "publisherName": "Empanadas.io",
