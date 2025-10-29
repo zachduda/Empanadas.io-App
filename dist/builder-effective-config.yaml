@@ -17,4 +17,4 @@ win:
 nsis:
   deleteAppDataOnUninstall: false
 files: []
-electronVersion: 38.3.0
+electronVersion: 39.0.0
