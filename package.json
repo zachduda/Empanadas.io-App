@@ -1,6 +1,6 @@
 {
   "name": "empanadas.io",
-  "version": "1.9.3",
+  "version": "1.10.0",
   "description": "The only app for all your Empanada needs!",
   "main": "main.js",
   "publisherName": "Empanadas.io",
@@ -12,8 +12,8 @@
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",
   "devDependencies": {
-    "electron": "^39.0.0",
-    "electron-builder": "^26.0.12"
+    "electron": "^40.0.0",
+    "electron-builder": "^26.5.0"
   },
   "build": {
     "appId": "empanadas.io",
