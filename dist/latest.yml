@@ -1,8 +1,8 @@
-version: 1.10.1
+version: 1.10.2
 files:
-  - url: empanadas.io-Setup-1.10.1.exe
-    sha512: YH6w9wQEwyfj4pR+iiSR+fChkOiI43yoOfNDx3qM8yLnzftiaAK07Fn5PGYdRSBsFxaOW+cpTVN9Kqggpx6bHg==
-    size: 120359091
-path: empanadas.io-Setup-1.10.1.exe
-sha512: YH6w9wQEwyfj4pR+iiSR+fChkOiI43yoOfNDx3qM8yLnzftiaAK07Fn5PGYdRSBsFxaOW+cpTVN9Kqggpx6bHg==
-releaseDate: '2026-01-29T16:06:38.428Z'
+  - url: empanadas.io-Setup-1.10.2.exe
+    sha512: CeHFXeJDHH1dzA0mEzdSa28b8QEL1xOgvUq7pmBYsF71e1ZacjhFT50iz5RYnMFC5YBzTh94J3PCbvl25+wezg==
+    size: 120476685
+path: empanadas.io-Setup-1.10.2.exe
+sha512: CeHFXeJDHH1dzA0mEzdSa28b8QEL1xOgvUq7pmBYsF71e1ZacjhFT50iz5RYnMFC5YBzTh94J3PCbvl25+wezg==
+releaseDate: '2026-02-18T23:51:15.985Z'
