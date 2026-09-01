@@ -36,8 +36,10 @@
         }
       ],
       "target": "nsis",
-      "verifyUpdateCodeSignature": true
+      "verifyUpdateCodeSignature": true,
+      "publisherName": "Empanadas.io"
     },
+    "artifactName": "${name}-Setup-${version}.${ext}",
     "nsis": {
       "deleteAppDataOnUninstall": false
     }
