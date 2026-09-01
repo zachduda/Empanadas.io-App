@@ -1,5 +1,11 @@
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
+# Validates the app on every push and PR, and builds installable artifacts for
+# the platforms this app actually ships on.
+#
+# This does NOT publish. Releases are still cut by hand, because the Windows
+# installer has to be Authenticode-signed and the macOS build has to be signed
+# and notarized before either is fit to hand to a user - and the updater
+# refuses anything that is not. The artifacts here are unsigned test builds:
+# fine for checking that a change packages and launches, not fine to release.
 
 name: Node.js CI
 
@@ -8,10 +14,14 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
 
     strategy:
@@ -20,12 +30,78 @@ jobs:
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
     - run: npm ci
-    - run: npm run build --if-present
     - run: npm test
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # One platform failing should not hide the other platform's result.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            args: --win
+            artifact: windows-installer
+            files: |
+              dist/*.exe
+              dist/*.blockmap
+              dist/*.yml
+          - name: macOS
+            os: macos-latest
+            # Notarization needs Apple credentials that CI does not have, and
+            # electron-builder would fail rather than skip it.
+            args: --mac --config.mac.notarize=false
+            artifact: macos-app
+            files: |
+              dist/*.dmg
+              dist/*.zip
+              dist/*.blockmap
+              dist/*.yml
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js 22.x
+      uses: actions/setup-node@v5
+      with:
+        node-version: 22.x
+        cache: 'npm'
+
+    - run: npm ci
+
+    # dist/ has committed release metadata in it (latest.yml, blockmaps, a
+    # signature). Without this the upload would mix those stale files in with
+    # whatever this run actually built.
+    - name: Clear stale build output
+      shell: bash
+      run: rm -rf dist
+
+    # --publish never is the important flag: electron-builder otherwise detects
+    # CI and implicitly tries to publish to GitHub, which fails the build with
+    # "GitHub Personal Access Token is not set" even though nothing here is
+    # meant to be published.
+    - name: Build (unsigned)
+      run: npx electron-builder ${{ matrix.args }} --publish never
+      env:
+        # Stops electron-builder from picking up any incidental keychain
+        # identity on the macOS runner and producing an inconsistently signed
+        # build. Unsigned is the honest output here.
+        CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    - name: Upload ${{ matrix.name }} artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: ${{ matrix.files }}
+        if-no-files-found: error
+        retention-days: 14
