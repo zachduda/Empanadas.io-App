@@ -28,6 +28,22 @@ Two things are still missing before a macOS release:
 `icon.png` is 570×570, so the generated `.icns` is upscaled at 512 and 1024.
 Replacing it with a 1024×1024 source would sharpen the dock icon.
 
+## CI
+
+`.github/workflows/node.js.yml` validates every push and PR (`npm test` —
+syntax checks on the main-process files plus packaging-config assertions), then
+builds unsigned Windows and macOS artifacts and attaches them to the run.
+Download them from the run's **Artifacts** section; they are kept for 14 days.
+
+CI deliberately does not publish. It passes `--publish never`, because
+electron-builder otherwise detects CI and implicitly tries to upload to the
+GitHub release — which both fails the build when no token is set and, when a
+token *is* set, will attempt to add assets to an existing release. Releases
+stay a manual, signed step; see **Cutting a release** below.
+
+CI artifacts are unsigned, so the updater will refuse to install them. They are
+for checking that a change packages and launches, not for distribution.
+
 ## Auto updates
 
 `updater.js` checks the GitHub Releases API on startup (and every 6 hours),

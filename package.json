@@ -9,7 +9,9 @@
     "start:mac": "electron --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization .",
     "pack": "electron-builder --dir",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac"
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "test": "node scripts/validate.js"
   },
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",
