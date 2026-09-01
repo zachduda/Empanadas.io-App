@@ -1,6 +1,6 @@
-// no updater stuff -- const {autoUpdater} = require("electron-updater");
 const {app, BrowserWindow, ipcMain} = require('electron');
 const path = require('path');
+const updater = require('./updater');
 
 //const Store = require('electron-store');
 
@@ -106,6 +106,9 @@ function createDefaultWindow() {
 	});
 	ipcMain.handle('window-close', () => win.close());
 
+	ipcMain.handle('update-check', () => updater.checkFromRenderer());
+	ipcMain.handle('update-state', () => updater.getState());
+
 
   win.webContents.on('will-navigate', (event, newURL) => {
 	  //log.info("Going from: "+  win.webContents.getURL());
@@ -120,8 +123,8 @@ function createDefaultWindow() {
 }
 
 app.on('ready', function()  {
-//  autoUpdater.checkForUpdatesAndNotify();
   createDefaultWindow();
+  updater.start();
 });
 
 app.on('window-all-closed', () => {
