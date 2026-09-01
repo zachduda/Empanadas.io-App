@@ -6,8 +6,10 @@
   "publisherName": "Empanadas.io",
   "scripts": {
     "start": "electron --disable-gpu-sandbox --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --in-process-gpu --use-gl=desktop --enable-hardware-overlays  --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization --force-gpu-rasterization .",
+    "start:mac": "electron --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization .",
     "pack": "electron-builder --dir",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac"
   },
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",
@@ -16,25 +18,56 @@
     "electron-builder": "^26.8.0"
   },
   "build": {
-    "appId": "empanadas.io",
+    "appId": "io.empanadas.app",
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zachduda",
+        "repo": "Empanadas.io-App",
+        "releaseType": "release"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Empanadas.io",
+        "schemes": [
+          "empanadas-io"
+        ]
+      }
+    ],
     "mac": {
-      "category": "games",
+      "category": "public.app-category.games",
+      "icon": "icon.png",
       "target": [
-        "dmg"
-      ]
-    },
-    "win": {
-      "publish": [
         {
-          "provider": "github",
-          "owner": "zachduda",
-          "repo": "Empanadas.io-App",
-          "releaseType": "release"
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
+      "artifactName": "${name}-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true
+    },
+    "dmg": {
+      "artifactName": "${name}-${version}-mac-${arch}.${ext}"
+    },
+    "win": {
       "target": "nsis",
       "verifyUpdateCodeSignature": true,
 		"signtoolOptions": {
