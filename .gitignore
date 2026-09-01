@@ -2,6 +2,9 @@
 *win-unpacked/
 *.exe
 /dist/.icon-ico
+/dist/.icon-icns
+/dist/mac*/
+*.dmg
 node_modules/
 *desktop.ini
 *.7z

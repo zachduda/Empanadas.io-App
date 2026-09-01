@@ -1,5 +1,32 @@
-# Empanadas.io Windows (x64) App
-This is a Electron wrapped native application for Desktop Windows that runs Empanadas.io in it's best form! Play the Spin Game natively on your device, and don't worry about needing to save your progress!
+# Empanadas.io Desktop App
+This is a Electron wrapped native application for Desktop that runs Empanadas.io in it's best form! Play the Spin Game natively on your device, and don't worry about needing to save your progress!
+
+Windows (x64) ships today. macOS (Apple Silicon and Intel) builds with
+`npm run build:mac`, but is not released yet — see **macOS status** below.
+
+## macOS status
+
+The app runs on macOS: it has an application menu (so Cmd+Q/W/C/V work), the
+window keeps its traffic lights via `titleBarStyle: 'hiddenInset'`, clicking the
+dock icon reopens a closed window, and `empanadas-io://` links are delivered
+through `open-url`.
+
+Two things are still missing before a macOS release:
+
+- **Signing and notarization.** `build.mac` is configured for the hardened
+  runtime with `build/entitlements.mac.plist`, but producing a distributable
+  build needs a Developer ID Application certificate, an Apple Developer
+  Program membership, and a macOS runner. `npm run build:mac` on any other
+  platform silently skips signing, and an unsigned build is Gatekeeper-blocked
+  on other people's Macs.
+- **Updates.** `updater.js` is Windows-only — it looks for a `.exe` asset and
+  verifies it with Authenticode. On macOS it fails closed (refuses to install)
+  rather than installing something unverified. A macOS path needs a `zip`
+  asset, `codesign`/`spctl` verification with a pinned Team ID, and an
+  app-bundle swap instead of an installer launch.
+
+`icon.png` is 570×570, so the generated `.icns` is upscaled at 512 and 1024.
+Replacing it with a 1024×1024 source would sharpen the dock icon.
 
 ## Auto updates
 
