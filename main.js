@@ -1,8 +1,40 @@
-const {app, BrowserWindow, ipcMain, Menu} = require('electron');
+const {app, BrowserWindow, ipcMain, Menu, shell, session} = require('electron');
 const path = require('path');
 const updater = require('./updater');
 
 const isMac = process.platform === 'darwin';
+
+// The one place that decides what counts as "our site". A startsWith() check on
+// the URL string is not good enough: 'https://empanadas.io.example.com' and
+// 'https://empanadas.io@example.com' both pass a prefix test while pointing
+// somewhere else entirely. Parse it and compare the host.
+const APP_HOST = 'empanadas.io';
+
+function isAppUrl(url) {
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch (err) {
+		return false;
+	}
+	if (parsed.protocol !== 'https:') return false;
+	return parsed.hostname === APP_HOST || parsed.hostname.endsWith('.' + APP_HOST);
+}
+
+// download.html is the only local page, and it is the only sender allowed to
+// drive the window chrome besides the site itself.
+const SPLASH_URL = require('url').pathToFileURL(path.join(__dirname, 'download.html')).href;
+
+function isTrustedSender(event) {
+	let url = '';
+	try {
+		// senderFrame throws if the frame was disposed between send and handle.
+		url = (event.senderFrame && event.senderFrame.url) || '';
+	} catch (err) {
+		return false;
+	}
+	return isAppUrl(url) || url === SPLASH_URL;
+}
 
 //const Store = require('electron-store');
 
@@ -14,7 +46,12 @@ const isMac = process.platform === 'darwin';
 //store.set('Settings.Volume', 100);
 //console.log(store.get('Settings.Volume'));
 
-app.commandLine.appendSwitch('no-proxy-server​')
+// NOTE: this used to read appendSwitch('no-proxy-server') but the string held a
+// zero-width space (U+200B) after 'server', so Chromium never recognised the
+// switch and the app has always honoured the system proxy. Left off
+// deliberately - turning it on now would cut off anyone behind a corporate
+// proxy, including the updater's calls to api.github.com.
+// app.commandLine.appendSwitch('no-proxy-server')
 app.commandLine.appendSwitch('force_high_performance_gpu')
 
 let win;
@@ -48,6 +85,15 @@ let pendingDeepLink = null;
 
 function handleDeepLink(url) {
 	if (!url || !url.startsWith('empanadas-io:')) return;
+	// Anything on the machine can invoke the protocol handler, so treat the URL
+	// as untrusted input: it has to parse, and it does not get to be unbounded
+	// before it reaches the page.
+	if (url.length > 2048) return;
+	try {
+		if (new URL(url).protocol !== 'empanadas-io:') return;
+	} catch (err) {
+		return;
+	}
 	if (win && !win.isDestroyed()) {
 		if (win.isMinimized()) win.restore();
 		win.focus();
@@ -80,13 +126,56 @@ app.on('open-url', (event, url) => {
 	handleDeepLink(url);
 });
 
-process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = false;
+// Deny anything the site does not need. Without a handler Electron prompts (or
+// on some permissions silently grants), and the window loads a remote page.
+function lockDownPermissions() {
+	// Fullscreen and pointer lock are the only ones a game page has a real use
+	// for; everything else - camera, microphone, geolocation, USB, HID, MIDI,
+	// notifications, arbitrary clipboard reads - is refused outright.
+	const ALLOWED = new Set(['fullscreen', 'pointerLock']);
+
+	const ses = session.defaultSession;
+
+	ses.setPermissionRequestHandler((contents, permission, callback, details) => {
+		const origin = (details && details.requestingUrl) || contents.getURL();
+		callback(ALLOWED.has(permission) && isAppUrl(origin));
+	});
+
+	ses.setPermissionCheckHandler((contents, permission, origin) =>
+		ALLOWED.has(permission) && isAppUrl(origin));
+
+	// Chrome's device-picker APIs bypass the permission handler above.
+	ses.setDevicePermissionHandler(() => false);
+	if (ses.setBluetoothPairingHandler) ses.setBluetoothPairingHandler(() => {});
+}
+
+// Applies to every WebContents, including any the site manages to spawn.
+app.on('web-contents-created', (_event, contents) => {
+	// The app embeds nothing, so a <webview> could only have come from the
+	// remote page.
+	contents.on('will-attach-webview', (event) => event.preventDefault());
+
+	// will-navigate does not fire for server-side redirects, so a 302 off
+	// empanadas.io would otherwise walk straight past the check below.
+	const guard = (event, url) => {
+		if (!isAppUrl(url)) event.preventDefault();
+	};
+	contents.on('will-navigate', guard);
+	contents.on('will-redirect', guard);
+
+	// Never let the page open a second BrowserWindow - a child window inherits
+	// this window's preload and would hand the updater bridge to whatever it
+	// loaded. Off-site https links go to the user's browser instead.
+	contents.setWindowOpenHandler(({ url }) => {
+		if (/^https:\/\//i.test(url) && !isAppUrl(url)) shell.openExternal(url);
+		return { action: 'deny' };
+	});
+});
 
 function createDefaultWindow() {
 	win = new BrowserWindow({
     width: 1100,
     height: 700,
-	webviewTag: true,
 	// A frameless window on macOS would drop the traffic lights and leave no
 	// way to move, zoom or close the window, since the in-page titlebar is
 	// served from empanadas.io. 'hiddenInset' keeps them over the page.
@@ -97,7 +186,9 @@ function createDefaultWindow() {
 	minHeight: 480,
 	movable: true,
 	minimizable: true,
-	resizeable: true,
+	// 'resizeable' is not an option name - the window was only resizable
+	// because true is the default.
+	resizable: true,
 	title: 'Empanadas.io',
 	backgroundColor: '#1e1e91',
 	transparent: false,
@@ -107,12 +198,16 @@ function createDefaultWindow() {
 	  contextIsolation: true,
       nodeIntegration: false,
 	  disableBlinkFeatures: "Auxclick",
-	  "sandbox": true,
+	  sandbox: true,
+	  webviewTag: false,
+	  // The site is the only thing loaded here; there is nothing for it to
+	  // reach on the local machine.
+	  allowRunningInsecureContent: false,
+	  experimentalFeatures: false,
 	  devTools: false
 	},
 	zoomFactor: 1.1,
-	javascript: true,
-	icon: 'icon.png' 
+	icon: 'icon.png'
   })
   // don't ovverride win.webContents.setFrameRate(144);
   win.on('closed', () => {
@@ -136,13 +231,8 @@ function createDefaultWindow() {
  	//console.log(await download(win, url));
 //});
 
-  win.webContents.on('will-navigate', (event, newURL) => {
-	  //log.info("Going from: "+  win.webContents.getURL());
-	  //log.info("Redirecting To: " + newURL);
-	if (!newURL.startsWith('https://empanadas.io')) {
-		event.preventDefault();
-	}
-  });
+  // Navigation is filtered in the 'web-contents-created' handler above, which
+  // covers redirects and any contents the page spawns, not just this window.
   win.loadFile('download.html')
   //win.webContents.openDevTools();
   return win;
@@ -154,18 +244,32 @@ function createDefaultWindow() {
 function registerIpcHandlers() {
 	const target = () => win && !win.isDestroyed() ? win : null;
 
-	ipcMain.handle('window-minimize', () => { const w = target(); if (w) w.minimize(); });
-	ipcMain.handle('window-maximize', () => {
+	// The preload is attached to whatever the window navigates to, so every
+	// handler checks who is actually calling rather than trusting that it can
+	// only be our own page.
+	const handle = (channel, fn) => {
+		ipcMain.handle(channel, (event, ...args) => {
+			if (!isTrustedSender(event)) {
+				console.warn('[ipc] refused ' + channel + ' from ' +
+					(event.senderFrame ? event.senderFrame.url : 'unknown'));
+				return null;
+			}
+			return fn(...args);
+		});
+	};
+
+	handle('window-minimize', () => { const w = target(); if (w) w.minimize(); });
+	handle('window-maximize', () => {
 		const w = target();
 		if (!w) return false;
 		if (w.isMaximized()) w.unmaximize();
 		else w.maximize();
 		return w.isMaximized();
 	});
-	ipcMain.handle('window-close', () => { const w = target(); if (w) w.close(); });
+	handle('window-close', () => { const w = target(); if (w) w.close(); });
 
-	ipcMain.handle('update-check', () => updater.checkFromRenderer());
-	ipcMain.handle('update-state', () => updater.getState());
+	handle('update-check', () => updater.checkFromRenderer());
+	handle('update-state', () => updater.getState());
 }
 
 // Without an application menu macOS has no Cmd+Q, Cmd+W, or - the one that
@@ -228,6 +332,7 @@ function buildAppMenu() {
 }
 
 app.on('ready', function()  {
+  lockDownPermissions();
   registerIpcHandlers();
   buildAppMenu();
   createDefaultWindow();

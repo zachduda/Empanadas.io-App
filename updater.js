@@ -24,6 +24,38 @@ const CONFIG = {
 
 const USER_AGENT = 'Empanadas.io-App/' + app.getVersion() + ' (+https://empanadas.io)';
 
+// Every URL the updater touches comes out of a GitHub API response, i.e. off
+// the network. Nothing is fetched, followed or opened unless it is https and
+// lands on a host GitHub actually serves releases from.
+const ALLOWED_HOSTS = [
+	'api.github.com',
+	'github.com',
+	'objects.githubusercontent.com',
+	'release-assets.githubusercontent.com',
+	'raw.githubusercontent.com'
+];
+
+const MAX_REDIRECTS = 5;
+
+function isAllowedUrl(url) {
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch (err) {
+		return false;
+	}
+	if (parsed.protocol !== 'https:') return false;
+	return ALLOWED_HOSTS.some((host) =>
+		parsed.hostname === host || parsed.hostname.endsWith('.' + host));
+}
+
+function requireAllowedUrl(url) {
+	if (!isAllowedUrl(url)) {
+		throw new Error('Refusing to fetch untrusted update URL: ' + url);
+	}
+	return url;
+}
+
 let state = { status: 'idle', version: null, progress: 0, error: null };
 let busy = false;
 let lastManualCheck = 0;
@@ -70,15 +102,39 @@ function compareVersions(a, b) {
 }
 
 function request(url, { headers = {}, timeout = CONFIG.requestTimeoutMs } = {}) {
+	requireAllowedUrl(url);
+
 	return new Promise((resolve, reject) => {
-		const req = net.request({ method: 'GET', url, redirect: 'follow' });
+		// 'manual' rather than 'follow' so each hop is checked. With 'follow',
+		// a redirect to http:// or to an unrelated host would be taken
+		// silently, and an update downloaded over plain http is an update an
+		// on-path attacker gets to choose.
+		const req = net.request({ method: 'GET', url, redirect: 'manual' });
 		req.setHeader('User-Agent', USER_AGENT);
 		for (const [k, v] of Object.entries(headers)) req.setHeader(k, v);
+
+		let hops = 0;
 
 		const timer = setTimeout(() => {
 			req.abort();
 			reject(new Error('Timed out requesting ' + url));
 		}, timeout);
+
+		req.on('redirect', (statusCode, method, redirectUrl) => {
+			if (++hops > MAX_REDIRECTS) {
+				clearTimeout(timer);
+				req.abort();
+				reject(new Error('Too many redirects from ' + url));
+				return;
+			}
+			if (!isAllowedUrl(redirectUrl)) {
+				clearTimeout(timer);
+				req.abort();
+				reject(new Error('Refusing redirect to untrusted URL: ' + redirectUrl));
+				return;
+			}
+			req.followRedirect();
+		});
 
 		req.on('response', (res) => {
 			clearTimeout(timer);
@@ -114,9 +170,13 @@ async function getJson(url) {
 	}));
 }
 
-async function download(url, dest, onProgress) {
+async function download(url, dest, onProgress, maxBytes = 0) {
 	const res = await request(url, { headers: { Accept: 'application/octet-stream' } });
 	const total = parseInt(res.headers['content-length'], 10) || 0;
+
+	if (maxBytes && total > maxBytes) {
+		throw new Error('Asset is larger than the release says (' + total + ' > ' + maxBytes + ')');
+	}
 
 	const sha256 = crypto.createHash('sha256');
 	const sha512 = crypto.createHash('sha512');
@@ -131,6 +191,13 @@ async function download(url, dest, onProgress) {
 
 		res.on('data', (chunk) => {
 			received += chunk.length;
+			// A server that ignores content-length should not be able to fill
+			// the user's disk.
+			if (maxBytes && received > maxBytes) {
+				res.destroy();
+				fail(new Error('Download exceeded the expected size of ' + maxBytes + ' bytes'));
+				return;
+			}
 			sha256.update(chunk);
 			sha512.update(chunk);
 			// Respect backpressure - the installer is >100 MB and arrives far
@@ -318,10 +385,25 @@ async function verifySignature(file) {
 	log('Authenticode OK:', subject);
 }
 
+// userData, not temp: the installer is verified and then launched from here, and
+// on a shared machine the system temp directory is somewhere another user can
+// write. That would let them swap the file between the hash check and the
+// spawn - the app would run their binary having verified ours.
 function cacheDir() {
-	const dir = path.join(app.getPath('temp'), 'empanadas-io-update');
-	fs.mkdirSync(dir, { recursive: true });
+	const dir = path.join(app.getPath('userData'), 'updates');
+	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 	return dir;
+}
+
+// The asset name comes from the release, so it is not automatically a safe path
+// component. Keep it to something that can only ever name a file in cacheDir().
+function safeAssetName(version, name) {
+	const base = path.basename(String(name)).replace(/[^A-Za-z0-9._-]/g, '_');
+	const tag = String(version).replace(/[^A-Za-z0-9._-]/g, '_');
+	if (!base || base === '.' || base === '..') {
+		throw new Error('Release asset has an unusable name: ' + name);
+	}
+	return (tag + '-' + base).slice(0, 128);
 }
 
 function cleanCache(keep) {
@@ -385,6 +467,27 @@ async function checkForUpdates({ silent = true } = {}) {
 			return state;
 		}
 
+		// Only the Windows flow is implemented: the asset pattern matches the
+		// NSIS installer and the signature check is Authenticode. On macOS this
+		// used to fail on every 6-hourly check with "no asset matching
+		// /setup.*.exe/", so point the user at the download page instead of
+		// raising an error about a file that was never meant for them.
+		if (process.platform !== 'win32') {
+			setState({ status: 'available', version: latest });
+			const { response } = await dialog.showMessageBox({
+				type: 'info',
+				title: 'Update available',
+				message: 'Empanadas.io ' + latest + ' is available.',
+				detail: 'You have ' + current + '. In-app updates are Windows-only ' +
+					'for now - open the download page to get the new version.',
+				buttons: ['Open download page', 'Not now'],
+				defaultId: 0,
+				cancelId: 1
+			});
+			if (response === 0) shell.openExternal('https://empanadas.io/download');
+			return state;
+		}
+
 		const asset = pickAsset(release);
 		setState({ status: 'available', version: latest });
 
@@ -399,7 +502,9 @@ async function checkForUpdates({ silent = true } = {}) {
 			cancelId: 1
 		});
 		if (askDownload.response === 2) {
-			shell.openExternal(release.html_url);
+			// html_url is whatever the API returned; openExternal will happily
+			// hand a non-https scheme to the OS handler for it.
+			if (isAllowedUrl(release.html_url)) shell.openExternal(release.html_url);
 			setState({ status: 'available', version: latest });
 			return state;
 		}
@@ -410,7 +515,7 @@ async function checkForUpdates({ silent = true } = {}) {
 
 		// --- download ------------------------------------------------
 		const expected = await collectExpectedHashes(release, asset);
-		const finalName = latest + '-' + asset.name;
+		const finalName = safeAssetName(latest, asset.name);
 		const finalPath = path.join(cacheDir(), finalName);
 		const partPath = finalPath + '.part';
 
@@ -429,7 +534,7 @@ async function checkForUpdates({ silent = true } = {}) {
 				lastReported = pct;
 				setState({ status: 'downloading', version: latest, progress: ratio });
 			}
-		});
+		}, asset.size ? asset.size + 1024 * 1024 : 0);
 		setProgressBar(-1);
 
 		setState({ status: 'verifying', version: latest, progress: 1 });

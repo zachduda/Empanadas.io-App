@@ -41,6 +41,54 @@ for (const file of sources) {
 	});
 }
 
+// --- hardening --------------------------------------------------------
+// These are one-line settings that silently make the app less safe when they
+// regress, and nothing else would notice.
+console.log('hardening');
+
+const mainSrc = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+const htmlSrc = fs.readFileSync(path.join(root, 'download.html'), 'utf8');
+
+check('no invisible characters in main.js', () => {
+	// A zero-width space once hid inside an appendSwitch() name here, which
+	// left the switch silently doing nothing for years.
+	// Zero-width and bidi-control ranges, written as escapes so this file does
+	// not contain the very thing it is looking for.
+	const bad = new RegExp("[\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]").exec(mainSrc);
+	assert(!bad, 'found U+' + (bad && bad[0].codePointAt(0).toString(16).toUpperCase()) +
+		' at offset ' + (bad && bad.index));
+});
+
+for (const [what, needle] of [
+	['context isolation is on', /contextIsolation:\s*true/],
+	['node integration is off', /nodeIntegration:\s*false/],
+	['the renderer is sandboxed', /sandbox:\s*true/],
+	['the webview tag is disabled', /webviewTag:\s*false/],
+	['navigation is filtered by host, not by string prefix', /function isAppUrl/],
+	['redirects are filtered too', /'will-redirect'/],
+	['new windows are denied', /setWindowOpenHandler/],
+	['permissions are denied by default', /setPermissionRequestHandler/]
+]) {
+	check(what, () => assert(needle.test(mainSrc), 'main.js no longer matches ' + needle));
+}
+
+check('download.html sets a Content-Security-Policy', () => {
+	assert(/http-equiv=["']Content-Security-Policy["']/i.test(htmlSrc), 'no CSP meta tag');
+	assert(/default-src\s+'none'/.test(htmlSrc), "CSP does not start from default-src 'none'");
+});
+
+const updaterSrc = fs.readFileSync(path.join(root, 'updater.js'), 'utf8');
+
+check('the updater only follows checked URLs', () => {
+	assert(/redirect:\s*'manual'/.test(updaterSrc), "net.request no longer uses redirect: 'manual'");
+	assert(/requireAllowedUrl/.test(updaterSrc), 'no URL allowlist check before requesting');
+});
+
+check('the updater still requires a hash and a signature', () => {
+	assert(/requireHash:\s*true/.test(updaterSrc), 'requireHash is not true');
+	assert(/requireSignature:\s*true/.test(updaterSrc), 'requireSignature is not true');
+});
+
 // --- packaging config -------------------------------------------------
 console.log('packaging config');
 
@@ -85,8 +133,9 @@ check('mac hardened runtime is on', () => {
 });
 
 check('mac ships a zip target', () => {
-	// The updater installs by swapping the .app bundle, which needs a zip;
-	// a dmg cannot install itself.
+	// Kept so a future macOS updater has something to install from: swapping
+	// the .app bundle needs a zip, and a dmg cannot install itself. The
+	// updater is Windows-only today and does not consume this yet.
 	const targets = (build.mac && build.mac.target) || [];
 	const names = targets.map((t) => typeof t === 'string' ? t : t.target);
 	assert(names.includes('zip'), 'no zip target: found ' + (names.join(', ') || 'none'));

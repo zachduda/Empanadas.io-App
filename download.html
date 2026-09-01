@@ -2,6 +2,12 @@
 <head>
 <title>Empanadas.io</title>
 <meta charset="utf-8">
+<!-- This page ships inside the app, so everything it needs is local except the
+     ping to empanadas.io. Locking it down means an injected <script src> or a
+     redirected asset has nothing to load from. Note: re-enabling the remote
+     startup.js at the bottom of this file would need its origin added to
+     script-src. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'unsafe-inline'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file:; connect-src https://empanadas.io; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="referrer" content="origin">
@@ -53,11 +59,12 @@ footer p {
 </footer>
 <script src="Content/JS/jquery-3.5.1.min.js"></script>
 <script>
-let appid;
-if(localStorage.getItem("AppID") != null) {
-	appid = localStorage.getItem("AppID");
-} else {
-	localStorage.setItem("AppID", window.crypto.randomUUID());
+// On a first run this used to store the new ID but leave `appid` undefined, so
+// the very first dashboard load went out as "&appid=undefined".
+let appid = localStorage.getItem("AppID");
+if(appid == null) {
+	appid = window.crypto.randomUUID();
+	localStorage.setItem("AppID", appid);
 }
 const appbase = "https://empanadas.io/v2/dashboard";
 const appparam = "?usingnativeapp=1";
@@ -117,7 +124,7 @@ function finishedLoading(params="", force=false) {
 				logo.classList.remove("animated", "fadeOut", "faster");
 				status.classList.remove("animated", "fadeOut", "faster");
 				console.log("GO: " + params);
-				window.location.href = appbase+appparam+params+"&appid="+appid;
+				window.location.href = appbase+appparam+params+"&appid="+encodeURIComponent(appid);
 			}, 480);
 			logo.classList.remove("animated", "fadeIn", "faster");
 			msg.classList.remove("animated", "fadeInUp");
