@@ -1,29 +1,5 @@
 'use strict';
 
-/*
- * Empanadas.io auto updater
- * -------------------------
- * Self-contained. No electron-updater / Squirrel, no `latest.yml`, no extra
- * npm packages.
- *
- * How it works:
- *   1. Ask the GitHub Releases API for the newest published release.
- *   2. Compare its tag against the running app version.
- *   3. Pick the Windows installer asset out of that release.
- *   4. Download it to a temp folder.
- *   5. VERIFY:
- *        a) hash   - SHA-256 from the release asset's `digest` field, and/or
- *                    SHA-512 from a `latest.yml` asset if one was uploaded.
- *        b) signature - Authenticode (Windows), via Get-AuthenticodeSignature.
- *      Both checks fail closed: a mismatch deletes the download and aborts.
- *   6. Only then offer to run the installer.
- *
- * The hash catches truncated/corrupted/CDN-mangled downloads. The Authenticode
- * signature is the actual trust anchor - it is the only check that still holds
- * if the GitHub account or a release asset is tampered with, because it is
- * rooted in the code-signing certificate rather than in anything GitHub serves.
- */
-
 const { app, dialog, net, shell, BrowserWindow } = require('electron');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -33,39 +9,16 @@ const { execFile, spawn } = require('child_process');
 const CONFIG = {
 	owner: 'zachduda',
 	repo: 'Empanadas.io-App',
-
-	// Consider pre-releases as updates.
 	allowPrerelease: false,
-
-	// The release asset to install. First match wins.
 	assetPattern: /setup.*\.exe$/i,
-
-	// Authenticode. The update is refused unless the downloaded installer
-	// carries a *valid* signature whose certificate subject contains this
-	// string (case-insensitive). Set to null to accept any valid signature
-	// from any trusted publisher - much weaker, not recommended.
 	expectedPublisher: 'Empanadas.io',
-
-	// Optional extra pin: the signing certificate's SHA-1 thumbprint, e.g.
-	// 'A1B2C3...'. null disables the pin. Pinning this is the strongest
-	// option, but remember to update it when the cert is renewed.
 	expectedThumbprint: null,
-
-	// Fail closed when the installer is unsigned / signature is invalid.
-	// Only turn this off if you do not code-sign your builds at all.
 	requireSignature: true,
-
-	// Fail closed when GitHub published no hash for the asset.
 	requireHash: true,
-
-	// Arguments passed to the downloaded installer. `--updated` is what
-	// electron-builder's NSIS script expects for an in-place update.
 	installerArgs: ['--updated'],
-
 	firstCheckDelayMs: 8 * 1000,
 	recheckIntervalMs: 6 * 60 * 60 * 1000,
 	requestTimeoutMs: 30 * 1000,
-	// Minimum gap between checks triggered from the renderer.
 	manualCheckCooldownMs: 60 * 1000
 };
 
@@ -93,12 +46,6 @@ function setProgressBar(value) {
 	}
 }
 
-/* ------------------------------------------------------------------ *
- * Version comparison
- * ------------------------------------------------------------------ */
-
-// Returns >0 if a is newer than b, <0 if older, 0 if equal.
-// Handles a leading "v" and semver pre-release suffixes (1.2.0-beta.1).
 function compareVersions(a, b) {
 	const parse = (v) => {
 		const clean = String(v).trim().replace(/^v/i, '');
@@ -121,10 +68,6 @@ function compareVersions(a, b) {
 	if (pa.pre === pb.pre) return 0;
 	return pa.pre > pb.pre ? 1 : -1;
 }
-
-/* ------------------------------------------------------------------ *
- * HTTP
- * ------------------------------------------------------------------ */
 
 function request(url, { headers = {}, timeout = CONFIG.requestTimeoutMs } = {}) {
 	return new Promise((resolve, reject) => {
@@ -171,7 +114,6 @@ async function getJson(url) {
 	}));
 }
 
-// Streams to `dest`, hashing as it goes so the file is never read twice.
 async function download(url, dest, onProgress) {
 	const res = await request(url, { headers: { Accept: 'application/octet-stream' } });
 	const total = parseInt(res.headers['content-length'], 10) || 0;
@@ -216,15 +158,10 @@ async function download(url, dest, onProgress) {
 	};
 }
 
-/* ------------------------------------------------------------------ *
- * Release inspection
- * ------------------------------------------------------------------ */
-
 async function fetchLatestRelease() {
 	const base = 'https://api.github.com/repos/' + CONFIG.owner + '/' + CONFIG.repo + '/releases';
 
 	if (!CONFIG.allowPrerelease) {
-		// /releases/latest already excludes drafts and pre-releases.
 		return getJson(base + '/latest');
 	}
 
@@ -249,15 +186,6 @@ function pickAsset(release) {
 	return asset;
 }
 
-/*
- * Collects every hash GitHub publishes for this asset.
- *
- *  - `asset.digest` is served by the API as "sha256:<hex>" and is computed by
- *    GitHub on upload, so it exists for every release without any extra work.
- *  - `latest.yml` is electron-builder's own manifest. It is only present if
- *    the release was published with `electron-builder --publish`; if it is
- *    there we use its sha512 too.
- */
 async function collectExpectedHashes(release, asset) {
 	const expected = {};
 
@@ -312,10 +240,6 @@ function verifyHashes(expected, actual) {
 		log(name + ' OK');
 	}
 }
-
-/* ------------------------------------------------------------------ *
- * Authenticode
- * ------------------------------------------------------------------ */
 
 const AUTHENTICODE_PS = `
 $ErrorActionPreference = 'Stop'
@@ -394,10 +318,6 @@ async function verifySignature(file) {
 	log('Authenticode OK:', subject);
 }
 
-/* ------------------------------------------------------------------ *
- * Main flow
- * ------------------------------------------------------------------ */
-
 function cacheDir() {
 	const dir = path.join(app.getPath('temp'), 'empanadas-io-update');
 	fs.mkdirSync(dir, { recursive: true });
@@ -424,14 +344,10 @@ async function runInstaller(file) {
 	log('launching installer', file);
 	const child = spawn(file, CONFIG.installerArgs, { detached: true, stdio: 'ignore' });
 	child.unref();
-	// Give the installer a moment to take over before we release our lock.
+	// Give the installer a moment
 	setTimeout(() => app.quit(), 1000);
 }
 
-/**
- * @param {object}  opts
- * @param {boolean} opts.silent  Do not surface "no update" / errors to the user.
- */
 async function checkForUpdates({ silent = true } = {}) {
 	if (busy) return state;
 	if (isDisabled()) {
@@ -472,7 +388,6 @@ async function checkForUpdates({ silent = true } = {}) {
 		const asset = pickAsset(release);
 		setState({ status: 'available', version: latest });
 
-		// Always ask before pulling down ~120 MB, even on a silent check.
 		const askDownload = await dialog.showMessageBox({
 			type: 'question',
 			title: 'Update available',
@@ -503,8 +418,6 @@ async function checkForUpdates({ silent = true } = {}) {
 
 		setState({ status: 'downloading', version: latest, progress: 0 });
 
-		// Claim the path before the download starts, so a download that dies
-		// part way through still gets its .part file cleaned up below.
 		downloadPath = partPath;
 
 		let lastReported = 0;
@@ -519,7 +432,6 @@ async function checkForUpdates({ silent = true } = {}) {
 		});
 		setProgressBar(-1);
 
-		// --- verify --------------------------------------------------
 		setState({ status: 'verifying', version: latest, progress: 1 });
 		log('downloaded ' + actual.size + ' bytes; verifying');
 
@@ -554,8 +466,6 @@ async function checkForUpdates({ silent = true } = {}) {
 		log('failed:', err.message);
 		setState({ status: 'error', error: err.message });
 
-		// A file that failed verification must never be left behind where a
-		// user could double-click it.
 		if (downloadPath) {
 			try {
 				fs.rmSync(downloadPath, { force: true });
@@ -595,8 +505,6 @@ function stop() {
 	timer = null;
 }
 
-// Renderer-initiated check. Rate limited, because the window loads a remote
-// page and we don't want it able to hammer the GitHub API.
 function checkFromRenderer() {
 	const now = Date.now();
 	if (now - lastManualCheck < CONFIG.manualCheckCooldownMs) return state;
