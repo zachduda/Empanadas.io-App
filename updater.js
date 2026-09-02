@@ -460,7 +460,7 @@ async function verifyReleaseSignature(release, asset, file) {
 	const keys = loadReleaseKeys();
 	if (!keys) {
 		log('WARNING: no release-keys.json - skipping the OpenPGP check. ' +
-			'See "Release signing" in the README.');
+			'See "Release signing" in docs/RELEASING.md.');
 		return null;
 	}
 

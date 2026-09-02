@@ -171,7 +171,7 @@ function watchSiteCsp() {
 				cspReported = true;
 				console.warn(
 					'[security] ' + details.url + ' served no Content-Security-Policy ' +
-					'header. See "Site headers" in the README for the recommended set.');
+					'header. See "Site headers" in SECURITY.md for the recommended set.');
 			}
 		}
 

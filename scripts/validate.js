@@ -167,7 +167,7 @@ check('uninstall behaviour is stated explicitly', () => {
 	// decision on the record, though, because the default silently leaves a
 	// per-install identifier behind after the user uninstalls.
 	assert(build.nsis && typeof build.nsis.deleteAppDataOnUninstall === 'boolean',
-		'build.nsis.deleteAppDataOnUninstall must be set explicitly, see README');
+		'build.nsis.deleteAppDataOnUninstall must be set explicitly, see SECURITY.md');
 });
 
 check('artifact names have no spaces', () => {
