@@ -33,7 +33,8 @@ function assert(condition, message) {
 // ever parse them.
 console.log('syntax');
 
-const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'Content/JS/preload.js',
+const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js',
+	'Content/JS/preload.js', 'Content/JS/auth-preload.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js'];
 
 for (const file of sources) {
@@ -65,13 +66,37 @@ for (const [what, needle] of [
 	['node integration is off', /nodeIntegration:\s*false/],
 	['the renderer is sandboxed', /sandbox:\s*true/],
 	['the webview tag is disabled', /webviewTag:\s*false/],
-	['navigation is filtered by host, not by string prefix', /function isAppUrl/],
+	['navigation is filtered by host, not by string prefix', /require\('\.\/lib\/urls'\)/],
 	['redirects are filtered too', /'will-redirect'/],
-	['new windows are denied', /setWindowOpenHandler/],
+	['new windows go through setWindowOpenHandler', /setWindowOpenHandler/],
 	['permissions are denied by default', /setPermissionRequestHandler/]
 ]) {
 	check(what, () => assert(needle.test(mainSrc), 'main.js no longer matches ' + needle));
 }
+
+const urlsSrc = fs.readFileSync(path.join(root, 'lib', 'urls.js'), 'utf8');
+
+check('the app host is matched by parsed hostname', () => {
+	assert(/function isAppUrl/.test(urlsSrc), 'lib/urls.js no longer defines isAppUrl');
+	assert(/new URL\(url\)/.test(urlsSrc), 'lib/urls.js no longer parses the URL');
+});
+
+// The sign-in popup is the one window the site is allowed to raise, so the
+// terms it is allowed on are worth pinning down.
+check('the sign-in popup is the only window the page can open', () => {
+	assert(/isAuthUrl\(url\) && isAppUrl\(contents\.getURL\(\)\)/.test(mainSrc),
+		'main.js no longer restricts window.open to auth URLs raised by the site');
+	assert(/action:\s*'deny'/.test(mainSrc), 'main.js no longer denies other windows');
+});
+
+check('the sign-in popup does not inherit the preload', () => {
+	assert(/preload:\s*AUTH_PRELOAD/.test(mainSrc),
+		'the auth window does not name its own preload, so it inherits the app bridge');
+	const authPreload = fs.readFileSync(
+		path.join(root, 'Content', 'JS', 'auth-preload.js'), 'utf8');
+	assert(!/contextBridge|ipcRenderer/.test(authPreload),
+		'Content/JS/auth-preload.js must expose nothing');
+});
 
 check('download.html sets a Content-Security-Policy', () => {
 	assert(/http-equiv=["']Content-Security-Policy["']/i.test(htmlSrc), 'no CSP meta tag');
@@ -253,6 +278,15 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'pgp.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/pgp.js test suite failed');
+}
+
+// --- navigation and sign-in policy ------------------------------------
+console.log('url policy');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'urls.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/urls.js test suite failed');
 }
 
 // --- updater logic ----------------------------------------------------

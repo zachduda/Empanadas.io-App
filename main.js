@@ -4,22 +4,11 @@ const updater = require('./updater');
 
 const isMac = process.platform === 'darwin';
 
-// The one place that decides what counts as "our site". A startsWith() check on
-// the URL string is not good enough: 'https://empanadas.io.example.com' and
-// 'https://empanadas.io@example.com' both pass a prefix test while pointing
-// somewhere else entirely. Parse it and compare the host.
-const APP_HOST = 'empanadas.io';
-
-function isAppUrl(url) {
-	let parsed;
-	try {
-		parsed = new URL(url);
-	} catch (err) {
-		return false;
-	}
-	if (parsed.protocol !== 'https:') return false;
-	return parsed.hostname === APP_HOST || parsed.hostname.endsWith('.' + APP_HOST);
-}
+// isAppUrl / isAuthUrl decide what counts as "our site" and what counts as a
+// sign-in provider. They live in lib/urls.js so they can be tested without a
+// running Electron; see the comments there for why the host is parsed rather
+// than prefix-matched.
+const { isAppUrl, isAuthUrl, browserUserAgent } = require('./lib/urls');
 
 // download.html is the only local page, and it is the only sender allowed to
 // drive the window chrome besides the site itself.
@@ -179,8 +168,61 @@ function watchSiteCsp() {
 	});
 }
 
+// Sign-in popups. "Log in with Google/GitHub/Discord" is a window.open() to the
+// provider, and denying it is exactly what the page sees as a blocked popup:
+// window.open() returns null and the site reports that the popup was blocked.
+// So the popup is allowed - but only to an auth host, and only as a window with
+// none of this app's privileges.
+const AUTH_PRELOAD = path.join(__dirname, 'Content/JS/auth-preload.js');
+
+// The contents that belong to a sign-in popup. A WeakSet, so a closed popup is
+// not kept alive by being remembered.
+const authContents = new WeakSet();
+
+// setWindowOpenHandler has no handle on the contents it is about to create, and
+// 'web-contents-created' cannot tell why it fired. Electron creates the child
+// synchronously between the two, so the handler flags what is coming and the
+// next created contents claims the flag. 'did-create-window' marks it a second
+// time in case that ever stops being synchronous.
+let openingAuthWindow = false;
+
+function authWindowOptions() {
+	return {
+		width: 520,
+		height: 720,
+		minWidth: 400,
+		minHeight: 480,
+		title: 'Sign in',
+		backgroundColor: '#ffffff',
+		autoHideMenuBar: true,
+		minimizable: false,
+		maximizable: false,
+		fullscreenable: false,
+		// A child window inherits the opener's webPreferences, so every one of
+		// these has to be restated: inheriting would give accounts.google.com
+		// the window controls and the updater bridge.
+		webPreferences: {
+			preload: AUTH_PRELOAD,
+			sandbox: true,
+			contextIsolation: true,
+			nodeIntegration: false,
+			nodeIntegrationInSubFrames: false,
+			webviewTag: false,
+			webSecurity: true,
+			allowRunningInsecureContent: false,
+			experimentalFeatures: false,
+			devTools: false
+		}
+	};
+}
+
 // Applies to every WebContents, including any the site manages to spawn.
 app.on('web-contents-created', (_event, contents) => {
+	if (openingAuthWindow) {
+		openingAuthWindow = false;
+		authContents.add(contents);
+	}
+
 	// The app embeds nothing, so a <webview> could only have come from the
 	// remote page.
 	contents.on('will-attach-webview', (event) => event.preventDefault());
@@ -188,19 +230,67 @@ app.on('web-contents-created', (_event, contents) => {
 	// will-navigate does not fire for server-side redirects, so a 302 off
 	// empanadas.io would otherwise walk straight past the check below.
 	const guard = (event, url) => {
-		if (!isAppUrl(url)) event.preventDefault();
+		if (isAppUrl(url)) return;
+		// A sign-in flow is several navigations - consent, 2FA, the redirect
+		// back - so the popup may move around the provider's own hosts. Only
+		// the popup: the main window still goes nowhere but empanadas.io.
+		if (isAuthUrl(url) && authContents.has(contents)) return;
+		event.preventDefault();
 	};
 	contents.on('will-navigate', guard);
 	contents.on('will-redirect', guard);
 
-	// Never let the page open a second BrowserWindow - a child window inherits
-	// this window's preload and would hand the updater bridge to whatever it
-	// loaded. Off-site https links go to the user's browser instead.
+	// Anything that is not a sign-in page opens in the user's own browser, and
+	// never as a second BrowserWindow here.
 	contents.setWindowOpenHandler(({ url }) => {
+		// Only the site itself gets to raise a sign-in window, and a popup
+		// cannot raise another one.
+		if (isAuthUrl(url) && isAppUrl(contents.getURL())) {
+			openingAuthWindow = true;
+			// If the window never gets created, the flag must not be left
+			// lying around for some unrelated WebContents to pick up.
+			setImmediate(() => { openingAuthWindow = false; });
+			return {
+				action: 'allow',
+				// The popup closes with the window that opened it rather than
+				// outliving it as an orphan the user cannot get back to.
+				outlivesOpener: false,
+				overrideBrowserWindowOptions: authWindowOptions()
+			};
+		}
 		if (/^https:\/\//i.test(url) && !isAppUrl(url)) shell.openExternal(url);
 		return { action: 'deny' };
 	});
+
+	contents.on('did-create-window', (child, details) => {
+		if (!isAuthUrl(details.url)) return;
+		authContents.add(child.webContents);
+		if (child.setMenu) child.setMenu(null);
+		// The provider decides the title; the window says what it is for.
+		child.setTitle('Sign in');
+		child.on('page-title-updated', (event) => event.preventDefault());
+	});
 });
+
+// Google rejects OAuth from a user agent it recognises as an embedded browser,
+// which is what the default string ("... Empanadas.io/1.11.0 ... Electron/44
+// ...") advertises. Present a plain Chrome user agent to the auth hosts only.
+function useBrowserUserAgentForAuth() {
+	const clean = browserUserAgent(app.userAgentFallback, app.getName());
+
+	session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+		if (!isAuthUrl(details.url)) {
+			callback({ requestHeaders: details.requestHeaders });
+			return;
+		}
+		const headers = Object.assign({}, details.requestHeaders);
+		for (const name of Object.keys(headers)) {
+			if (name.toLowerCase() === 'user-agent') delete headers[name];
+		}
+		headers['User-Agent'] = clean;
+		callback({ requestHeaders: headers });
+	});
+}
 
 function createDefaultWindow() {
 	win = new BrowserWindow({
@@ -363,6 +453,7 @@ function buildAppMenu() {
 
 app.on('ready', function()  {
   lockDownPermissions();
+  useBrowserUserAgentForAuth();
   watchSiteCsp();
   registerIpcHandlers();
   buildAppMenu();
