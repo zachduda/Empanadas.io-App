@@ -149,6 +149,36 @@ function lockDownPermissions() {
 	if (ses.setBluetoothPairingHandler) ses.setBluetoothPairingHandler(() => {});
 }
 
+// Everything above hardens the shell. Once the window is on empanadas.io, the
+// page's own headers are what stand between an injected script and the app, and
+// those are served by the site, not set here.
+//
+// This only reports. Injecting a policy from the app would be enforcing a guess
+// about what the site needs, and getting it wrong breaks the game with no error
+// the user can act on - the right fix is the header, on the server. The warning
+// makes its absence visible during development instead of never.
+let cspReported = false;
+
+function watchSiteCsp() {
+	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+		const isPageLoad = details.resourceType === 'mainFrame' && isAppUrl(details.url);
+
+		if (isPageLoad && !cspReported) {
+			const headers = details.responseHeaders || {};
+			const has = Object.keys(headers).some((name) =>
+				name.toLowerCase() === 'content-security-policy');
+			if (!has) {
+				cspReported = true;
+				console.warn(
+					'[security] ' + details.url + ' served no Content-Security-Policy ' +
+					'header. See "Site headers" in the README for the recommended set.');
+			}
+		}
+
+		callback({ responseHeaders: details.responseHeaders });
+	});
+}
+
 // Applies to every WebContents, including any the site manages to spawn.
 app.on('web-contents-created', (_event, contents) => {
 	// The app embeds nothing, so a <webview> could only have come from the
@@ -333,6 +363,7 @@ function buildAppMenu() {
 
 app.on('ready', function()  {
   lockDownPermissions();
+  watchSiteCsp();
   registerIpcHandlers();
   buildAppMenu();
   createDefaultWindow();

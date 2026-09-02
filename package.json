@@ -24,6 +24,11 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "**/*",
+      "!test",
+      "!scripts"
+    ],
     "publish": [
       {
         "provider": "github",

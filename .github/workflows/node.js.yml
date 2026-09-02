@@ -37,6 +37,16 @@ jobs:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
     - run: npm ci
+
+    # download.html is checked in a real browser (see test/splash.test.js). It
+    # skips itself when there is no browser, so this step is what makes those
+    # assertions actually run in CI rather than silently passing. Not added to
+    # devDependencies: it is only needed here, and `npm ci` stays fast without it.
+    - name: Install a browser for the splash page tests
+      run: |
+        npm install --no-save playwright-core
+        npx --yes playwright@latest install --with-deps chromium
+
     - run: npm test
 
   build:
