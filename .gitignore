@@ -8,3 +8,7 @@
 node_modules/
 *desktop.ini
 *.7z
+
+# electron-builder debug dump - embeds absolute local paths (and therefore the
+# builder machine's username). Never useful to anyone but the person who built it.
+/dist/builder-debug.yml
