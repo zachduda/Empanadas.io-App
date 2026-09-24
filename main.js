@@ -8,7 +8,9 @@ const isMac = process.platform === 'darwin';
 // sign-in provider. They live in lib/urls.js so they can be tested without a
 // running Electron; see the comments there for why the host is parsed rather
 // than prefix-matched.
-const { isAppUrl, isAuthUrl, browserUserAgent } = require('./lib/urls');
+const {
+	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl, browserUserAgent
+} = require('./lib/urls');
 
 // download.html is the only local page, and it is the only sender allowed to
 // drive the window chrome besides the site itself.
@@ -168,11 +170,15 @@ function watchSiteCsp() {
 	});
 }
 
-// Sign-in popups. "Log in with Google/GitHub/Discord" is a window.open() to the
-// provider, and denying it is exactly what the page sees as a blocked popup:
-// window.open() returns null and the site reports that the popup was blocked.
-// So the popup is allowed - but only to an auth host, and only as a window with
-// none of this app's privileges.
+// Sign-in popups. "Log in with Google/GitHub/Discord" is a window.open() - and
+// denying it is exactly what the page sees as a blocked popup: window.open()
+// returns null and the site reports that the popup was blocked. So the popup is
+// allowed, as a window with none of this app's privileges.
+//
+// The site does not open the provider directly. login.js opens its own
+// /v2/auth/flow.php?service=github, which then redirects to github.com, so the
+// first URL the popup asks for is on empanadas.io. Allowing only provider URLs
+// here is what kept the popup from ever appearing.
 const AUTH_PRELOAD = path.join(__dirname, 'Content/JS/auth-preload.js');
 
 // The contents that belong to a sign-in popup. A WeakSet, so a closed popup is
@@ -216,6 +222,84 @@ function authWindowOptions() {
 	};
 }
 
+function decorateAuthWindow(child) {
+	authContents.add(child.webContents);
+	if (child.setMenu) child.setMenu(null);
+	// The provider decides the title; the window says what it is for.
+	child.setTitle('Sign in');
+	child.on('page-title-updated', (event) => event.preventDefault());
+}
+
+// Is this a window.open() the site is allowed to turn into a sign-in popup?
+//
+//  - straight to a provider, which is what older versions of the site did;
+//  - or to the site itself *as a popup*, i.e. window.open() with a size. That
+//    is login.js's startOauth() and core.js's sign-out window. A plain
+//    target="_blank" link to the site arrives as 'foreground-tab' instead and
+//    is handled below.
+function isSignInPopupRequest(url, disposition) {
+	return isAuthUrl(url) || (isAppUrl(url) && disposition === 'new-window');
+}
+
+// Links to the site that ask for a new tab (target="_blank") have nowhere to
+// go in a single-window app. Denying them outright made those links do
+// nothing, so they open in place instead.
+function openInMainWindow(url) {
+	if (!win || win.isDestroyed()) return;
+	win.loadURL(url);
+	if (win.isMinimized()) win.restore();
+	win.focus();
+}
+
+// A sign-in popup that lands on an ordinary page of the site is finished, and
+// that page belongs in the main window: the account page after "Connect
+// GitHub", the login page with a provider error on it. See isHandoffUrl().
+function handOff(popupContents, url) {
+	openInMainWindow(url);
+	const popup = BrowserWindow.fromWebContents(popupContents);
+	// Not from inside the navigation event that is being cancelled.
+	setImmediate(() => { if (popup && !popup.isDestroyed()) popup.close(); });
+}
+
+// The main window was redirected to a provider - a plain link to
+// /v2/auth/flow?service=github&tie=1, like the account page's "Connect"
+// buttons. The main window does not leave empanadas.io, so the provider page
+// opens in a sign-in popup instead. flow.php has already stored the OAuth state
+// in the session the popup shares, so the round trip completes there and
+// handOff() brings the result back.
+let authWindow = null;
+
+function openAuthWindow(url) {
+	if (authWindow && !authWindow.isDestroyed()) {
+		authWindow.loadURL(url);
+		authWindow.focus();
+		return;
+	}
+	const options = authWindowOptions();
+	if (win && !win.isDestroyed()) options.parent = win;
+	authWindow = new BrowserWindow(options);
+	decorateAuthWindow(authWindow);
+	authWindow.on('closed', () => { authWindow = null; });
+	authWindow.loadURL(url);
+}
+
+// In-page window controls sit inside a '-webkit-app-region: drag' titlebar,
+// and on Windows a click on a drag region never reaches the page: it is taken
+// as the start of a window move. Chromium applies the titlebar's 'drag' to
+// everything inside it, so a minimize or maximize control that does not mark
+// itself 'no-drag' is a drag handle, and clicking it does nothing.
+//
+// The titlebar is rendered by the site's config.php, so instead of depending
+// on every page getting this right, anything clickable is made 'no-drag'
+// here. A user-origin !important rule wins over the page's own styles,
+// including inline ones. Plain text in the bar keeps dragging the window.
+const WINDOW_CHROME_CSS = [
+	'a, button, input, select, textarea, label, summary, i, svg,',
+	'[onclick], [role="button"], [data-app-window], .btn {',
+	'  -webkit-app-region: no-drag !important;',
+	'}'
+].join('\n');
+
 // Applies to every WebContents, including any the site manages to spawn.
 app.on('web-contents-created', (_event, contents) => {
 	if (openingAuthWindow) {
@@ -229,23 +313,53 @@ app.on('web-contents-created', (_event, contents) => {
 
 	// will-navigate does not fire for server-side redirects, so a 302 off
 	// empanadas.io would otherwise walk straight past the check below.
-	const guard = (event, url) => {
-		if (isAppUrl(url)) return;
-		// A sign-in flow is several navigations - consent, 2FA, the redirect
-		// back - so the popup may move around the provider's own hosts. Only
-		// the popup: the main window still goes nowhere but empanadas.io.
-		if (isAuthUrl(url) && authContents.has(contents)) return;
-		event.preventDefault();
-	};
-	contents.on('will-navigate', guard);
-	contents.on('will-redirect', guard);
+	const guard = (event, url, isRedirect, isMainFrame) => {
+		if (authContents.has(contents)) {
+			// A sign-in flow is several navigations - consent, 2FA, the
+			// redirect back, the roundabout through the sibling sites - so the
+			// popup may move between those hosts, and nowhere else.
+			if (!isPopupUrl(url)) {
+				event.preventDefault();
+				return;
+			}
+			if (isMainFrame && isHandoffUrl(url)) {
+				event.preventDefault();
+				handOff(contents, url);
+			}
+			return;
+		}
 
-	// Anything that is not a sign-in page opens in the user's own browser, and
-	// never as a second BrowserWindow here.
-	contents.setWindowOpenHandler(({ url }) => {
+		if (isAppUrl(url)) return;
+		event.preventDefault();
+
+		// Only the main window's own top-level navigations from here on: an
+		// iframe that bounces through accounts.google.com is not the user
+		// asking to sign in.
+		if (!isMainFrame || !win || win.isDestroyed() || contents !== win.webContents) return;
+
+		if (isRedirect && isAuthUrl(url)) {
+			openAuthWindow(url);
+		} else if (!isRedirect && /^https:\/\//i.test(url) && !isSsoUrl(url)) {
+			// A link to Discord, GitHub or anywhere else used to do nothing at
+			// all. The user's own browser is where it belongs.
+			shell.openExternal(url);
+		}
+	};
+	// Electron 44 carries isMainFrame on the event; the positional argument
+	// is the deprecated spelling of the same thing.
+	const mainFrame = (event, positional) =>
+		typeof event.isMainFrame === 'boolean' ? event.isMainFrame : positional !== false;
+	contents.on('will-navigate', (event, url, _isInPlace, isMainFrame) =>
+		guard(event, url, false, mainFrame(event, isMainFrame)));
+	contents.on('will-redirect', (event, url, _isInPlace, isMainFrame) =>
+		guard(event, url, true, mainFrame(event, isMainFrame)));
+
+	contents.setWindowOpenHandler(({ url, disposition }) => {
 		// Only the site itself gets to raise a sign-in window, and a popup
 		// cannot raise another one.
-		if (isAuthUrl(url) && isAppUrl(contents.getURL())) {
+		const fromSite = isAppUrl(contents.getURL()) && !authContents.has(contents);
+
+		if (fromSite && isSignInPopupRequest(url, disposition)) {
 			openingAuthWindow = true;
 			// If the window never gets created, the flag must not be left
 			// lying around for some unrelated WebContents to pick up.
@@ -258,18 +372,16 @@ app.on('web-contents-created', (_event, contents) => {
 				overrideBrowserWindowOptions: authWindowOptions()
 			};
 		}
-		if (/^https:\/\//i.test(url) && !isAppUrl(url)) shell.openExternal(url);
+		if (fromSite && isAppUrl(url)) {
+			openInMainWindow(url);
+		} else if (/^https:\/\//i.test(url) && !isAppUrl(url)) {
+			shell.openExternal(url);
+		}
 		return { action: 'deny' };
 	});
 
-	contents.on('did-create-window', (child, details) => {
-		if (!isAuthUrl(details.url)) return;
-		authContents.add(child.webContents);
-		if (child.setMenu) child.setMenu(null);
-		// The provider decides the title; the window says what it is for.
-		child.setTitle('Sign in');
-		child.on('page-title-updated', (event) => event.preventDefault());
-	});
+	// Every window the handler above lets through is a sign-in popup.
+	contents.on('did-create-window', (child) => decorateAuthWindow(child));
 });
 
 // Google rejects OAuth from a user agent it recognises as an embedded browser,
@@ -334,6 +446,21 @@ function createDefaultWindow() {
     win = null;
   })
 
+  // Re-applied on every page load: inserted CSS does not survive navigation.
+  win.webContents.on('dom-ready', () => {
+	if (!isAppUrl(win.webContents.getURL())) return;
+	win.webContents.insertCSS(WINDOW_CHROME_CSS, { cssOrigin: 'user' }).catch(() => {});
+  })
+
+  // Lets the site swap its maximize/restore icon, including when the window is
+  // maximized some other way - a double-click on the titlebar, Win+Up, snap.
+  const sendWindowState = () => {
+	if (!win || win.isDestroyed()) return;
+	win.webContents.send('window-state', { maximized: win.isMaximized() });
+  };
+  win.on('maximize', sendWindowState);
+  win.on('unmaximize', sendWindowState);
+
   win.webContents.on('did-finish-load', () => {
 	if (pendingDeepLink) {
 		win.webContents.send('deep-link', pendingDeepLink);
@@ -387,6 +514,7 @@ function registerIpcHandlers() {
 		return w.isMaximized();
 	});
 	handle('window-close', () => { const w = target(); if (w) w.close(); });
+	handle('window-is-maximized', () => { const w = target(); return !!(w && w.isMaximized()); });
 
 	handle('update-check', () => updater.checkFromRenderer());
 	handle('update-state', () => updater.getState());
@@ -458,6 +586,7 @@ app.on('ready', function()  {
   registerIpcHandlers();
   buildAppMenu();
   createDefaultWindow();
+  updater.setWindowProvider(() => win);
   updater.start();
 });
 

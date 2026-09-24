@@ -84,9 +84,18 @@ check('the app host is matched by parsed hostname', () => {
 // The sign-in popup is the one window the site is allowed to raise, so the
 // terms it is allowed on are worth pinning down.
 check('the sign-in popup is the only window the page can open', () => {
-	assert(/isAuthUrl\(url\) && isAppUrl\(contents\.getURL\(\)\)/.test(mainSrc),
-		'main.js no longer restricts window.open to auth URLs raised by the site');
+	assert(/const fromSite = isAppUrl\(contents\.getURL\(\)\) && !authContents\.has\(contents\)/.test(mainSrc),
+		'main.js no longer restricts window.open to popups raised by the site');
+	assert(/fromSite && isSignInPopupRequest\(url, disposition\)/.test(mainSrc),
+		'main.js no longer gates the popup on isSignInPopupRequest()');
+	assert(/isAuthUrl\(url\) \|\| \(isAppUrl\(url\) && disposition === 'new-window'\)/.test(mainSrc),
+		'a sign-in popup is no longer limited to a provider or a sized window.open() of the site');
 	assert(/action:\s*'deny'/.test(mainSrc), 'main.js no longer denies other windows');
+});
+
+check('the sign-in popup cannot leave the sign-in hosts', () => {
+	assert(/if \(!isPopupUrl\(url\)\)/.test(mainSrc),
+		'the popup navigation guard no longer checks isPopupUrl()');
 });
 
 check('the sign-in popup does not inherit the preload', () => {
