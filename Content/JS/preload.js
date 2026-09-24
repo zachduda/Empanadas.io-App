@@ -4,6 +4,13 @@ contextBridge.exposeInMainWorld('electronWindow', {
   minimize: () => ipcRenderer.invoke('window-minimize'),
   toggleMaximize: () => ipcRenderer.invoke('window-maximize'),
   close: () => ipcRenderer.invoke('window-close'),
+  isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
+  // Fires with { maximized } whenever that changes, however it changed.
+  onStateChange: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('window-state', listener);
+    return () => ipcRenderer.removeListener('window-state', listener);
+  },
   // macOS draws its own traffic lights over the page, so the site should hide
   // its in-page window buttons and inset its titlebar when this is 'darwin'.
   platform: process.platform,

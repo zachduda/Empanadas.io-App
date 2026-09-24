@@ -4,7 +4,9 @@
 // window of their own. It requires nothing from Electron, so it tests directly.
 
 const assert = require('assert');
-const { isAppUrl, isAuthUrl, browserUserAgent } = require('../lib/urls');
+const {
+	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl, browserUserAgent
+} = require('../lib/urls');
 
 const failures = [];
 
@@ -49,6 +51,37 @@ check('does not treat the whole provider domain as a sign-in host', () => {
 check('the site is not an auth host, and vice versa', () => {
 	assert(!isAuthUrl('https://empanadas.io/'), 'the site is not a provider');
 	assert(!isAppUrl('https://accounts.google.com/'), 'a provider is not the site');
+});
+
+check('the popup may follow the post-sign-in roundabout', () => {
+	// js.php sends the browser round the sibling sites so each sees the new
+	// session. Blocking them left the popup stuck on "Please Wait...".
+	assert(isSsoUrl('https://zachduda.com/v2/roundabout'), 'zachduda.com');
+	assert(isSsoUrl('https://www.he1ium.com/'), 'he1ium.com');
+	assert(isPopupUrl('https://zachduda.com/v2/roundabout'), 'the popup may go there');
+	assert(isPopupUrl('https://empanadas.io/v2/auth/flow.php?service=github'), 'the site');
+	assert(isPopupUrl('https://github.com/login/oauth/authorize'), 'a provider');
+	assert(!isSsoUrl('https://zachduda.com.evil.test/'), 'a lookalike');
+	assert(!isSsoUrl('http://zachduda.com/'), 'plain http');
+	assert(!isPopupUrl('https://example.com/'), 'anywhere else');
+	assert(!isAppUrl('https://zachduda.com/'), 'a sibling site is not the app');
+});
+
+check('a popup hands ordinary pages back to the main window', () => {
+	assert(isHandoffUrl('https://empanadas.io/v2/account?linked=github'), 'the account page');
+	assert(isHandoffUrl('https://empanadas.io/v2/account/'), 'with a trailing slash');
+	assert(isHandoffUrl('https://empanadas.io/v2/dashboard'), 'the dashboard');
+	assert(isHandoffUrl('https://empanadas.io/v2/login?error=oauth_err'), 'a provider error');
+});
+
+check('a popup keeps the pages that are still mid-sign-in', () => {
+	assert(!isHandoffUrl('https://empanadas.io/v2/auth/flow.php?code=x'), 'the OAuth callback');
+	assert(!isHandoffUrl('https://empanadas.io/v2/auth/js.php?r=v2/dashboard'), 'the hand-off page');
+	assert(!isHandoffUrl('https://empanadas.io/v2/auth/2fa.php'), 'the 2FA prompt');
+	assert(!isHandoffUrl('https://empanadas.io/authcancel.html'), 'the page that closes itself');
+	assert(!isHandoffUrl('https://empanadas.io/v2/account_edit.php?403=1'), 'the captcha check');
+	assert(!isHandoffUrl('https://empanadas.io/v2/accounts'), 'a path that only starts the same');
+	assert(!isHandoffUrl('https://github.com/v2/account'), 'another host');
 });
 
 check('the auth user agent names neither Electron nor the app', () => {
