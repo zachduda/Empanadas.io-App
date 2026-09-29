@@ -48,6 +48,47 @@ footer p {
 	font-weight:300;
 	color:#abbefc;
 }
+
+/* Offline games. Hidden until the site cannot be reached and main.js says the
+   account has them (see lib/offline.js). */
+#offline {
+	display: none;
+	margin-top: 22px;
+}
+/* !important: noInt() sets the logo's margin inline. */
+body.offline-games img {
+	width: 12% !important;
+	margin-top: 56px !important;
+}
+.play-row {
+	display: flex;
+	justify-content: center;
+	gap: 14px;
+	margin: 14px 0 8px;
+}
+.play-row button {
+	font-family: poppins, sans-serif;
+	font-size: 18px;
+	font-weight: 700;
+	color: #1e1e91;
+	background: #ffc83d;
+	border: 0;
+	border-radius: 999px;
+	padding: 11px 28px;
+	cursor: pointer;
+	box-shadow: 0 4px 0 #c9921a;
+	transition: transform .1s ease, box-shadow .1s ease, background .15s ease;
+}
+.play-row button:hover { background: #ffd566; }
+.play-row button:active { transform: translateY(3px); box-shadow: 0 1px 0 #c9921a; }
+.play-row button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.play-row button:disabled { opacity: .6; cursor: default; }
+#offlinenote {
+	font-size: 15px;
+	font-weight: 300;
+	color: #abbefc;
+	margin: 6px 10% 0;
+}
 </style>
 <!-- No crossorigin attribute: this is a local file loaded from a file:// page,
      and asking for a CORS fetch of it makes Chromium block the stylesheet
@@ -61,6 +102,13 @@ footer p {
 <div class="animated fadeInUp" style="animation-delay:500ms;margin-top:20px;font-weight:1000;" id="msg">Empanadas.io</div>
 <footer>
 <p class="animated fadeInUp" style="animation-delay:525ms;" id="status">Communicating to Server...</p>
+<div id="offline" class="animated fadeInUp faster" role="group" aria-labelledby="offlinenote">
+	<div class="play-row" id="playrow">
+		<button type="button" data-game="spin">Play Spin</button>
+		<button type="button" data-game="flappy">Play Flappy</button>
+	</div>
+	<p id="offlinenote"></p>
+</div>
 </footer>
 <script>
 // This page used to load jQuery 3.5.1 for two identical $.ajax calls. Chromium
@@ -71,7 +119,21 @@ footer p {
 // a changing query parameter so a cached 200 cannot stand in for the server
 // actually being reachable. The timeout is new: fetch() without one waits as
 // long as the OS lets it, which on a captive portal is a very long time.
+//
+// Inside the app the ping goes through the main process instead (see pingSite()
+// in main.js). A fetch() from this file:// page is a cross-origin request, and
+// the site answers with Access-Control-Allow-Origin: https://empanadas.io, so
+// Chromium throws the reply away and a working connection looked like none.
+// The fetch below is what a plain browser (the tests) still uses.
+const app = window.electronWindow || null;
+
 function ping(timeoutMs = 10000) {
+	if (app && typeof app.ping === "function") {
+		return app.ping().then(function(res) {
+			if (!res || !res.ok) throw new Error("HTTP " + (res ? res.status : 0));
+			return res.pong ? "Pong!" : "";
+		});
+	}
 	const url = "https://empanadas.io/v2/ping.php?usingnativeapp=1&firsthello=1&_=" + Date.now();
 	const abort = new AbortController();
 	const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -99,6 +161,65 @@ const msg = document.getElementById("msg");
 const status = document.getElementById("status");
 const minwait = 2250;
 let noint = false;
+
+// Why the splash is up again, when main.js brought it back after a page
+// failed to load (?failed=1, and &game= when it was one of the games).
+const query = new URLSearchParams(window.location.search);
+const GAME_NAMES = { spin: "Spin", flappy: "Flappy" };
+const failedGame = Object.prototype.hasOwnProperty.call(GAME_NAMES, query.get("game")) ? query.get("game") : null;
+
+const offlineBox = document.getElementById("offline");
+const offlineNote = document.getElementById("offlinenote");
+const playRow = document.getElementById("playrow");
+let offlineShown = false;
+
+// While the site cannot be reached, offer the games if this account has them
+// stored (lib/offline.js). The retry loop keeps going underneath, and a
+// connection coming back still goes on to the dashboard.
+function showOfflineGames() {
+	if (offlineShown || !app || !app.offline) return;
+	offlineShown = true;
+	app.offline.status().then(function(state) {
+		if (!noint || !state) return;
+		if (state.available) {
+			playRow.style.display = null;
+			offlineNote.textContent = failedGame
+				? GAME_NAMES[failedGame] + " couldn't load. Try again, or pick the other game."
+				: "You can still play offline. Your progress is saved on this device and syncs when you're back online.";
+			document.body.classList.add("offline-games");
+		} else {
+			playRow.style.display = "none";
+			offlineNote.textContent = state.signedIn
+				? "Connect once more to finish downloading the games for offline play."
+				: "Sign in once while you're online, and you can play Spin and Flappy offline too.";
+		}
+		offlineBox.style.display = "block";
+	}).catch(function() {
+		offlineShown = false;
+	});
+}
+
+function hideOfflineGames() {
+	offlineShown = false;
+	offlineBox.style.display = "none";
+	document.body.classList.remove("offline-games");
+}
+
+playRow.addEventListener("click", function(e) {
+	const button = e.target.closest("button[data-game]");
+	if (!button || !app || !app.offline) return;
+	const buttons = playRow.querySelectorAll("button");
+	for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+	button.textContent = "Loading...";
+	app.offline.play(button.getAttribute("data-game")).then(function(started) {
+		if (started) return;
+		for (let i = 0; i < buttons.length; i++) buttons[i].disabled = false;
+		button.textContent = "Play " + GAME_NAMES[button.getAttribute("data-game")];
+		offlineShown = false;
+		showOfflineGames();
+	});
+});
+
 function noInt() {
 	allowdownload = true;
 	let noinmsg = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
@@ -109,9 +230,11 @@ function noInt() {
 		status.innerHTML = noinmsg;
 	}
 	noint = true;
+	showOfflineGames();
 	setTimeout(function(){
 		ping().then(function() {
 			noint = false;
+			hideOfflineGames();
 			status.innerHTML = "Connected!";
 			finishedLoading("&retried_network=1", true);
 		}).catch(function() {

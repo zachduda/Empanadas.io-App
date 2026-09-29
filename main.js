@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain, Menu, shell, session} = require('electron');
+const {app, BrowserWindow, ipcMain, Menu, net, shell, session} = require('electron');
 const path = require('path');
 const updater = require('./updater');
 
@@ -11,10 +11,23 @@ const isMac = process.platform === 'darwin';
 const {
 	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl, browserUserAgent
 } = require('./lib/urls');
+const offline = require('./lib/offline');
 
 // download.html is the only local page, and it is the only sender allowed to
 // drive the window chrome besides the site itself.
 const SPLASH_URL = require('url').pathToFileURL(path.join(__dirname, 'download.html')).href;
+
+// The splash is reloaded with a query string when a page fails to load (see
+// showSplash()), so it is recognised by its path, not its full URL.
+function isSplashUrl(url) {
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === 'file:' && parsed.origin + parsed.pathname ===
+			new URL(SPLASH_URL).origin + new URL(SPLASH_URL).pathname;
+	} catch (err) {
+		return false;
+	}
+}
 
 function isTrustedSender(event) {
 	let url = '';
@@ -24,8 +37,11 @@ function isTrustedSender(event) {
 	} catch (err) {
 		return false;
 	}
-	return isAppUrl(url) || url === SPLASH_URL;
+	return isAppUrl(url) || isSplashUrl(url);
 }
+
+// Created on 'ready', when the data folder is known. See lib/offline.js.
+let offlineStore = null;
 
 //const Store = require('electron-store');
 
@@ -75,7 +91,7 @@ if (process.defaultApp) {
 let pendingDeepLink = null;
 
 function handleDeepLink(url) {
-	if (!url || !url.startsWith('empanadas-io:')) return;
+	if (typeof url !== 'string' || !url.startsWith('empanadas-io:')) return;
 	// Anything on the machine can invoke the protocol handler, so treat the URL
 	// as untrusted input: it has to parse, and it does not get to be unbounded
 	// before it reaches the page.
@@ -85,7 +101,10 @@ function handleDeepLink(url) {
 	} catch (err) {
 		return;
 	}
-	if (win && !win.isDestroyed()) {
+	// Only the site listens for these. The splash does not, so a link that
+	// arrives while it is up waits for the site rather than being sent to a
+	// page that drops it.
+	if (win && !win.isDestroyed() && isAppUrl(win.webContents.getURL())) {
 		if (win.isMinimized()) win.restore();
 		win.focus();
 		win.webContents.send('deep-link', url);
@@ -108,6 +127,11 @@ if (!gotTheLock) {
 		// Windows and Linux deliver the protocol URL as an argv entry.
 		handleDeepLink(commandLine.find((arg) => arg.startsWith('empanadas-io:')));
 	})
+
+	// A link that launched the app, rather than reaching one already running,
+	// is in this process's own argv on Windows and Linux. Only
+	// 'second-instance' was ever checked, so those links were dropped.
+	handleDeepLink(process.argv.find((arg) => typeof arg === 'string' && arg.startsWith('empanadas-io:')));
 }
 
 // macOS never puts the URL in argv - it arrives here instead, and can fire
@@ -150,24 +174,122 @@ function lockDownPermissions() {
 // makes its absence visible during development instead of never.
 let cspReported = false;
 
-function watchSiteCsp() {
-	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-		const isPageLoad = details.resourceType === 'mainFrame' && isAppUrl(details.url);
+function reportMissingCsp(details) {
+	const isPageLoad = details.resourceType === 'mainFrame' && isAppUrl(details.url);
 
-		if (isPageLoad && !cspReported) {
-			const headers = details.responseHeaders || {};
-			const has = Object.keys(headers).some((name) =>
-				name.toLowerCase() === 'content-security-policy');
-			if (!has) {
-				cspReported = true;
-				console.warn(
-					'[security] ' + details.url + ' served no Content-Security-Policy ' +
-					'header. See "Site headers" in the README for the recommended set.');
-			}
+	if (isPageLoad && !cspReported) {
+		const headers = details.responseHeaders || {};
+		const has = Object.keys(headers).some((name) =>
+			name.toLowerCase() === 'content-security-policy');
+		if (!has) {
+			cspReported = true;
+			console.warn(
+				'[security] ' + details.url + ' served no Content-Security-Policy ' +
+				'header. See "Site headers" in the README for the recommended set.');
 		}
+	}
+}
 
+// Electron allows one onHeadersReceived listener per session, so everything
+// that reads responses goes through this one.
+function watchResponses() {
+	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+		reportMissingCsp(details);
+		trackSignIn(details);
 		callback({ responseHeaders: details.responseHeaders });
 	});
+}
+
+// --- Offline games ----------------------------------------------------------
+// See lib/offline.js for the whole arrangement.
+
+// Once per run: registering again on every dashboard load would only ask the
+// browser to re-check a worker it already re-checks by itself.
+let offlineRegistered = false;
+
+function trackSignIn(details) {
+	if (!offlineStore) return;
+	const signal = offline.signInSignal(details);
+	if (signal === 'in') {
+		offlineStore.signedIn();
+	} else if (signal === 'out') {
+		const wasSignedIn = offlineStore.get().signedIn;
+		offlineStore.signedOut();
+		offlineRegistered = false;
+		if (wasSignedIn) forgetOfflineGames();
+	}
+}
+
+// Signed out, the games stop being playable offline, and the copies go too.
+// Only the worker and its cache: the games' saves live in localStorage and
+// the site clears those itself when it signs out.
+function forgetOfflineGames() {
+	session.defaultSession.clearStorageData({
+		origin: offline.SITE,
+		storages: ['serviceworkers', 'cachestorage']
+	}).catch((err) => console.warn('[offline] could not remove the stored games: ' + err.message));
+}
+
+function enableOfflineGames(contents) {
+	if (offlineRegistered || !offlineStore || !offlineStore.get().signedIn) return;
+	offlineRegistered = true;
+
+	let timer;
+	const timeout = new Promise((_, reject) => {
+		timer = setTimeout(() => reject(new Error('timed out')), 2 * 60 * 1000);
+	});
+	Promise.race([contents.executeJavaScript(offline.registerScript()), timeout])
+		.then((ok) => {
+			if (ok !== true) {
+				offlineRegistered = false;
+			} else if (offlineStore.get().signedIn) {
+				offlineStore.ready();
+			} else {
+				// Signed out while the worker was installing: the sign-out
+				// already cleared storage, and this put a worker back.
+				forgetOfflineGames();
+			}
+		})
+		.catch((err) => {
+			// Most likely the site has not published /sw.js yet. Try again on
+			// the next dashboard load.
+			offlineRegistered = false;
+			console.warn('[offline] the games could not be stored for offline play: ' + err.message);
+		})
+		.finally(() => clearTimeout(timer));
+}
+
+// The splash, with a note of what failed to load, if anything.
+function showSplash(failedUrl) {
+	if (!win || win.isDestroyed()) return;
+	const query = {};
+	if (failedUrl) {
+		query.failed = '1';
+		const game = offline.gameOf(failedUrl);
+		if (game) query.game = game;
+	}
+	// Rejects if replaced by another navigation; nothing to do about that.
+	win.loadFile('download.html', { query }).catch(() => {});
+}
+
+// Resolves { ok } from the main process, where a request is not subject to
+// CORS. The splash is a file:// page, and a fetch() from it to ping.php is
+// dropped whenever the site answers with its usual
+// Access-Control-Allow-Origin: https://empanadas.io - which left the app on
+// "Check Your Internet" with a working connection.
+async function pingSite() {
+	const url = offline.SITE + '/v2/ping.php?usingnativeapp=1&firsthello=1&_=' + Date.now();
+	const abort = new AbortController();
+	const timer = setTimeout(() => abort.abort(), 10000);
+	try {
+		const res = await net.fetch(url, { cache: 'no-store', signal: abort.signal });
+		const body = res.ok ? (await res.text()).trim().slice(0, 64) : '';
+		return { ok: res.ok, status: res.status, pong: body === 'Pong!' };
+	} catch (err) {
+		return { ok: false, status: 0, pong: false };
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 // Sign-in popups. "Log in with Google/GitHub/Discord" is a window.open() - and
@@ -439,7 +561,9 @@ function createDefaultWindow() {
 	  devTools: false
 	},
 	zoomFactor: 1.1,
-	icon: 'icon.png'
+	// Relative to the working directory, which is not the app folder once
+	// installed, so the window had no icon on Linux.
+	icon: path.join(__dirname, 'icon.png')
   })
   // don't ovverride win.webContents.setFrameRate(144);
   win.on('closed', () => {
@@ -462,10 +586,22 @@ function createDefaultWindow() {
   win.on('unmaximize', sendWindowState);
 
   win.webContents.on('did-finish-load', () => {
-	if (pendingDeepLink) {
+	const url = win.webContents.getURL();
+	if (pendingDeepLink && isAppUrl(url)) {
 		win.webContents.send('deep-link', pendingDeepLink);
 		pendingDeepLink = null;
 	}
+	if (offline.isDashboardUrl(url)) enableOfflineGames(win.webContents);
+  })
+
+  // A page of the site that cannot load - the connection dropped, or a game
+  // opened offline before it was stored - used to leave Chromium's blank error
+  // page in a frameless window, with nothing to click. The splash knows what
+  // to do: retry, and offer the offline games.
+  win.webContents.on('did-fail-load', (_event, errorCode, _description, url, isMainFrame) => {
+	// -3 is ERR_ABORTED: a navigation replaced by another one, not a failure.
+	if (!isMainFrame || errorCode === -3 || !isAppUrl(url)) return;
+	showSplash(url);
   })
   
 	//const electronDl = require('electron-dl');
@@ -518,6 +654,25 @@ function registerIpcHandlers() {
 
 	handle('update-check', () => updater.checkFromRenderer());
 	handle('update-state', () => updater.getState());
+
+	handle('app-ping', () => pingSite());
+	handle('offline-status', () => offlineStore ? offlineStore.get() : { signedIn: false, ready: false, available: false });
+	// Opens one of the stored games. Only the names in lib/offline.js, and
+	// only while signed in: offline play is for accounts, as the app is.
+	handle('offline-play', (name) => {
+		const url = offline.gameUrl(name);
+		const w = target();
+		if (!url || !w || !offlineStore || !offlineStore.get().available) return false;
+		// A failure is handled by did-fail-load, which brings the splash back.
+		w.loadURL(url).catch(() => {});
+		return true;
+	});
+	// "Back to the dashboard" from a game. Offline that fails to load, and
+	// did-fail-load brings the splash up instead.
+	handle('app-home', () => {
+		const w = target();
+		if (w) w.loadURL(offline.SITE + '/v2/dashboard').catch(() => {});
+	});
 }
 
 // Without an application menu macOS has no Cmd+Q, Cmd+W, or - the one that
@@ -580,9 +735,14 @@ function buildAppMenu() {
 }
 
 app.on('ready', function()  {
+  // The second instance only exists to hand its arguments to the first (see
+  // requestSingleInstanceLock above) and is already quitting. Without this it
+  // still opened a window and started an update check on its way out.
+  if (!gotTheLock) return;
+  offlineStore = offline.createStore(path.join(app.getPath('userData'), 'offline.json'));
   lockDownPermissions();
   useBrowserUserAgentForAuth();
-  watchSiteCsp();
+  watchResponses();
   registerIpcHandlers();
   buildAppMenu();
   createDefaultWindow();
@@ -591,6 +751,7 @@ app.on('ready', function()  {
 });
 
 app.on('activate', () => {
+  if (!gotTheLock || !app.isReady()) return;
   // Clicking the dock icon with no windows open must reopen one, otherwise
   // 'window-all-closed' below leaves the app running with nothing to show.
   if (!win || win.isDestroyed()) {
