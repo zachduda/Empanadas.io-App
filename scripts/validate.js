@@ -33,7 +33,7 @@ function assert(condition, message) {
 // ever parse them.
 console.log('syntax');
 
-const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js',
+const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/offline.js',
 	'Content/JS/preload.js', 'Content/JS/auth-preload.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js'];
 
@@ -105,6 +105,33 @@ check('the sign-in popup does not inherit the preload', () => {
 		path.join(root, 'Content', 'JS', 'auth-preload.js'), 'utf8');
 	assert(!/contextBridge|ipcRenderer/.test(authPreload),
 		'Content/JS/auth-preload.js must expose nothing');
+});
+
+// Offline play opens pages without a connection, so what it may open and when
+// it stops are pinned here. See lib/offline.js.
+check('offline play only opens the listed games, and only while signed in', () => {
+	assert(/const url = offline\.gameUrl\(name\);/.test(mainSrc),
+		"the 'offline-play' handler no longer resolves the game through offline.gameUrl()");
+	assert(/!offlineStore\.get\(\)\.available\) return false;/.test(mainSrc),
+		"the 'offline-play' handler no longer checks that offline play is available");
+});
+
+check('signing out deletes the stored games', () => {
+	assert(/storages:\s*\['serviceworkers', 'cachestorage'\]/.test(mainSrc),
+		'main.js no longer clears the offline worker and its cache on sign-out');
+});
+
+check('the splash asks the main process whether the site is up', () => {
+	// A fetch() from the file:// splash is dropped by CORS whenever the site
+	// sends its own origin in Access-Control-Allow-Origin.
+	assert(/app\.ping\(\)/.test(htmlSrc), 'download.html no longer uses electronWindow.ping()');
+	assert(/handle\('app-ping'/.test(mainSrc), "main.js no longer answers 'app-ping'");
+});
+
+check('the injected window controls are sealed off from the page', () => {
+	const preloadSrc = fs.readFileSync(path.join(root, 'Content', 'JS', 'preload.js'), 'utf8');
+	assert(/attachShadow\(\{ mode: 'closed' \}\)/.test(preloadSrc),
+		'the window controls are no longer in a closed shadow root');
 });
 
 check('download.html sets a Content-Security-Policy', () => {
@@ -296,6 +323,15 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'urls.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/urls.js test suite failed');
+}
+
+// --- offline games ----------------------------------------------------
+console.log('offline games');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'offline.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/offline.js test suite failed');
 }
 
 // --- updater logic ----------------------------------------------------
