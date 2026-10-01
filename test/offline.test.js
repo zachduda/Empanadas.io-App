@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 const vm = require('vm');
 const {
-	GAMES, SCOPES, gameUrl, gameOf, isDashboardUrl, signInSignal, registerScript, createStore
+	GAMES, SCOPES, gameUrl, offlinePlayUrl, gameOf, isDashboardUrl, signInSignal, registerScript, createStore
 } = require('../lib/offline');
 
 const failures = [];
@@ -44,6 +44,17 @@ check('only the two games can be opened offline', () => {
 		assert.strictEqual(gameUrl(name), null, JSON.stringify(name) + ' was accepted');
 	}
 	assert(Object.isFrozen(GAMES), 'GAMES can be changed at runtime');
+});
+
+check('a game opened from the splash tells the worker the site is unreachable', () => {
+	// html/sw.js serves its stored copy at once for ?offline=1, and redirects
+	// to the plain address.
+	assert.strictEqual(offlinePlayUrl('spin'), 'https://empanadas.io/spin?offline=1');
+	assert.strictEqual(offlinePlayUrl('flappy'), 'https://empanadas.io/flappy?offline=1');
+	assert.strictEqual(offlinePlayUrl('dashboard'), null);
+	assert.strictEqual(offlinePlayUrl('__proto__'), null);
+	// If it fails anyway, the splash still names the game.
+	assert.strictEqual(gameOf(offlinePlayUrl('spin')), 'spin');
 });
 
 check('the worker scopes are the game pages and nothing wider', () => {
