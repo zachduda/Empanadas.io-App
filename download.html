@@ -2,11 +2,6 @@
 <head>
 <title>Empanadas.io</title>
 <meta charset="utf-8">
-<!-- This page ships inside the app, so everything it needs is local except the
-     ping to empanadas.io. Locking it down means an injected <script src> or a
-     redirected asset has nothing to load from. Note: re-enabling the remote
-     startup.js at the bottom of this file would need its origin added to
-     script-src. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'unsafe-inline'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file:; connect-src https://empanadas.io; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -90,11 +85,6 @@ body.offline-games img {
 	margin: 6px 10% 0;
 }
 </style>
-<!-- No crossorigin attribute: this is a local file loaded from a file:// page,
-     and asking for a CORS fetch of it makes Chromium block the stylesheet
-     outright ("Cross origin requests are only supported for protocol schemes:
-     ... http, https"). The attribute was silently killing every animation on
-     this page. -->
 <link rel="stylesheet" href="Content/CSS/animated.css">
 </head>
 <body>
@@ -111,20 +101,6 @@ body.offline-games img {
 </div>
 </footer>
 <script>
-// This page used to load jQuery 3.5.1 for two identical $.ajax calls. Chromium
-// has had fetch() for a decade, so the dependency bought nothing and cost a
-// 90 KB file that would need watching for advisories forever.
-//
-// The one behaviour worth keeping from $.ajax is `cache: false`, which appends
-// a changing query parameter so a cached 200 cannot stand in for the server
-// actually being reachable. The timeout is new: fetch() without one waits as
-// long as the OS lets it, which on a captive portal is a very long time.
-//
-// Inside the app the ping goes through the main process instead (see pingSite()
-// in main.js). A fetch() from this file:// page is a cross-origin request, and
-// the site answers with Access-Control-Allow-Origin: https://empanadas.io, so
-// Chromium throws the reply away and a working connection looked like none.
-// The fetch below is what a plain browser (the tests) still uses.
 const app = window.electronWindow || null;
 
 function ping(timeoutMs = 10000) {
@@ -146,8 +122,6 @@ function ping(timeoutMs = 10000) {
 		.finally(() => clearTimeout(timer));
 }
 
-// On a first run this used to store the new ID but leave `appid` undefined, so
-// the very first dashboard load went out as "&appid=undefined".
 let appid = localStorage.getItem("AppID");
 if(appid == null) {
 	appid = window.crypto.randomUUID();
@@ -162,8 +136,6 @@ const status = document.getElementById("status");
 const minwait = 2250;
 let noint = false;
 
-// Why the splash is up again, when main.js brought it back after a page
-// failed to load (?failed=1, and &game= when it was one of the games).
 const query = new URLSearchParams(window.location.search);
 const GAME_NAMES = { spin: "Spin", flappy: "Flappy" };
 const failedGame = Object.prototype.hasOwnProperty.call(GAME_NAMES, query.get("game")) ? query.get("game") : null;
@@ -173,9 +145,6 @@ const offlineNote = document.getElementById("offlinenote");
 const playRow = document.getElementById("playrow");
 let offlineShown = false;
 
-// While the site cannot be reached, offer the games if this account has them
-// stored (lib/offline.js). The retry loop keeps going underneath, and a
-// connection coming back still goes on to the dashboard.
 function showOfflineGames() {
 	if (offlineShown || !app || !app.offline) return;
 	offlineShown = true;
@@ -290,8 +259,6 @@ function download(ds) {
 	status.innerHTML = "Waiting for Server...";
 
 	ping().then(function(data) {
-		// Anything other than "Pong!" is left alone deliberately: the 10 second
-		// timer below is the fallback, same as before.
 		if(data == "Pong!") {
 			canFinish = true;
 			downloadsDone = true;
