@@ -74,6 +74,23 @@ for (const [what, needle] of [
 	check(what, () => assert(needle.test(mainSrc), 'main.js no longer matches ' + needle));
 }
 
+check('WebGL is switched off', () => {
+	for (const name of ['disable-webgl', 'disable-webgl2']) {
+		assert(mainSrc.includes("appendSwitch('" + name + "')"), 'main.js no longer appends ' + name);
+	}
+});
+
+// `npm start` once ran with the GPU process unsandboxed and inside the browser
+// process, so development was less safe than the installed app and drew
+// differently from it.
+check('nothing turns the sandbox off', () => {
+	const pkgScripts = JSON.stringify(require(path.join(root, 'package.json')).scripts);
+	for (const flag of ['no-sandbox', 'disable-gpu-sandbox', 'in-process-gpu', 'single-process']) {
+		assert(!mainSrc.includes("'" + flag + "'"), 'main.js appends ' + flag);
+		assert(!pkgScripts.includes('--' + flag), 'a package.json script passes --' + flag);
+	}
+});
+
 const urlsSrc = fs.readFileSync(path.join(root, 'lib', 'urls.js'), 'utf8');
 
 check('the app host is matched by parsed hostname', () => {

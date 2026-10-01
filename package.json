@@ -5,8 +5,8 @@
   "main": "main.js",
   "publisherName": "Empanadas.io",
   "scripts": {
-    "start": "electron --disable-gpu-sandbox --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --enable-native-gpu-memory-buffers --in-process-gpu --use-gl=desktop --enable-hardware-overlays  --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization --force-gpu-rasterization .",
-    "start:mac": "electron --enable-accelerated-mjpeg-decode --disable-webgl --disable-webgl2 --enable-accelerated-video --ignore-gpu-blacklist --no-default-browser-check --disable-background-networking --disable-extensions --disable-background-timer-throttling --enable-gpu-rasterization .",
+    "start": "electron .",
+    "start:mac": "electron .",
     "pack": "electron-builder --dir",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",

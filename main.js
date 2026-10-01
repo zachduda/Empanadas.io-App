@@ -59,7 +59,17 @@ let offlineStore = null;
 // deliberately - turning it on now would cut off anyone behind a corporate
 // proxy, including the updater's calls to api.github.com.
 // app.commandLine.appendSwitch('no-proxy-server')
-app.commandLine.appendSwitch('force_high_performance_gpu')
+
+// No GPU switches beyond these: the installed app should draw the way Chrome
+// does on the same machine. It used to force the discrete GPU
+// (force_high_performance_gpu), the one thing it did differently from Chrome,
+// and Flappy's canvas came out solid black on top of a menu that drew fine.
+//
+// Nothing on empanadas.io uses WebGL - the games draw on a 2D canvas - so it
+// is switched off, which is GPU attack surface the remote page no longer has.
+// `npm start` used to pass these on its own, so only development had them.
+app.commandLine.appendSwitch('disable-webgl')
+app.commandLine.appendSwitch('disable-webgl2')
 
 let win;
 
