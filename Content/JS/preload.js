@@ -43,23 +43,7 @@ contextBridge.exposeInMainWorld('empanadasUpdater', {
     return () => ipcRenderer.removeListener('updater:state', listener);
   },
 });
-
-// --- Window controls for pages without a titlebar ----------------------------
-//
-// The window is frameless on Windows and Linux, and the titlebar with its
-// minimize/maximize/close buttons is drawn by the site's PHP pages. The games
-// are static pages without one, and so is the splash: on those the window
-// could not be moved, minimized or closed except with Alt+F4, and Spin had no
-// way back to the dashboard. That matters most offline, where the games and
-// the splash are all there is.
-//
-// So on exactly those pages a small bar is drawn here, top centre where
-// neither game has controls. It lives in a closed shadow root, so the page's
-// styles cannot reach it and its styles cannot reach the page. A page that
-// grows its own titlebar opts out by marking it data-app-titlebar (or with
-// the data-app-window controls main.js already knows about).
-
-const CHROME_PAGES = ['/spin', '/spin.html', '/flappy', '/flappy.html'];
+const CHROME_PAGES = ['/spin', '/spin.html'];
 
 function wantsChrome() {
   if (location.protocol === 'file:') return /\/download\.html$/.test(location.pathname);
