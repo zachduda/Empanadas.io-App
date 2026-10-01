@@ -191,6 +191,123 @@ async function main() {
 
 			await ctx.close();
 		}
+		// --- a connection that hangs -----------------------------------------
+		// The ping gives up at 8s, before the 10s fallback, so the window ends
+		// on the offline screen. Both used to be 10s, and the fallback won:
+		// "Check Your Internet" flashed, the window went to a dashboard that
+		// could not load, and the splash started over.
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			let dashboard = null;
+			await ctx.route('https://empanadas.io/v2/ping.php*', () => { /* never answers */ });
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, body: 'ok' });
+			});
+
+			await page.goto(PAGE);
+			await page.waitForTimeout(4000);
+			const waiting = await page.textContent('#status');
+			await page.waitForTimeout(8000);
+			// Read without waiting: on the old timings the page was gone.
+			const msg = await page.evaluate(() => (document.getElementById('msg') || {}).textContent || null);
+			check('a slow answer says it is waiting', waiting === 'Waiting for Server...', waiting);
+			check('a ping that hangs ends on the offline screen', msg === 'Check Your Internet', msg);
+			check('a ping that hangs does not send the window to the dashboard', dashboard === null, String(dashboard));
+
+			await ctx.close();
+		}
+
+		// --- a quick failure goes straight to the offline screen -------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => new Promise((resolve) => setTimeout(resolve, 300, { ok: false, status: 0, pong: false })),
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+				window.__said = [];
+				document.addEventListener('DOMContentLoaded', () => {
+					const status = document.getElementById('status');
+					window.__said.push(status.textContent);
+					new MutationObserver(() => window.__said.push(status.textContent))
+						.observe(status, { childList: true, characterData: true, subtree: true });
+				});
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(1500);
+			const said = await page.evaluate(() => window.__said);
+			const msg = await page.textContent('#msg');
+			check('a quick failure shows the offline screen', msg === 'Check Your Internet', msg);
+			check('a quick failure does not flash "Waiting for Server..." first',
+				!said.includes('Waiting for Server...'), said.join(' | '));
+			await ctx.close();
+		}
+
+		// --- brought back by a page that failed: offline at once --------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.__pings = 0;
+				window.electronWindow = {
+					ping: () => { window.__pings++; return new Promise(() => {}); },
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+			await page.goto(PAGE + '?failed=1&game=flappy');
+			await page.waitForTimeout(400);
+			const view = await page.evaluate(() => ({
+				msg: document.getElementById('msg').textContent,
+				pings: window.__pings
+			}));
+			check('after a failed load, the offline screen is up at once', view.msg === 'Check Your Internet', view.msg);
+			check('after a failed load, it does not wait on a ping first', view.pings === 0, view.pings + ' pings');
+			await ctx.close();
+		}
+
+		// --- the browser goes offline, and comes back --------------------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			let dashboard = null;
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, body: 'ok' });
+			});
+			await page.addInitScript(() => {
+				window.__pings = 0;
+				window.electronWindow = {
+					ping: () => {
+						window.__pings++;
+						return Promise.resolve(navigator.onLine
+							? { ok: true, status: 200, pong: true } : { ok: false, status: 0, pong: false });
+					},
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+			await ctx.setOffline(true);
+			await page.goto(PAGE);
+			await page.waitForTimeout(300);
+			const view = await page.evaluate(() => ({
+				msg: document.getElementById('msg').textContent,
+				pings: window.__pings
+			}));
+			check('known to be offline, the offline screen is up at once', view.msg === 'Check Your Internet', view.msg);
+			check('known to be offline, no ping is waited on', view.pings === 0, view.pings + ' pings');
+
+			await ctx.setOffline(false);
+			await page.waitForTimeout(3500);
+			check('back online, it goes on without waiting for the next retry',
+				Boolean(dashboard) && dashboard.includes('retried_network=1'), String(dashboard));
+			await ctx.close();
+		}
+
 		// --- inside the app: the ping goes through the main process ---------
 		// A fetch() from this file:// page is dropped whenever the site sends
 		// Access-Control-Allow-Origin: https://empanadas.io. Here the network

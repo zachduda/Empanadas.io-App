@@ -290,7 +290,9 @@ function showSplash(failedUrl) {
 async function pingSite() {
 	const url = offline.SITE + '/v2/ping.php?usingnativeapp=1&firsthello=1&_=' + Date.now();
 	const abort = new AbortController();
-	const timer = setTimeout(() => abort.abort(), 10000);
+	// Under the splash's own 10 second fallback, so a connection that hangs
+	// ends on the offline screen rather than racing it to the dashboard.
+	const timer = setTimeout(() => abort.abort(), 8000);
 	try {
 		const res = await net.fetch(url, { cache: 'no-store', signal: abort.signal });
 		const body = res.ok ? (await res.text()).trim().slice(0, 64) : '';
@@ -674,7 +676,7 @@ function registerIpcHandlers() {
 		const w = target();
 		if (!url || !w || !offlineStore || !offlineStore.get().available) return false;
 		// A failure is handled by did-fail-load, which brings the splash back.
-		w.loadURL(url).catch(() => {});
+		w.loadURL(offline.offlinePlayUrl(name)).catch(() => {});
 		return true;
 	});
 	// "Back to the dashboard" from a game. Offline that fails to load, and
