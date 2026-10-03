@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('electronWindow', {
   // Is empanadas.io reachable? Asked from the main process, which CORS does
   // not apply to - see pingSite() in main.js. Resolves { ok, status, pong }.
   ping: () => ipcRenderer.invoke('app-ping'),
+  // Empties the app's cache but keeps cookies and saves - see clearAppCache()
+  // in main.js. Resolves { ok }, or null if the page is not empanadas.io.
+  clearCache: () => ipcRenderer.invoke('app-clear-cache'),
   // Offline games (lib/offline.js). status() resolves { signedIn, ready,
   // available }; play() opens 'spin' or 'flappy' when available is true.
   offline: {
