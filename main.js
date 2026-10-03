@@ -184,18 +184,20 @@ function lockDownPermissions() {
 // makes its absence visible during development instead of never.
 let cspReported = false;
 
-function reportMissingCsp(details) {
-	const isPageLoad = details.resourceType === 'mainFrame' && isAppUrl(details.url);
+function watchSiteCsp() {
+	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+		const isPageLoad = details.resourceType === 'mainFrame' && isAppUrl(details.url);
 
-	if (isPageLoad && !cspReported) {
-		const headers = details.responseHeaders || {};
-		const has = Object.keys(headers).some((name) =>
-			name.toLowerCase() === 'content-security-policy');
-		if (!has) {
-			cspReported = true;
-			console.warn(
-				'[security] ' + details.url + ' served no Content-Security-Policy ' +
-				'header. See "Site headers" in the README for the recommended set.');
+		if (isPageLoad && !cspReported) {
+			const headers = details.responseHeaders || {};
+			const has = Object.keys(headers).some((name) =>
+				name.toLowerCase() === 'content-security-policy');
+			if (!has) {
+				cspReported = true;
+				console.warn(
+					'[security] ' + details.url + ' served no Content-Security-Policy ' +
+					'header. See "Site headers" in SECURITY.md for the recommended set.');
+			}
 		}
 	}
 }
