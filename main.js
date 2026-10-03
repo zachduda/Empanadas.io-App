@@ -269,6 +269,26 @@ function enableOfflineGames(contents) {
 		.finally(() => clearTimeout(timer));
 }
 
+// "Clear cache" on the account page. Only what can be fetched again: the HTTP
+// cache, compiled scripts, shaders and DNS. Cookies are left alone (UAK and the
+// session are the sign-in), and so is localStorage (the games' saves), and the
+// offline games' worker and its copies - that worker is network first, so it
+// never serves anything stale while the site is reachable.
+async function clearAppCache() {
+	const ses = session.defaultSession;
+	const results = await Promise.allSettled([
+		ses.clearCache(),
+		ses.clearCodeCaches({}),
+		ses.clearStorageData({ storages: ['shadercache'] }),
+		ses.clearHostResolverCache()
+	]);
+	const failed = results.filter((r) => r.status === 'rejected');
+	for (const r of failed) {
+		console.warn('[cache] could not clear part of the cache: ' + (r.reason && r.reason.message));
+	}
+	return { ok: failed.length === 0 };
+}
+
 // The splash, with a note of what failed to load, if anything.
 function showSplash(failedUrl) {
 	if (!win || win.isDestroyed()) return;
@@ -668,6 +688,7 @@ function registerIpcHandlers() {
 	handle('update-state', () => updater.getState());
 
 	handle('app-ping', () => pingSite());
+	handle('app-clear-cache', () => clearAppCache());
 	handle('offline-status', () => offlineStore ? offlineStore.get() : { signedIn: false, ready: false, available: false });
 	// Opens one of the stored games. Only the names in lib/offline.js, and
 	// only while signed in: offline play is for accounts, as the app is.

@@ -145,6 +145,20 @@ check('the splash asks the main process whether the site is up', () => {
 	assert(/handle\('app-ping'/.test(mainSrc), "main.js no longer answers 'app-ping'");
 });
 
+// The account page's "Clear cache" button must not sign anyone out or lose
+// their saves.
+check('clearing the cache keeps cookies and saves', () => {
+	assert(/handle\('app-clear-cache'/.test(mainSrc), "main.js no longer answers 'app-clear-cache'");
+	const start = mainSrc.indexOf('async function clearAppCache()');
+	assert(start >= 0, 'clearAppCache() is gone from main.js');
+	const body = mainSrc.slice(start, mainSrc.indexOf('\n}\n', start));
+	for (const kept of ['cookies', 'localstorage', 'indexdb', 'serviceworkers', 'cachestorage']) {
+		assert(!body.includes("'" + kept + "'"), 'clearAppCache() now clears ' + kept);
+	}
+	assert(/clearStorageData\(\{ storages: \[/.test(body),
+		'clearAppCache() calls clearStorageData() without naming storages, which clears everything');
+});
+
 check('the injected window controls are sealed off from the page', () => {
 	const preloadSrc = fs.readFileSync(path.join(root, 'Content', 'JS', 'preload.js'), 'utf8');
 	assert(/attachShadow\(\{ mode: 'closed' \}\)/.test(preloadSrc),
