@@ -199,14 +199,14 @@ function watchSiteCsp() {
 					'header. See "Site headers" in SECURITY.md for the recommended set.');
 			}
 		}
-	}
+	});
 }
 
 // Electron allows one onHeadersReceived listener per session, so everything
 // that reads responses goes through this one.
 function watchResponses() {
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-		reportMissingCsp(details);
+		watchSiteCsp(details);
 		trackSignIn(details);
 		callback({ responseHeaders: details.responseHeaders });
 	});
