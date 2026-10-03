@@ -1,11 +1,5 @@
 # Validates the app on every push and PR, and builds installable artifacts for
 # the platforms this app actually ships on.
-#
-# This does NOT publish. Releases are still cut by hand, because the Windows
-# installer has to be Authenticode-signed and the macOS build has to be signed
-# and notarized before either is fit to hand to a user - and the updater
-# refuses anything that is not. The artifacts here are unsigned test builds:
-# fine for checking that a change packages and launches, not fine to release.
 
 name: Node.js CI
 
@@ -26,7 +20,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [22.x]
+        node-version: [26.x]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:

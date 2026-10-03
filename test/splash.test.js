@@ -191,6 +191,247 @@ async function main() {
 
 			await ctx.close();
 		}
+		// --- a connection that hangs -----------------------------------------
+		// The ping gives up at 8s, before the 10s fallback, so the window ends
+		// on the offline screen. Both used to be 10s, and the fallback won:
+		// "Check Your Internet" flashed, the window went to a dashboard that
+		// could not load, and the splash started over.
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			let dashboard = null;
+			await ctx.route('https://empanadas.io/v2/ping.php*', () => { /* never answers */ });
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, body: 'ok' });
+			});
+
+			await page.goto(PAGE);
+			await page.waitForTimeout(4000);
+			const waiting = await page.textContent('#status');
+			await page.waitForTimeout(8000);
+			// Read without waiting: on the old timings the page was gone.
+			const msg = await page.evaluate(() => (document.getElementById('msg') || {}).textContent || null);
+			check('a slow answer says it is waiting', waiting === 'Waiting for Server...', waiting);
+			check('a ping that hangs ends on the offline screen', msg === 'Check Your Internet', msg);
+			check('a ping that hangs does not send the window to the dashboard', dashboard === null, String(dashboard));
+
+			await ctx.close();
+		}
+
+		// --- a quick failure goes straight to the offline screen -------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => new Promise((resolve) => setTimeout(resolve, 300, { ok: false, status: 0, pong: false })),
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+				window.__said = [];
+				document.addEventListener('DOMContentLoaded', () => {
+					const status = document.getElementById('status');
+					window.__said.push(status.textContent);
+					new MutationObserver(() => window.__said.push(status.textContent))
+						.observe(status, { childList: true, characterData: true, subtree: true });
+				});
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(1500);
+			const said = await page.evaluate(() => window.__said);
+			const msg = await page.textContent('#msg');
+			check('a quick failure shows the offline screen', msg === 'Check Your Internet', msg);
+			check('a quick failure does not flash "Waiting for Server..." first',
+				!said.includes('Waiting for Server...'), said.join(' | '));
+			await ctx.close();
+		}
+
+		// --- brought back by a page that failed: offline at once --------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.__pings = 0;
+				window.electronWindow = {
+					ping: () => { window.__pings++; return new Promise(() => {}); },
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+			await page.goto(PAGE + '?failed=1&game=flappy');
+			await page.waitForTimeout(400);
+			const view = await page.evaluate(() => ({
+				msg: document.getElementById('msg').textContent,
+				pings: window.__pings
+			}));
+			check('after a failed load, the offline screen is up at once', view.msg === 'Check Your Internet', view.msg);
+			check('after a failed load, it does not wait on a ping first', view.pings === 0, view.pings + ' pings');
+			await ctx.close();
+		}
+
+		// --- the browser goes offline, and comes back --------------------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			let dashboard = null;
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, body: 'ok' });
+			});
+			await page.addInitScript(() => {
+				window.__pings = 0;
+				window.electronWindow = {
+					ping: () => {
+						window.__pings++;
+						return Promise.resolve(navigator.onLine
+							? { ok: true, status: 200, pong: true } : { ok: false, status: 0, pong: false });
+					},
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+			await ctx.setOffline(true);
+			await page.goto(PAGE);
+			await page.waitForTimeout(300);
+			const view = await page.evaluate(() => ({
+				msg: document.getElementById('msg').textContent,
+				pings: window.__pings
+			}));
+			check('known to be offline, the offline screen is up at once', view.msg === 'Check Your Internet', view.msg);
+			check('known to be offline, no ping is waited on', view.pings === 0, view.pings + ' pings');
+
+			await ctx.setOffline(false);
+			await page.waitForTimeout(3500);
+			check('back online, it goes on without waiting for the next retry',
+				Boolean(dashboard) && dashboard.includes('retried_network=1'), String(dashboard));
+			await ctx.close();
+		}
+
+		// --- inside the app: the ping goes through the main process ---------
+		// A fetch() from this file:// page is dropped whenever the site sends
+		// Access-Control-Allow-Origin: https://empanadas.io. Here the network
+		// route answers exactly that way, and the page must not depend on it.
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			let dashboard = null;
+			let fetched = 0;
+			await ctx.route('https://empanadas.io/v2/ping.php*', (route) => {
+				fetched++;
+				return route.fulfill({ status: 200, contentType: 'text/plain', body: 'Pong!',
+					headers: { 'Access-Control-Allow-Origin': 'https://empanadas.io' } });
+			});
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, contentType: 'text/html', body: 'ok' });
+			});
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => Promise.resolve({ ok: true, status: 200, pong: true }),
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+
+			await page.goto(PAGE);
+			await page.waitForTimeout(3500);
+			check('in the app, the ping is asked of the main process, not fetched', fetched === 0, fetched + ' fetches');
+			check('in the app, a pong goes on to the dashboard (sucessfulstart)',
+				Boolean(dashboard) && dashboard.includes('sucessfulstart=1'), String(dashboard));
+
+			await ctx.close();
+		}
+
+		// --- offline, signed in, games stored: they are offered ---------------
+		{
+			const ctx = await browser.newContext({ viewport: { width: 1100, height: 700 } });
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.__played = [];
+				window.electronWindow = {
+					ping: () => Promise.resolve({ ok: false, status: 0, pong: false }),
+					offline: {
+						status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: (game) => { window.__played.push(game); return Promise.resolve(true); }
+					}
+				};
+			});
+
+			await page.goto(PAGE);
+			await page.waitForTimeout(1500);
+			const view = await page.evaluate(() => ({
+				msg: document.getElementById('msg').textContent,
+				shown: getComputedStyle(document.getElementById('offline')).display !== 'none',
+				buttons: [...document.querySelectorAll('#playrow button')]
+					.filter((b) => b.offsetParent !== null).map((b) => b.textContent),
+				note: document.getElementById('offlinenote').textContent,
+				// Everything has to fit the smallest window (minHeight 480).
+				bottom: Math.max(...[...document.querySelectorAll('#playrow button, #offlinenote')]
+					.map((el) => el.getBoundingClientRect().bottom))
+			}));
+			check('offline with the games stored, the offline state still shows', view.msg === 'Check Your Internet', view.msg);
+			check('offline with the games stored, they are offered', view.shown && view.buttons.join() === 'Play Spin,Play Flappy',
+				view.buttons.join());
+			check('the offer says progress is kept and synced', /syncs when you're back online/.test(view.note), view.note);
+			check('the offer fits in the window', view.bottom <= 700, 'bottom at ' + view.bottom + 'px');
+			await page.setViewportSize({ width: 975, height: 480 });
+			await page.waitForTimeout(700);
+			const small = await page.evaluate(() => Math.max(...[...document.querySelectorAll('#playrow button, #offlinenote')]
+				.map((el) => el.getBoundingClientRect().bottom)));
+			check('the offer fits the smallest window too', small <= 480, 'bottom at ' + small + 'px');
+
+			await page.click('#playrow button[data-game="flappy"]');
+			await page.waitForTimeout(200);
+			const played = await page.evaluate(() => window.__played);
+			check('a play button asks the app for that game', played.join() === 'flappy', played.join());
+
+			await ctx.close();
+		}
+
+		// --- offline, never signed in: no games, and why ----------------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => Promise.resolve({ ok: false, status: 0, pong: false }),
+					offline: { status: () => Promise.resolve({ signedIn: false, ready: false, available: false }),
+						play: () => Promise.resolve(false) }
+				};
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(1500);
+			const view = await page.evaluate(() => ({
+				buttons: [...document.querySelectorAll('#playrow button')].filter((b) => b.offsetParent !== null).length,
+				note: document.getElementById('offlinenote').textContent
+			}));
+			check('signed out, no games are offered offline', view.buttons === 0, view.buttons + ' buttons');
+			check('signed out, it says a sign-in unlocks them', /Sign in once/.test(view.note), view.note);
+			await ctx.close();
+		}
+
+		// --- a game failed to load: say which ---------------------------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => Promise.resolve({ ok: false, status: 0, pong: false }),
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+			await page.goto(PAGE + '?failed=1&game=spin');
+			await page.waitForTimeout(1500);
+			const note = await page.textContent('#offlinenote');
+			check('a game that failed to load is named', /^Spin couldn't load/.test(note), note);
+			await page.goto(PAGE + '?failed=1&game=<img src=x>');
+			await page.waitForTimeout(1500);
+			const other = await page.textContent('#offlinenote');
+			check('an unknown game name is not echoed', !/img/.test(other), other);
+			await ctx.close();
+		}
 	} finally {
 		await browser.close();
 	}

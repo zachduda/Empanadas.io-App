@@ -102,6 +102,29 @@ let busy = false;
 let lastManualCheck = 0;
 let timer = null;
 
+// The version the user said "Not now" or "Later" to. Background checks run
+// every six hours and used to ask again each time - a modal dialog over the
+// game, for an update the user had already turned down. Now only a check the
+// user asks for (the menu, or the site's update banner) asks again this run.
+// status is what to report meanwhile: 'declined', or 'ready' when the update
+// was downloaded and verified but "Later" was chosen at the install prompt.
+let declined = null;
+
+// Dialogs are parented to the main window so they are modal to it and cannot
+// open behind it. main.js supplies the window; see setWindowProvider().
+let windowProvider = () => null;
+
+function setWindowProvider(fn) {
+	windowProvider = typeof fn === 'function' ? fn : () => null;
+}
+
+function showDialog(options) {
+	const parent = windowProvider();
+	return parent && !parent.isDestroyed()
+		? dialog.showMessageBox(parent, options)
+		: dialog.showMessageBox(options);
+}
+
 function log(...args) {
 	console.log('[updater]', ...args);
 }
@@ -822,7 +845,7 @@ async function checkForUpdates({ silent = true } = {}) {
 		if (compareVersions(latest, current) <= 0) {
 			setState({ status: 'up-to-date', version: current });
 			if (!silent) {
-				await dialog.showMessageBox({
+				await showDialog({
 					type: 'info',
 					title: 'Empanadas.io',
 					message: 'You are up to date!',
@@ -847,7 +870,7 @@ async function checkForUpdates({ silent = true } = {}) {
 			log('update available but not installable here:', blocked);
 			setState({ status: 'available', version: latest });
 			if (!silent) {
-				const { response } = await dialog.showMessageBox({
+				const { response } = await showDialog({
 					type: 'info',
 					title: 'Update available',
 					message: 'Empanadas.io ' + latest + ' is available.',
@@ -862,10 +885,16 @@ async function checkForUpdates({ silent = true } = {}) {
 			return state;
 		}
 
+		if (silent && declined && declined.version === latest) {
+			log('update ' + latest + ' was declined this session; not asking again');
+			setState({ status: declined.status, version: latest });
+			return state;
+		}
+
 		const asset = pickAsset(release);
 		setState({ status: 'available', version: latest });
 
-		const askDownload = await dialog.showMessageBox({
+		const askDownload = await showDialog({
 			type: 'question',
 			title: 'Update available',
 			message: 'Empanadas.io ' + latest + ' is available.',
@@ -883,6 +912,7 @@ async function checkForUpdates({ silent = true } = {}) {
 			return state;
 		}
 		if (askDownload.response !== 0) {
+			declined = { version: latest, status: 'declined' };
 			setState({ status: 'declined', version: latest });
 			return state;
 		}
@@ -940,7 +970,7 @@ async function checkForUpdates({ silent = true } = {}) {
 		// --- install -------------------------------------------------
 		setState({ status: 'ready', version: latest, progress: 1 });
 
-		const { response } = await dialog.showMessageBox({
+		const { response } = await showDialog({
 			type: 'info',
 			title: 'Update ready',
 			message: 'Empanadas.io ' + latest + ' is verified and ready to install.',
@@ -953,6 +983,7 @@ async function checkForUpdates({ silent = true } = {}) {
 		});
 
 		if (response !== 0) {
+			declined = { version: latest, status: 'ready' };
 			setState({ status: 'ready', version: latest });
 			return state;
 		}
@@ -992,7 +1023,7 @@ async function checkForUpdates({ silent = true } = {}) {
 		}
 
 		if (!silent) {
-			await dialog.showMessageBox({
+			await showDialog({
 				type: 'error',
 				title: 'Update failed',
 				message: 'Could not update Empanadas.io.',
@@ -1033,6 +1064,7 @@ module.exports = {
 	CONFIG,
 	start,
 	stop,
+	setWindowProvider,
 	checkForUpdates,
 	checkFromRenderer,
 	getState: () => state,

@@ -33,7 +33,8 @@ function assert(condition, message) {
 // ever parse them.
 console.log('syntax');
 
-const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'Content/JS/preload.js',
+const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/offline.js',
+	'Content/JS/preload.js', 'Content/JS/auth-preload.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js'];
 
 for (const file of sources) {
@@ -65,13 +66,90 @@ for (const [what, needle] of [
 	['node integration is off', /nodeIntegration:\s*false/],
 	['the renderer is sandboxed', /sandbox:\s*true/],
 	['the webview tag is disabled', /webviewTag:\s*false/],
-	['navigation is filtered by host, not by string prefix', /function isAppUrl/],
+	['navigation is filtered by host, not by string prefix', /require\('\.\/lib\/urls'\)/],
 	['redirects are filtered too', /'will-redirect'/],
-	['new windows are denied', /setWindowOpenHandler/],
+	['new windows go through setWindowOpenHandler', /setWindowOpenHandler/],
 	['permissions are denied by default', /setPermissionRequestHandler/]
 ]) {
 	check(what, () => assert(needle.test(mainSrc), 'main.js no longer matches ' + needle));
 }
+
+check('WebGL is switched off', () => {
+	for (const name of ['disable-webgl', 'disable-webgl2']) {
+		assert(mainSrc.includes("appendSwitch('" + name + "')"), 'main.js no longer appends ' + name);
+	}
+});
+
+// `npm start` once ran with the GPU process unsandboxed and inside the browser
+// process, so development was less safe than the installed app and drew
+// differently from it.
+check('nothing turns the sandbox off', () => {
+	const pkgScripts = JSON.stringify(require(path.join(root, 'package.json')).scripts);
+	for (const flag of ['no-sandbox', 'disable-gpu-sandbox', 'in-process-gpu', 'single-process']) {
+		assert(!mainSrc.includes("'" + flag + "'"), 'main.js appends ' + flag);
+		assert(!pkgScripts.includes('--' + flag), 'a package.json script passes --' + flag);
+	}
+});
+
+const urlsSrc = fs.readFileSync(path.join(root, 'lib', 'urls.js'), 'utf8');
+
+check('the app host is matched by parsed hostname', () => {
+	assert(/function isAppUrl/.test(urlsSrc), 'lib/urls.js no longer defines isAppUrl');
+	assert(/new URL\(url\)/.test(urlsSrc), 'lib/urls.js no longer parses the URL');
+});
+
+// The sign-in popup is the one window the site is allowed to raise, so the
+// terms it is allowed on are worth pinning down.
+check('the sign-in popup is the only window the page can open', () => {
+	assert(/const fromSite = isAppUrl\(contents\.getURL\(\)\) && !authContents\.has\(contents\)/.test(mainSrc),
+		'main.js no longer restricts window.open to popups raised by the site');
+	assert(/fromSite && isSignInPopupRequest\(url, disposition\)/.test(mainSrc),
+		'main.js no longer gates the popup on isSignInPopupRequest()');
+	assert(/isAuthUrl\(url\) \|\| \(isAppUrl\(url\) && disposition === 'new-window'\)/.test(mainSrc),
+		'a sign-in popup is no longer limited to a provider or a sized window.open() of the site');
+	assert(/action:\s*'deny'/.test(mainSrc), 'main.js no longer denies other windows');
+});
+
+check('the sign-in popup cannot leave the sign-in hosts', () => {
+	assert(/if \(!isPopupUrl\(url\)\)/.test(mainSrc),
+		'the popup navigation guard no longer checks isPopupUrl()');
+});
+
+check('the sign-in popup does not inherit the preload', () => {
+	assert(/preload:\s*AUTH_PRELOAD/.test(mainSrc),
+		'the auth window does not name its own preload, so it inherits the app bridge');
+	const authPreload = fs.readFileSync(
+		path.join(root, 'Content', 'JS', 'auth-preload.js'), 'utf8');
+	assert(!/contextBridge|ipcRenderer/.test(authPreload),
+		'Content/JS/auth-preload.js must expose nothing');
+});
+
+// Offline play opens pages without a connection, so what it may open and when
+// it stops are pinned here. See lib/offline.js.
+check('offline play only opens the listed games, and only while signed in', () => {
+	assert(/const url = offline\.gameUrl\(name\);/.test(mainSrc),
+		"the 'offline-play' handler no longer resolves the game through offline.gameUrl()");
+	assert(/!offlineStore\.get\(\)\.available\) return false;/.test(mainSrc),
+		"the 'offline-play' handler no longer checks that offline play is available");
+});
+
+check('signing out deletes the stored games', () => {
+	assert(/storages:\s*\['serviceworkers', 'cachestorage'\]/.test(mainSrc),
+		'main.js no longer clears the offline worker and its cache on sign-out');
+});
+
+check('the splash asks the main process whether the site is up', () => {
+	// A fetch() from the file:// splash is dropped by CORS whenever the site
+	// sends its own origin in Access-Control-Allow-Origin.
+	assert(/app\.ping\(\)/.test(htmlSrc), 'download.html no longer uses electronWindow.ping()');
+	assert(/handle\('app-ping'/.test(mainSrc), "main.js no longer answers 'app-ping'");
+});
+
+check('the injected window controls are sealed off from the page', () => {
+	const preloadSrc = fs.readFileSync(path.join(root, 'Content', 'JS', 'preload.js'), 'utf8');
+	assert(/attachShadow\(\{ mode: 'closed' \}\)/.test(preloadSrc),
+		'the window controls are no longer in a closed shadow root');
+});
 
 check('download.html sets a Content-Security-Policy', () => {
 	assert(/http-equiv=["']Content-Security-Policy["']/i.test(htmlSrc), 'no CSP meta tag');
@@ -253,6 +331,24 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'pgp.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/pgp.js test suite failed');
+}
+
+// --- navigation and sign-in policy ------------------------------------
+console.log('url policy');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'urls.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/urls.js test suite failed');
+}
+
+// --- offline games ----------------------------------------------------
+console.log('offline games');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'offline.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/offline.js test suite failed');
 }
 
 // --- updater logic ----------------------------------------------------

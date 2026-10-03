@@ -2,11 +2,6 @@
 <head>
 <title>Empanadas.io</title>
 <meta charset="utf-8">
-<!-- This page ships inside the app, so everything it needs is local except the
-     ping to empanadas.io. Locking it down means an injected <script src> or a
-     redirected asset has nothing to load from. Note: re-enabling the remote
-     startup.js at the bottom of this file would need its origin added to
-     script-src. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file: 'unsafe-inline'; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; font-src 'self' file:; connect-src https://empanadas.io; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -48,12 +43,48 @@ footer p {
 	font-weight:300;
 	color:#abbefc;
 }
+
+/* Offline games. Hidden until the site cannot be reached and main.js says the
+   account has them (see lib/offline.js). */
+#offline {
+	display: none;
+	margin-top: 22px;
+}
+/* !important: noInt() sets the logo's margin inline. */
+body.offline-games img {
+	width: 12% !important;
+	margin-top: 56px !important;
+}
+.play-row {
+	display: flex;
+	justify-content: center;
+	gap: 14px;
+	margin: 14px 0 8px;
+}
+.play-row button {
+	font-family: poppins, sans-serif;
+	font-size: 18px;
+	font-weight: 700;
+	color: #1e1e91;
+	background: #ffc83d;
+	border: 0;
+	border-radius: 999px;
+	padding: 11px 28px;
+	cursor: pointer;
+	box-shadow: 0 4px 0 #c9921a;
+	transition: transform .1s ease, box-shadow .1s ease, background .15s ease;
+}
+.play-row button:hover { background: #ffd566; }
+.play-row button:active { transform: translateY(3px); box-shadow: 0 1px 0 #c9921a; }
+.play-row button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.play-row button:disabled { opacity: .6; cursor: default; }
+#offlinenote {
+	font-size: 15px;
+	font-weight: 300;
+	color: #abbefc;
+	margin: 6px 10% 0;
+}
 </style>
-<!-- No crossorigin attribute: this is a local file loaded from a file:// page,
-     and asking for a CORS fetch of it makes Chromium block the stylesheet
-     outright ("Cross origin requests are only supported for protocol schemes:
-     ... http, https"). The attribute was silently killing every animation on
-     this page. -->
 <link rel="stylesheet" href="Content/CSS/animated.css">
 </head>
 <body>
@@ -61,17 +92,27 @@ footer p {
 <div class="animated fadeInUp" style="animation-delay:500ms;margin-top:20px;font-weight:1000;" id="msg">Empanadas.io</div>
 <footer>
 <p class="animated fadeInUp" style="animation-delay:525ms;" id="status">Communicating to Server...</p>
+<div id="offline" class="animated fadeInUp faster" role="group" aria-labelledby="offlinenote">
+	<div class="play-row" id="playrow">
+		<button type="button" data-game="spin">Play Spin</button>
+		<button type="button" data-game="flappy">Play Flappy</button>
+	</div>
+	<p id="offlinenote"></p>
+</div>
 </footer>
 <script>
-// This page used to load jQuery 3.5.1 for two identical $.ajax calls. Chromium
-// has had fetch() for a decade, so the dependency bought nothing and cost a
-// 90 KB file that would need watching for advisories forever.
-//
-// The one behaviour worth keeping from $.ajax is `cache: false`, which appends
-// a changing query parameter so a cached 200 cannot stand in for the server
-// actually being reachable. The timeout is new: fetch() without one waits as
-// long as the OS lets it, which on a captive portal is a very long time.
-function ping(timeoutMs = 10000) {
+const app = window.electronWindow || null;
+
+// 8 seconds, like the main process's own ping: a connection that hangs has to
+// be decided before the 10 second fallback at the bottom sends the window to
+// the dashboard anyway.
+function ping(timeoutMs = 8000) {
+	if (app && typeof app.ping === "function") {
+		return app.ping().then(function(res) {
+			if (!res || !res.ok) throw new Error("HTTP " + (res ? res.status : 0));
+			return res.pong ? "Pong!" : "";
+		});
+	}
 	const url = "https://empanadas.io/v2/ping.php?usingnativeapp=1&firsthello=1&_=" + Date.now();
 	const abort = new AbortController();
 	const timer = setTimeout(() => abort.abort(), timeoutMs);
@@ -84,8 +125,6 @@ function ping(timeoutMs = 10000) {
 		.finally(() => clearTimeout(timer));
 }
 
-// On a first run this used to store the new ID but leave `appid` undefined, so
-// the very first dashboard load went out as "&appid=undefined".
 let appid = localStorage.getItem("AppID");
 if(appid == null) {
 	appid = window.crypto.randomUUID();
@@ -98,97 +137,182 @@ const logo = document.getElementById("logo");
 const msg = document.getElementById("msg");
 const status = document.getElementById("status");
 const minwait = 2250;
+// noint: showing "Check Your Internet". leaving: on the way to the dashboard,
+// which nothing turns back - if that load fails, main.js brings this page back
+// with ?failed=1.
 let noint = false;
+let leaving = false;
+
+const query = new URLSearchParams(window.location.search);
+const GAME_NAMES = { spin: "Spin", flappy: "Flappy" };
+const failedGame = Object.prototype.hasOwnProperty.call(GAME_NAMES, query.get("game")) ? query.get("game") : null;
+// A page of the site has just failed to load (see showSplash() in main.js).
+const failedBefore = query.get("failed") === "1";
+
+const offlineBox = document.getElementById("offline");
+const offlineNote = document.getElementById("offlinenote");
+const playRow = document.getElementById("playrow");
+let offlineShown = false;
+
+function showOfflineGames() {
+	if (offlineShown || !app || !app.offline) return;
+	offlineShown = true;
+	app.offline.status().then(function(state) {
+		if (!noint || !state) return;
+		if (state.available) {
+			playRow.style.display = null;
+			offlineNote.textContent = failedGame
+				? GAME_NAMES[failedGame] + " couldn't load. Try again, or pick the other game."
+				: "You can still play offline. Your progress is saved on this device and syncs when you're back online.";
+			document.body.classList.add("offline-games");
+		} else {
+			playRow.style.display = "none";
+			offlineNote.textContent = state.signedIn
+				? "Connect once more to finish downloading the games for offline play."
+				: "Sign in once while you're online, and you can play Spin and Flappy offline too.";
+		}
+		offlineBox.style.display = "block";
+	}).catch(function() {
+		offlineShown = false;
+	});
+}
+
+function hideOfflineGames() {
+	offlineShown = false;
+	offlineBox.style.display = "none";
+	document.body.classList.remove("offline-games");
+}
+
+playRow.addEventListener("click", function(e) {
+	const button = e.target.closest("button[data-game]");
+	if (!button || !app || !app.offline) return;
+	const buttons = playRow.querySelectorAll("button");
+	for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+	button.textContent = "Loading...";
+	app.offline.play(button.getAttribute("data-game")).then(function(started) {
+		if (started) return;
+		for (let i = 0; i < buttons.length; i++) buttons[i].disabled = false;
+		button.textContent = "Play " + GAME_NAMES[button.getAttribute("data-game")];
+		offlineShown = false;
+		showOfflineGames();
+	});
+});
+
+const noinmsg = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
+const RETRY_MS = 5000;
+let retryTimer = null;
+let retrying = false;
+
 function noInt() {
-	allowdownload = true;
-	let noinmsg = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
+	if (leaving) return;
 	if(!noint) {
+		noint = true;
 		logo.src = "Content/Images/jeff.gif";
 		logo.style.marginTop = "120px";
 		msg.innerHTML = "Check Your Internet";
 		status.innerHTML = noinmsg;
 	}
-	noint = true;
-	setTimeout(function(){
-		ping().then(function() {
-			noint = false;
-			status.innerHTML = "Connected!";
-			finishedLoading("&retried_network=1", true);
-		}).catch(function() {
-			status.innerHTML = noinmsg;
-			noInt();
-		});
-	}, 5000);
-}
-function finishedLoading(params="", force=false) {
-	if((navigator.onLine && !noint) || force) {
-		allowdownload = false;
-		const end = Date.now();	
-		setTimeout(function(){ 
-			setTimeout(function(){ 
-				if(!navigator.onLine && !force) {
-					noInt();
-					return;
-				}
-				msg.style.display = "none";
-				logo.style.display = "none";
-				status.style.display = "none";
-				msg.classList.remove("animated", "fadeOut", "faster");
-				logo.classList.remove("animated", "fadeOut", "faster");
-				status.classList.remove("animated", "fadeOut", "faster");
-				console.log("GO: " + params);
-				window.location.href = appbase+appparam+params+"&appid="+encodeURIComponent(appid);
-			}, 480);
-			logo.classList.remove("animated", "fadeIn", "faster");
-			msg.classList.remove("animated", "fadeInUp");
-			status.classList.remove("animated", "fadeInUp");
-			logo.style.animationDelay = "0s";
-			msg.style.animationDelay = "0s";
-			status.style.animationDelay = "0s";
-			setTimeout(function(){ 
-			msg.classList.add("animated", "fadeOut", "faster");
-			logo.classList.add("animated", "fadeOut", "faster");
-			status.classList.add("animated", "fadeOut", "faster");
-			}, 250);
-		}, minwait-(end-start));
-	} else {
-		noInt();
-	}
+	showOfflineGames();
+	if (retryTimer === null && !retrying) retryTimer = setTimeout(retry, RETRY_MS);
 }
 
-let allowdownload = true;
-let downloaded = 0;
-let canFinish = false;
-let downloadsDone = false;
-function download(ds) {
-	if(!navigator.onLine || noint) { allowdownload = false; noInt(); return; }
-	if(!allowdownload) { return; }
-	
-	status.innerHTML = "Waiting for Server...";
+// One ping at a time, whether from the timer or the "online" event.
+function retry() {
+	clearTimeout(retryTimer);
+	retryTimer = null;
+	if (retrying || leaving || !noint) return;
+	retrying = true;
+	ping().then(function() {
+		retrying = false;
+		noint = false;
+		hideOfflineGames();
+		status.innerHTML = "Connected!";
+		finishedLoading("&retried_network=1", true);
+	}).catch(function() {
+		retrying = false;
+		status.innerHTML = noinmsg;
+		noInt();
+	});
+}
+
+function finishedLoading(params="", force=false) {
+	if (leaving) return;
+	if(!force && (!navigator.onLine || noint)) {
+		noInt();
+		return;
+	}
+	leaving = true;
+	clearTimeout(retryTimer);
+	retryTimer = null;
+	const end = Date.now();
+	setTimeout(function(){ 
+		setTimeout(function(){ 
+			msg.style.display = "none";
+			logo.style.display = "none";
+			status.style.display = "none";
+			msg.classList.remove("animated", "fadeOut", "faster");
+			logo.classList.remove("animated", "fadeOut", "faster");
+			status.classList.remove("animated", "fadeOut", "faster");
+			console.log("GO: " + params);
+			window.location.href = appbase+appparam+params+"&appid="+encodeURIComponent(appid);
+		}, 480);
+		logo.classList.remove("animated", "fadeIn", "faster");
+		msg.classList.remove("animated", "fadeInUp");
+		status.classList.remove("animated", "fadeInUp");
+		logo.style.animationDelay = "0s";
+		msg.style.animationDelay = "0s";
+		status.style.animationDelay = "0s";
+		setTimeout(function(){ 
+		msg.classList.add("animated", "fadeOut", "faster");
+		logo.classList.add("animated", "fadeOut", "faster");
+		status.classList.add("animated", "fadeOut", "faster");
+		}, 250);
+	}, minwait-(end-start));
+}
+
+function download() {
+	// Nothing to wait for: the browser knows it has no connection, or a page
+	// of the site has just failed to load. The offline screen goes up at once
+	// and the retries find out when the site is back.
+	if(navigator.onLine === false || failedBefore) {
+		noInt();
+		return;
+	}
+
+	// Only said if the answer is slow. A quick failure goes straight to the
+	// offline screen, rather than flashing this first.
+	const slow = setTimeout(function() {
+		if (!noint && !leaving) status.innerHTML = "Waiting for Server...";
+	}, 2500);
 
 	ping().then(function(data) {
-		// Anything other than "Pong!" is left alone deliberately: the 10 second
-		// timer below is the fallback, same as before.
 		if(data == "Pong!") {
-			canFinish = true;
-			downloadsDone = true;
 			logo.style.marginTop = "200px";
 			status.innerHTML = "";
 			finishedLoading("&sucessfulstart=1");
 		}
 	}).catch(function() {
-		allowdownload = false;
 		noInt();
+	}).finally(function() {
+		clearTimeout(slow);
 	});
 }
 
+// The site answered, but not with "Pong!": go anyway.
 setTimeout(function(){
 	if(navigator.onLine && !noint) {
 		finishedLoading("&forceapptimeout=1");
 	}
 }, 10000);
 
-download(null);
+window.addEventListener("offline", function() {
+	noInt();
+});
+window.addEventListener("online", function() {
+	retry();
+});
+
+download();
 </script>
 
 <!--<script src="https://api.empanadas.io/app/startup.js" onerror="noInt()"></script>-->
