@@ -72,7 +72,14 @@
       "notarize": true
     },
     "dmg": {
-      "artifactName": "${name}-${version}-mac-${arch}.${ext}"
+      "artifactName": "${name}-${version}-mac-${arch}.${ext}",
+      "title": "Empanadas.io",
+      "background": "build/background.png",
+      "iconSize": 100,
+      "contents": [
+        { "x": 140, "y": 200, "type": "file" },
+        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+      ]
     },
     "win": {
       "target": "nsis",
@@ -83,7 +90,13 @@
     },
     "artifactName": "${name}-Setup-${version}.${ext}",
     "nsis": {
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": false,
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "include": "build/installer.nsh"
     }
   },
   "postinstall": "electron-builder install-app-deps",
