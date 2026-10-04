@@ -665,6 +665,10 @@ function useBrowserUserAgentForAuth() {
 	});
 }
 
+// The splash's blue. Also what shows while a page of the site is still waiting
+// on its stylesheets - see the 'did-navigate' handler below.
+const WINDOW_BACKGROUND = '#1e1e91';
+
 function createDefaultWindow() {
 	win = new BrowserWindow({
     width: 1100,
@@ -683,7 +687,7 @@ function createDefaultWindow() {
 	// because true is the default.
 	resizable: true,
 	title: 'Empanadas.io',
-	backgroundColor: '#1e1e91',
+	backgroundColor: WINDOW_BACKGROUND,
 	transparent: false,
 	webPreferences: {
 	  preload: path.join(__dirname, 'Content/JS/preload.js'),
@@ -725,6 +729,19 @@ function createDefaultWindow() {
   };
   win.on('maximize', sendWindowState);
   win.on('unmaximize', sendWindowState);
+
+  // From the splash to the site - or between any two pages served by
+  // different renderer processes - Chromium gives the new page a fresh view,
+  // and that view does not inherit the window's backgroundColor. It stays
+  // white from the moment the response arrives until the page's stylesheets
+  // have loaded and it can paint, which is a white flash between the blue
+  // splash and the dashboard's dark theme. Setting the colour again once the
+  // navigation commits covers the new view before it is ever drawn. Nothing
+  // the site sends can fix this: the page is not allowed to paint at all
+  // while its CSS is loading.
+  win.webContents.on('did-navigate', () => {
+	if (win && !win.isDestroyed()) win.setBackgroundColor(WINDOW_BACKGROUND);
+  });
 
   win.webContents.on('did-finish-load', () => {
 	const url = win.webContents.getURL();
