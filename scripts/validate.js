@@ -138,6 +138,17 @@ check('signing out deletes the stored games', () => {
 		'main.js no longer clears the offline worker and its cache on sign-out');
 });
 
+check('the window zoom is set where Electron reads it', () => {
+	// zoomFactor is a webPreferences option. On the window options it is
+	// silently ignored, which is where it sat while every page drew at 100%.
+	const start = mainSrc.indexOf('function createDefaultWindow()');
+	assert(start >= 0, 'createDefaultWindow() is gone from main.js');
+	const body = mainSrc.slice(start, mainSrc.indexOf('\n}\n', start));
+	const prefs = body.slice(body.indexOf('webPreferences: {'), body.indexOf('\n\t},', body.indexOf('webPreferences: {')));
+	assert(/zoomFactor:/.test(prefs), 'zoomFactor is not inside the main window\'s webPreferences');
+	assert((body.match(/zoomFactor:/g) || []).length === 1, 'zoomFactor is set more than once in createDefaultWindow()');
+});
+
 check('the splash asks the main process whether the site is up', () => {
 	// A fetch() from the file:// splash is dropped by CORS whenever the site
 	// sends its own origin in Access-Control-Allow-Origin.
