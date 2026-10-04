@@ -697,9 +697,11 @@ function createDefaultWindow() {
 	  // reach on the local machine.
 	  allowRunningInsecureContent: false,
 	  experimentalFeatures: false,
-	  devTools: false
+	  devTools: false,
+	  // A webPreferences option. It sat on the window options instead, where
+	  // Electron ignores it, so every page had been drawn at 100%.
+	  zoomFactor: 1.1
 	},
-	zoomFactor: 1.1,
 	// Relative to the working directory, which is not the app folder once
 	// installed, so the window had no icon on Linux.
 	icon: path.join(__dirname, 'icon.png')
