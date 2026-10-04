@@ -5,7 +5,8 @@
 
 const assert = require('assert');
 const {
-	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl, browserUserAgent
+	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl,
+	isBrowserSignInUrl, isAuthDeepLink, authRedeemUrl, browserUserAgent
 } = require('../lib/urls');
 
 const failures = [];
@@ -82,6 +83,56 @@ check('a popup keeps the pages that are still mid-sign-in', () => {
 	assert(!isHandoffUrl('https://empanadas.io/v2/account_edit.php?403=1'), 'the captcha check');
 	assert(!isHandoffUrl('https://empanadas.io/v2/accounts'), 'a path that only starts the same');
 	assert(!isHandoffUrl('https://github.com/v2/account'), 'another host');
+});
+
+// Shaped like the site's appAuthToken(): letters and digits, 32 to 128 long.
+const TICKET = 'aB3'.repeat(20) + 'xyz1';
+const CODE = '9Zq'.repeat(20) + 'Q7r2';
+
+check('the site can send a sign-in out to the browser', () => {
+	assert(isBrowserSignInUrl('https://empanadas.io/v2/auth/browser.php?t=' + TICKET), 'browser.php');
+	assert(isBrowserSignInUrl('https://empanadas.io/v2/auth/browser?t=' + TICKET), 'without .php');
+});
+
+check('only that page, with a ticket, goes out to the browser', () => {
+	// ?done=1 is the page the browser itself ends on; the app never loads it,
+	// but it must not bounce it straight back out either.
+	assert(!isBrowserSignInUrl('https://empanadas.io/v2/auth/browser.php?done=1'), 'the return page');
+	assert(!isBrowserSignInUrl('https://empanadas.io/v2/auth/browser.php'), 'no ticket');
+	assert(!isBrowserSignInUrl('https://empanadas.io/v2/auth/browser.php?t=short'), 'a malformed ticket');
+	assert(!isBrowserSignInUrl('https://empanadas.io/v2/auth/flow.php?service=google&app_ticket=' + TICKET),
+		'the flow itself');
+	assert(!isBrowserSignInUrl('http://empanadas.io/v2/auth/browser.php?t=' + TICKET), 'plain http');
+	assert(!isBrowserSignInUrl('https://empanadas.io.evil.test/v2/auth/browser.php?t=' + TICKET), 'a lookalike');
+});
+
+check('a sign-in coming back from the browser finishes on the site', () => {
+	const link = 'empanadas-io://auth?service=google&t=' + TICKET + '&c=' + CODE;
+	assert(isAuthDeepLink(link), 'is an auth link');
+	const url = new URL(authRedeemUrl(link));
+	assert(url.origin === 'https://empanadas.io', 'on the site: ' + url.origin);
+	assert(url.pathname === '/v2/auth/flow.php', 'at flow.php: ' + url.pathname);
+	assert(url.searchParams.get('service') === 'google', 'the provider');
+	assert(url.searchParams.get('app_ticket') === TICKET, 'the ticket');
+	assert(url.searchParams.get('app_code') === CODE, 'the code');
+	assert(authRedeemUrl('empanadas-io://auth/?service=github&t=' + TICKET + '&c=' + CODE),
+		'with a trailing slash');
+});
+
+check('a malformed sign-in link is refused', () => {
+	const ok = (q) => authRedeemUrl('empanadas-io://auth?' + q);
+	assert(!ok('service=google&t=' + TICKET), 'no code');
+	assert(!ok('service=google&c=' + CODE), 'no ticket');
+	assert(!ok('t=' + TICKET + '&c=' + CODE), 'no provider');
+	assert(!ok('service=Google!&t=' + TICKET + '&c=' + CODE), 'a strange provider');
+	assert(!ok('service=google&t=' + TICKET + '%26x%3D1&c=' + CODE), 'a ticket carrying more query');
+	assert(!ok('service=google&t=abc&c=' + CODE), 'a short ticket');
+	assert(!authRedeemUrl('empanadas-io://auth/elsewhere?service=google&t=' + TICKET + '&c=' + CODE),
+		'a path');
+	assert(!authRedeemUrl('empanadas-io://play?service=google&t=' + TICKET + '&c=' + CODE),
+		'another kind of link');
+	assert(!isAuthDeepLink('empanadas-io://play'), 'other links still go to the page');
+	assert(!authRedeemUrl('https://auth/?service=google&t=' + TICKET + '&c=' + CODE), 'another scheme');
 });
 
 check('the auth user agent names neither Electron nor the app', () => {

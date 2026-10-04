@@ -9,7 +9,8 @@ const isMac = process.platform === 'darwin';
 // running Electron; see the comments there for why the host is parsed rather
 // than prefix-matched.
 const {
-	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl, browserUserAgent
+	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl,
+	isBrowserSignInUrl, isAuthDeepLink, authRedeemUrl, browserUserAgent
 } = require('./lib/urls');
 const offline = require('./lib/offline');
 
@@ -111,6 +112,12 @@ function handleDeepLink(url) {
 	} catch (err) {
 		return;
 	}
+	// A browser sign-in coming back. The main process finishes it; the page
+	// never sees the link.
+	if (isAuthDeepLink(url)) {
+		finishBrowserSignIn(url);
+		return;
+	}
 	// Only the site listens for these. The splash does not, so a link that
 	// arrives while it is up waits for the site rather than being sent to a
 	// page that drops it.
@@ -121,6 +128,50 @@ function handleDeepLink(url) {
 	} else {
 		pendingDeepLink = url;
 	}
+}
+
+// --- Signing in through the default browser ---------------------------------
+// "Log in with Google/GitHub/Discord" opens the provider in the user's own
+// browser, where they are usually signed in to it already, instead of in a
+// window of the app's. The site starts it by sending the app to
+// /v2/auth/browser?t=<ticket>, which is opened in the browser rather than
+// loaded (see isBrowserSignInUrl()), and the browser hands the result back
+// with an empanadas-io://auth link. See lib/urls.js.
+
+// How long the app waits on the browser. The site gives a ticket ten minutes.
+const BROWSER_SIGNIN_TTL = 10 * 60 * 1000;
+
+// When the app last sent a sign-in out to the browser. A link that comes back
+// with none outstanding was not asked for - a stale tab, a second click on
+// "Open Empanadas.io", or something else on the machine - and is ignored
+// rather than replacing whatever page the user is on.
+let browserSignInAt = 0;
+
+function startBrowserSignIn(url) {
+	browserSignInAt = Date.now();
+	shell.openExternal(url).catch((err) =>
+		console.warn('[auth] could not open the browser to sign in: ' + err.message));
+}
+
+function finishBrowserSignIn(link) {
+	const url = authRedeemUrl(link);
+	if (!url) return;
+	if (!browserSignInAt || Date.now() - browserSignInAt > BROWSER_SIGNIN_TTL) {
+		console.warn('[auth] ignored a sign-in link the app was not waiting for');
+		return;
+	}
+	browserSignInAt = 0;
+	closeAuthWindows();
+
+	// macOS keeps running with its window closed; open one to finish in.
+	if (!win || win.isDestroyed()) createDefaultWindow();
+	if (win.isMinimized()) win.restore();
+	win.show();
+	win.focus();
+	if (isMac) app.focus({ steal: true });
+	// flow.php redeems the ticket in this window's session and carries on from
+	// there: 2FA, linking a provider, a new account.
+	win.loadURL(url).catch(() => {});
 }
 
 const gotTheLock = app.requestSingleInstanceLock()
@@ -354,6 +405,8 @@ function authWindowOptions() {
 		minHeight: 480,
 		title: 'Sign in',
 		backgroundColor: '#ffffff',
+		// decorateAuthWindow() shows it.
+		show: false,
 		autoHideMenuBar: true,
 		minimizable: false,
 		maximizable: false,
@@ -379,6 +432,15 @@ function authWindowOptions() {
 function decorateAuthWindow(child) {
 	authContents.add(child.webContents);
 	if (child.setMenu) child.setMenu(null);
+	// Created hidden. When the site sends a sign-in out to the browser the
+	// popup is closed before it has drawn anything, and the user never sees a
+	// blank window flash up and vanish. Otherwise it shows once it has
+	// something to show, or after a moment regardless.
+	const reveal = () => {
+		if (!child.isDestroyed() && !child.isVisible()) child.show();
+	};
+	child.once('ready-to-show', reveal);
+	setTimeout(reveal, 1500);
 	// The provider decides the title; the window says what it is for.
 	child.setTitle('Sign in');
 	child.on('page-title-updated', (event) => event.preventDefault());
@@ -400,7 +462,9 @@ function isSignInPopupRequest(url, disposition) {
 // nothing, so they open in place instead.
 function openInMainWindow(url) {
 	if (!win || win.isDestroyed()) return;
-	win.loadURL(url);
+	// Rejects when the page turns out to be a redirect off the site, like
+	// /coffee: the guard cancels that and opens it in the browser instead.
+	win.loadURL(url).catch(() => {});
 	if (win.isMinimized()) win.restore();
 	win.focus();
 }
@@ -410,9 +474,27 @@ function openInMainWindow(url) {
 // GitHub", the login page with a provider error on it. See isHandoffUrl().
 function handOff(popupContents, url) {
 	openInMainWindow(url);
+	closePopup(popupContents);
+}
+
+function closePopup(popupContents) {
 	const popup = BrowserWindow.fromWebContents(popupContents);
 	// Not from inside the navigation event that is being cancelled.
 	setImmediate(() => { if (popup && !popup.isDestroyed()) popup.close(); });
+}
+
+// Every sign-in popup, once the sign-in has finished in the browser instead.
+function closeAuthWindows() {
+	for (const w of BrowserWindow.getAllWindows()) {
+		if (!w.isDestroyed() && authContents.has(w.webContents)) w.close();
+	}
+}
+
+// Has this contents shown a page yet? A popup that was only ever on its way
+// somewhere else has nothing in it worth keeping open.
+function hasPage(contents) {
+	const url = contents.getURL();
+	return url !== '' && url !== 'about:blank';
 }
 
 // The main window was redirected to a provider - a plain link to
@@ -468,12 +550,29 @@ app.on('web-contents-created', (_event, contents) => {
 	// will-navigate does not fire for server-side redirects, so a 302 off
 	// empanadas.io would otherwise walk straight past the check below.
 	const guard = (event, url, isRedirect, isMainFrame) => {
+		// The site asking for a sign-in to happen in the browser. Whichever
+		// window it came from stays put: the main window on the page the user
+		// was on, the login page showing that the sign-in continues elsewhere.
+		// A popup goes, since the browser is doing its job now.
+		if (isMainFrame && isBrowserSignInUrl(url)) {
+			event.preventDefault();
+			startBrowserSignIn(url);
+			if (authContents.has(contents)) closePopup(contents);
+			return;
+		}
+
 		if (authContents.has(contents)) {
 			// A sign-in flow is several navigations - consent, 2FA, the
 			// redirect back, the roundabout through the sibling sites - so the
 			// popup may move between those hosts, and nowhere else.
 			if (!isPopupUrl(url)) {
 				event.preventDefault();
+				// Anywhere else is for the browser: a provider's help link,
+				// or a window.open() of the site that redirects off it.
+				if (isMainFrame && /^https:\/\//i.test(url)) {
+					shell.openExternal(url);
+					if (!hasPage(contents)) closePopup(contents);
+				}
 				return;
 			}
 			if (isMainFrame && isHandoffUrl(url)) {
@@ -492,10 +591,14 @@ app.on('web-contents-created', (_event, contents) => {
 		if (!isMainFrame || !win || win.isDestroyed() || contents !== win.webContents) return;
 
 		if (isRedirect && isAuthUrl(url)) {
+			// A site that predates browser sign-in sends the window straight
+			// to the provider. Keep that working, in a popup.
 			openAuthWindow(url);
-		} else if (!isRedirect && /^https:\/\//i.test(url) && !isSsoUrl(url)) {
+		} else if (/^https:\/\//i.test(url) && !isSsoUrl(url)) {
 			// A link to Discord, GitHub or anywhere else used to do nothing at
-			// all. The user's own browser is where it belongs.
+			// all. The user's own browser is where it belongs - and that goes
+			// for the site's own links that redirect off it too, like /coffee
+			// on to PayPal, which were silently dropped.
 			shell.openExternal(url);
 		}
 	};
@@ -513,6 +616,10 @@ app.on('web-contents-created', (_event, contents) => {
 		// cannot raise another one.
 		const fromSite = isAppUrl(contents.getURL()) && !authContents.has(contents);
 
+		if (fromSite && isBrowserSignInUrl(url)) {
+			startBrowserSignIn(url);
+			return { action: 'deny' };
+		}
 		if (fromSite && isSignInPopupRequest(url, disposition)) {
 			openingAuthWindow = true;
 			// If the window never gets created, the flag must not be left
