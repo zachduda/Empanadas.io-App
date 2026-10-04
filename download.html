@@ -1,4 +1,5 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
 <title>Empanadas.io</title>
 <meta charset="utf-8">
@@ -8,98 +9,31 @@
 <meta name="referrer" content="origin">
 <meta name="application-name" content="Empanadas.io">
 <meta name="msapplication-TileColor" content="#1e1e91">
-<style>
-@font-face {
-    font-family: Poppins;
-    src: url(Poppins.ttf) format("truetype");
-}
-
-* {
-	text-align: center;
-    font-family: poppins,sans-serif;
-	overflow: hidden;
-	user-select: none;
-	transition: 0.5s all ease;
-}
-html, body {
-	background-color: #1e1e91;
-	color: white;
-	font-size:32px;
-	height: 100%;
-}
-img {
-  display: block;
-  margin-left: auto;
-  margin-right: auto;
-  width: 20%;
-  margin-top: 180px;
-}
-
-footer p {
-	margin-bottom: 10px;
-	font-size: 18px;
-	padding-left: 10%;
-	padding-right: 10%;
-	font-weight:300;
-	color:#abbefc;
-}
-
-/* Offline games. Hidden until the site cannot be reached and main.js says the
-   account has them (see lib/offline.js). */
-#offline {
-	display: none;
-	margin-top: 22px;
-}
-/* !important: noInt() sets the logo's margin inline. */
-body.offline-games img {
-	width: 12% !important;
-	margin-top: 56px !important;
-}
-.play-row {
-	display: flex;
-	justify-content: center;
-	gap: 14px;
-	margin: 14px 0 8px;
-}
-.play-row button {
-	font-family: poppins, sans-serif;
-	font-size: 18px;
-	font-weight: 700;
-	color: #1e1e91;
-	background: #ffc83d;
-	border: 0;
-	border-radius: 999px;
-	padding: 11px 28px;
-	cursor: pointer;
-	box-shadow: 0 4px 0 #c9921a;
-	transition: transform .1s ease, box-shadow .1s ease, background .15s ease;
-}
-.play-row button:hover { background: #ffd566; }
-.play-row button:active { transform: translateY(3px); box-shadow: 0 1px 0 #c9921a; }
-.play-row button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
-.play-row button:disabled { opacity: .6; cursor: default; }
-#offlinenote {
-	font-size: 15px;
-	font-weight: 300;
-	color: #abbefc;
-	margin: 6px 10% 0;
-}
-</style>
-<link rel="stylesheet" href="Content/CSS/animated.css">
+<!-- No crossorigin attribute: on a file:// page it stops the stylesheet loading. -->
+<link rel="stylesheet" href="Content/CSS/splash.css">
+<!-- Jeff stands in for the logo when offline, already loaded. -->
+<link rel="preload" as="image" href="Content/Images/jeff.gif">
 </head>
 <body>
-<img class="animated fadeIn faster" style="animation-delay:250ms" id="logo" src="Content/Images/logo.png"></img>
-<div class="animated fadeInUp" style="animation-delay:500ms;margin-top:20px;font-weight:1000;" id="msg">Empanadas.io</div>
-<footer>
-<p class="animated fadeInUp" style="animation-delay:525ms;" id="status">Communicating to Server...</p>
-<div id="offline" class="animated fadeInUp faster" role="group" aria-labelledby="offlinenote">
-	<div class="play-row" id="playrow">
-		<button type="button" data-game="spin">Play Spin</button>
-		<button type="button" data-game="flappy">Play Flappy</button>
+<main class="stage">
+	<div class="mark">
+		<div class="glow"></div>
+		<div class="float">
+			<div class="steam" aria-hidden="true"><i></i><i></i><i></i></div>
+			<img id="logo" src="Content/Images/logo.png" alt="">
+		</div>
 	</div>
-	<p id="offlinenote"></p>
-</div>
-</footer>
+	<h1 id="msg">Empanadas.io</h1>
+	<div class="progress" role="progressbar" aria-label="Connecting"><span></span></div>
+	<p id="status" role="status" aria-live="polite">Connecting...</p>
+	<div id="offline" role="group" aria-labelledby="offlinenote">
+		<div class="play-row" id="playrow">
+			<button type="button" data-game="spin">Play Spin</button>
+			<button type="button" data-game="flappy">Play Flappy</button>
+		</div>
+		<p id="offlinenote"></p>
+	</div>
+</main>
 <script>
 const app = window.electronWindow || null;
 
@@ -136,10 +70,12 @@ const start = Date.now();
 const logo = document.getElementById("logo");
 const msg = document.getElementById("msg");
 const status = document.getElementById("status");
-const minwait = 2250;
-// noint: showing "Check Your Internet". leaving: on the way to the dashboard,
-// which nothing turns back - if that load fails, main.js brings this page back
-// with ?failed=1.
+// Long enough for the logo to land and the name to settle (see splash.css);
+// an answer that comes sooner waits for it.
+const minwait = 1500;
+// noint: showing "Check Your Internet". leaving: on the way to the dashboard or
+// a game, which nothing turns back - if that load fails, main.js brings this
+// page back with ?failed=1.
 let noint = false;
 let leaving = false;
 
@@ -152,50 +88,93 @@ const failedBefore = query.get("failed") === "1";
 const offlineBox = document.getElementById("offline");
 const offlineNote = document.getElementById("offlinenote");
 const playRow = document.getElementById("playrow");
-let offlineShown = false;
 
-function showOfflineGames() {
-	if (offlineShown || !app || !app.offline) return;
-	offlineShown = true;
+// A new status line, eased in rather than swapped.
+function say(html) {
+	if (status.innerHTML === html) return;
+	status.innerHTML = html;
+	status.classList.remove("changed");
+	void status.offsetWidth; // so the animation starts again
+	status.classList.add("changed");
+}
+
+// The offline games, offered for one of two reasons: "offline" (the site
+// cannot be reached) or "slow" (no answer yet - the games need not wait for
+// one). Only while main.js says the account has them (see lib/offline.js).
+let offered = null;
+let offering = null;
+
+function offerGames(reason) {
+	if (!app || !app.offline || leaving || offered === reason || offering === reason) return;
+	offering = reason;
 	app.offline.status().then(function(state) {
-		if (!noint || !state) return;
-		if (state.available) {
-			playRow.style.display = null;
-			offlineNote.textContent = failedGame
-				? GAME_NAMES[failedGame] + " couldn't load. Try again, or pick the other game."
-				: "You can still play offline. Your progress is saved on this device and syncs when you're back online.";
-			document.body.classList.add("offline-games");
-		} else {
-			playRow.style.display = "none";
-			offlineNote.textContent = state.signedIn
-				? "Connect once more to finish downloading the games for offline play."
-				: "Sign in once while you're online, and you can play Spin and Flappy offline too.";
-		}
-		offlineBox.style.display = "block";
+		// Overtaken: offline while asking if it was slow, or the reverse.
+		if (offering !== reason) return;
+		offering = null;
+		if (leaving || !state || (reason === "slow" && noint)) return;
+		showOffer(reason, state);
 	}).catch(function() {
-		offlineShown = false;
+		if (offering === reason) offering = null;
 	});
 }
 
+function showOffer(reason, state) {
+	// Still trying: nothing to say about games that are not there.
+	if (reason === "slow" && !state.available) return;
+	offered = reason;
+	if (state.available) {
+		playRow.style.display = null;
+		if (reason === "slow") {
+			offlineNote.textContent = "Taking a while? You can play offline while we keep trying.";
+		} else {
+			offlineNote.textContent = failedGame
+				? GAME_NAMES[failedGame] + " couldn't load. Try again, or pick the other game."
+				: "You can still play offline. Your progress is saved on this device and syncs when you're back online.";
+		}
+		document.body.classList.add("games");
+	} else {
+		playRow.style.display = "none";
+		offlineNote.textContent = state.signedIn
+			? "Connect once more to finish downloading the games for offline play."
+			: "Sign in once while you're online, and you can play Spin and Flappy offline too.";
+	}
+	offlineBox.style.display = "block";
+}
+
 function hideOfflineGames() {
-	offlineShown = false;
+	offered = null;
+	offering = null;
 	offlineBox.style.display = "none";
-	document.body.classList.remove("offline-games");
+	document.body.classList.remove("games");
+}
+
+function setButtons(enabled) {
+	const buttons = playRow.querySelectorAll("button");
+	for (let i = 0; i < buttons.length; i++) {
+		buttons[i].disabled = !enabled;
+		buttons[i].textContent = "Play " + GAME_NAMES[buttons[i].getAttribute("data-game")];
+	}
 }
 
 playRow.addEventListener("click", function(e) {
 	const button = e.target.closest("button[data-game]");
-	if (!button || !app || !app.offline) return;
-	const buttons = playRow.querySelectorAll("button");
-	for (let i = 0; i < buttons.length; i++) buttons[i].disabled = true;
+	if (!button || !app || !app.offline || leaving) return;
+	// The player has chosen: an answer from the server now, or a retry, must
+	// not send the window to the dashboard instead.
+	leaving = true;
+	clearTimeout(retryTimer);
+	retryTimer = null;
+	setButtons(false);
 	button.textContent = "Loading...";
+	const notStarted = function() {
+		leaving = false;
+		setButtons(true);
+		offered = null;
+		noInt();
+	};
 	app.offline.play(button.getAttribute("data-game")).then(function(started) {
-		if (started) return;
-		for (let i = 0; i < buttons.length; i++) buttons[i].disabled = false;
-		button.textContent = "Play " + GAME_NAMES[button.getAttribute("data-game")];
-		offlineShown = false;
-		showOfflineGames();
-	});
+		if (!started) notStarted();
+	}, notStarted);
 });
 
 const noinmsg = "We were unable to talk to our empanada robots!<br>Double check that your beep-boop machines are on and within range.";
@@ -207,12 +186,13 @@ function noInt() {
 	if (leaving) return;
 	if(!noint) {
 		noint = true;
+		document.body.classList.add("offline");
 		logo.src = "Content/Images/jeff.gif";
-		logo.style.marginTop = "120px";
-		msg.innerHTML = "Check Your Internet";
-		status.innerHTML = noinmsg;
+		logo.classList.add("swapped");
+		msg.textContent = "Check Your Internet";
+		say(noinmsg);
 	}
-	showOfflineGames();
+	offerGames("offline");
 	if (retryTimer === null && !retrying) retryTimer = setTimeout(retry, RETRY_MS);
 }
 
@@ -224,13 +204,13 @@ function retry() {
 	retrying = true;
 	ping().then(function() {
 		retrying = false;
+		if (leaving) return;
 		noint = false;
 		hideOfflineGames();
-		status.innerHTML = "Connected!";
+		say("Connected!");
 		finishedLoading("&retried_network=1", true);
 	}).catch(function() {
 		retrying = false;
-		status.innerHTML = noinmsg;
 		noInt();
 	});
 }
@@ -244,30 +224,20 @@ function finishedLoading(params="", force=false) {
 	leaving = true;
 	clearTimeout(retryTimer);
 	retryTimer = null;
-	const end = Date.now();
-	setTimeout(function(){ 
-		setTimeout(function(){ 
-			msg.style.display = "none";
-			logo.style.display = "none";
-			status.style.display = "none";
-			msg.classList.remove("animated", "fadeOut", "faster");
-			logo.classList.remove("animated", "fadeOut", "faster");
-			status.classList.remove("animated", "fadeOut", "faster");
-			console.log("GO: " + params);
-			window.location.href = appbase+appparam+params+"&appid="+encodeURIComponent(appid);
-		}, 480);
-		logo.classList.remove("animated", "fadeIn", "faster");
-		msg.classList.remove("animated", "fadeInUp");
-		status.classList.remove("animated", "fadeInUp");
-		logo.style.animationDelay = "0s";
-		msg.style.animationDelay = "0s";
-		status.style.animationDelay = "0s";
-		setTimeout(function(){ 
-		msg.classList.add("animated", "fadeOut", "faster");
-		logo.classList.add("animated", "fadeOut", "faster");
-		status.classList.add("animated", "fadeOut", "faster");
-		}, 250);
-	}, minwait-(end-start));
+	setButtons(false);
+	// The logo gets to land first. Then the bar fills, everything eases out,
+	// and the dashboard takes over.
+	const wait = Math.max(0, minwait - (Date.now() - start));
+	setTimeout(function() {
+		document.body.classList.add("ready");
+		setTimeout(function() {
+			document.body.classList.add("leaving");
+			setTimeout(function() {
+				console.log("GO: " + params);
+				window.location.href = appbase+appparam+params+"&appid="+encodeURIComponent(appid);
+			}, 280);
+		}, 240);
+	}, wait);
 }
 
 function download() {
@@ -282,19 +252,24 @@ function download() {
 	// Only said if the answer is slow. A quick failure goes straight to the
 	// offline screen, rather than flashing this first.
 	const slow = setTimeout(function() {
-		if (!noint && !leaving) status.innerHTML = "Waiting for Server...";
+		if (!noint && !leaving) say("Waiting for Server...");
 	}, 2500);
+	// A connection that hangs takes the whole 8 seconds to call. The games
+	// need no answer, so they are offered while it is still coming.
+	const slower = setTimeout(function() {
+		if (!noint && !leaving) offerGames("slow");
+	}, 4000);
 
 	ping().then(function(data) {
 		if(data == "Pong!") {
-			logo.style.marginTop = "200px";
-			status.innerHTML = "";
+			say("");
 			finishedLoading("&sucessfulstart=1");
 		}
 	}).catch(function() {
 		noInt();
 	}).finally(function() {
 		clearTimeout(slow);
+		clearTimeout(slower);
 	});
 }
 
@@ -314,7 +289,5 @@ window.addEventListener("online", function() {
 
 download();
 </script>
-
-<!--<script src="https://api.empanadas.io/app/startup.js" onerror="noInt()"></script>-->
 </body>
 </html>

@@ -89,16 +89,9 @@ async function main() {
 			const dom = await page.evaluate(() => ({
 				logo: (() => { const i = document.getElementById('logo'); return i.complete && i.naturalWidth > 0; })(),
 				background: getComputedStyle(document.body).backgroundColor,
-				// animated.css defines this; if the stylesheet did not load the
-				// class has no effect and the duration stays at 0s.
-				animations: (() => {
-					const el = document.createElement('div');
-					el.className = 'animated fadeIn';
-					document.body.appendChild(el);
-					const d = getComputedStyle(el).animationDuration;
-					el.remove();
-					return d;
-				})(),
+				// splash.css defines this; if the stylesheet did not load it
+				// resolves to nothing.
+				stylesheet: getComputedStyle(document.documentElement).getPropertyValue('--splash-css').trim(),
 				jquery: typeof window.$ !== 'undefined',
 				appid: localStorage.getItem('AppID')
 			}));
@@ -109,9 +102,8 @@ async function main() {
 			check('no request fails to load', failed.length === 0, failed.join('; '));
 			check('the logo image loads', dom.logo);
 			check('the inline stylesheet applies', dom.background === 'rgb(30, 30, 145)', dom.background);
-			check('animated.css actually loads',
-				dom.animations !== '0s' && dom.animations !== '',
-				'animation-duration resolved to "' + dom.animations + '" - the ' +
+			check('splash.css actually loads', dom.stylesheet === 'loaded',
+				'--splash-css resolved to "' + dom.stylesheet + '" - the ' +
 				'stylesheet did not load (a crossorigin attribute on a file:// ' +
 				'<link> will do this)');
 			check('jQuery is gone', dom.jquery === false);
@@ -386,6 +378,101 @@ async function main() {
 			const played = await page.evaluate(() => window.__played);
 			check('a play button asks the app for that game', played.join() === 'flappy', played.join());
 
+			await ctx.close();
+		}
+
+		// --- a slow answer: the games are offered while it is still coming ------
+		// A connection that hangs takes the ping's whole 8 seconds to call, and
+		// "Waiting for Server..." was all there was to look at meanwhile.
+		{
+			const ctx = await browser.newContext({ viewport: { width: 975, height: 480 } });
+			const page = await ctx.newPage();
+			let dashboard = null;
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, body: 'ok' });
+			});
+			await page.addInitScript(() => {
+				window.__played = [];
+				window.electronWindow = {
+					// Answers, but only once a game has been picked.
+					ping: () => new Promise((resolve) => { window.__answer = resolve; }),
+					offline: {
+						status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: (game) => { window.__played.push(game); return Promise.resolve(true); }
+					}
+				};
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(2000);
+			const early = await page.evaluate(() => getComputedStyle(document.getElementById('offline')).display);
+			check('a quick enough answer is not met with the offline games', early === 'none', early);
+			await page.waitForTimeout(3000);
+			const view = await page.evaluate(() => ({
+				msg: document.getElementById('msg').textContent,
+				status: document.getElementById('status').textContent,
+				shown: getComputedStyle(document.getElementById('offline')).display !== 'none',
+				note: document.getElementById('offlinenote').textContent,
+				bottom: Math.max(...[...document.querySelectorAll('#playrow button, #offlinenote')]
+					.map((el) => el.getBoundingClientRect().bottom))
+			}));
+			check('a slow answer offers the offline games', view.shown);
+			check('...says it is still trying', /while we keep trying/.test(view.note), view.note);
+			check('...without calling it offline', view.msg === 'Empanadas.io' && view.status === 'Waiting for Server...',
+				view.msg + ' / ' + view.status);
+			check('...and fits the smallest window', view.bottom <= 480, 'bottom at ' + view.bottom + 'px');
+
+			await page.click('#playrow button[data-game="spin"]');
+			await page.evaluate(() => window.__answer({ ok: true, status: 200, pong: true }));
+			await page.waitForTimeout(3000);
+			const played = await page.evaluate(() => window.__played);
+			check('a game picked while waiting is opened', played.join() === 'spin', played.join());
+			check('an answer after a game is picked does not take the window to the dashboard',
+				dashboard === null, String(dashboard));
+			await ctx.close();
+		}
+
+		// --- a slow answer that does come: on to the dashboard -----------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			let dashboard = null;
+			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
+				dashboard = route.request().url();
+				return route.fulfill({ status: 200, body: 'ok' });
+			});
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => new Promise((resolve) => setTimeout(resolve, 5000, { ok: true, status: 200, pong: true })),
+					offline: { status: () => Promise.resolve({ signedIn: true, ready: true, available: true }),
+						play: () => Promise.resolve(true) }
+				};
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(4600);
+			const offered = await page.evaluate(() => getComputedStyle(document.getElementById('offline')).display !== 'none');
+			await page.waitForTimeout(2000);
+			check('the games were offered while it waited', offered);
+			check('a slow answer that comes still goes on to the dashboard',
+				Boolean(dashboard) && dashboard.includes('sucessfulstart=1'), String(dashboard));
+			await ctx.close();
+		}
+
+		// --- a slow answer, signed out: nothing to offer yet ---------------------
+		{
+			const ctx = await browser.newContext();
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => new Promise(() => {}),
+					offline: { status: () => Promise.resolve({ signedIn: false, ready: false, available: false }),
+						play: () => Promise.resolve(false) }
+				};
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(5000);
+			const shown = await page.evaluate(() => getComputedStyle(document.getElementById('offline')).display);
+			check('signed out, a slow answer offers nothing while it still tries', shown === 'none', shown);
 			await ctx.close();
 		}
 
