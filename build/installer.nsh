@@ -1,18 +1,3 @@
-; Included by electron-builder's assisted (wizard) installer - see build.nsis
-; in package.json. The artwork it shows is build/installerSidebar.bmp and
-; build/installerHeader.bmp, drawn by scripts/installer-art.py.
-;
-; A first install is a short wizard: Welcome, the progress bar, Finish. An
-; update is none of that. The app's updater (updater.js) starts the installer
-; with --updated and quits, and that run skips straight to installing and then
-; reopens the app, as the old one-click installer did, with nothing to click.
-
-; Install where it is already installed, and never ask. The one-click
-; installer was always per-user, so that is where a new install goes too; an
-; older per-machine install stays per-machine, since that is where its
-; shortcuts and uninstaller are. Without this the wizard opens with an
-; "Anyone who uses this computer / Only for me" page, and shows it during an
-; update as well.
 !macro customInstallMode
 	${if} $hasPerMachineInstallation == "1"
 		StrCpy $isForceMachineInstall "1"
@@ -22,8 +7,8 @@
 !macroend
 
 !macro customWelcomePage
-	!define MUI_WELCOMEPAGE_TITLE "Welcome to Empanadas.io"
-	!define MUI_WELCOMEPAGE_TEXT "Setup will install Empanadas.io on your computer: Spin, Flappy Empanada and your account, in an app of their own.$\r$\n$\r$\nClick Next to continue."
+	!define MUI_WELCOMEPAGE_TITLE "Empanadas.io Application"
+	!define MUI_WELCOMEPAGE_TEXT "Thanks for downloading the Empanadsas.io native desktop application! You'll be able to play games in full resolution, smoother, and without limits! Also sign in once, and never worry again, plus you can play your favorite games offline!$\r$\n$\r$\nClick Next to continue."
 	!insertmacro skipPageIfUpdated
 	!insertmacro MUI_PAGE_WELCOME
 !macroend
@@ -50,10 +35,10 @@
 	FunctionEnd
 
 	!define MUI_PAGE_CUSTOMFUNCTION_PRE finishPagePre
-	!define MUI_FINISHPAGE_TITLE "Empanadas.io is ready"
-	!define MUI_FINISHPAGE_TEXT "Empanadas.io is installed. You'll find it on your desktop and in the Start menu."
+	!define MUI_FINISHPAGE_TITLE "Your Empanada's Finished Baking!"
+	!define MUI_FINISHPAGE_TEXT "Great news! Empanadas.io is now finished up and ready to go!"
 	!define MUI_FINISHPAGE_RUN
-	!define MUI_FINISHPAGE_RUN_TEXT "Open Empanadas.io now"
+	!define MUI_FINISHPAGE_RUN_TEXT "Great! Launch it."
 	!define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
 	!insertmacro MUI_PAGE_FINISH
 !macroend
