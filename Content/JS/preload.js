@@ -11,8 +11,10 @@ contextBridge.exposeInMainWorld('electronWindow', {
     ipcRenderer.on('window-state', listener);
     return () => ipcRenderer.removeListener('window-state', listener);
   },
-  // macOS draws its own traffic lights over the page, so the site should hide
-  // its in-page window buttons and inset its titlebar when this is 'darwin'.
+  // The window has no native controls on any platform - macOS's traffic
+  // lights are hidden too - so the site should always show its own window
+  // buttons. platform/isMac are for anything else that differs on a Mac.
+  hasNativeControls: false,
   platform: process.platform,
   isMac: process.platform === 'darwin',
   onDeepLink: (callback) => {
@@ -138,21 +140,18 @@ function drawChrome() {
   if (location.protocol !== 'file:') {
     bar.appendChild(iconButton('home', 'Back to the dashboard', () => ipcRenderer.invoke('app-home')));
   }
-  // macOS keeps its traffic lights (titleBarStyle 'hiddenInset'), so only the
-  // handle and the way home are needed there.
-  if (process.platform !== 'darwin') {
-    bar.appendChild(iconButton('minimize', 'Minimize', () => ipcRenderer.invoke('window-minimize')));
-    const max = iconButton('maximize', 'Maximize', () => ipcRenderer.invoke('window-maximize').then(show));
-    const show = (maximized) => {
-      max.title = maximized ? 'Restore' : 'Maximize';
-      max.setAttribute('aria-label', max.title);
-      max.querySelector('svg').innerHTML = maximized ? ICONS.restore : ICONS.maximize;
-    };
-    ipcRenderer.invoke('window-is-maximized').then(show);
-    ipcRenderer.on('window-state', (_event, state) => show(Boolean(state && state.maximized)));
-    bar.appendChild(max);
-    bar.appendChild(iconButton('close', 'Close', () => ipcRenderer.invoke('window-close'), 'close'));
-  }
+  // Every platform, macOS included: the traffic lights are hidden there.
+  bar.appendChild(iconButton('minimize', 'Minimize', () => ipcRenderer.invoke('window-minimize')));
+  const max = iconButton('maximize', 'Maximize', () => ipcRenderer.invoke('window-maximize').then(show));
+  const show = (maximized) => {
+    max.title = maximized ? 'Restore' : 'Maximize';
+    max.setAttribute('aria-label', max.title);
+    max.querySelector('svg').innerHTML = maximized ? ICONS.restore : ICONS.maximize;
+  };
+  ipcRenderer.invoke('window-is-maximized').then(show);
+  ipcRenderer.on('window-state', (_event, state) => show(Boolean(state && state.maximized)));
+  bar.appendChild(max);
+  bar.appendChild(iconButton('close', 'Close', () => ipcRenderer.invoke('window-close'), 'close'));
 
   root.appendChild(style);
   root.appendChild(bar);

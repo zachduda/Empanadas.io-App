@@ -673,12 +673,12 @@ function createDefaultWindow() {
 	win = new BrowserWindow({
     width: 1100,
     height: 700,
-	// A frameless window on macOS would drop the traffic lights and leave no
-	// way to move, zoom or close the window, since the in-page titlebar is
-	// served from empanadas.io. 'hiddenInset' keeps them over the page.
+	// The app draws its own minimize, maximize and close buttons on every
+	// platform. On macOS the window keeps its native frame - so it still
+	// resizes, snaps and goes fullscreen like any other Mac window - with the
+	// title bar hidden and the traffic lights switched off below.
 	frame: isMac,
-	titleBarStyle: isMac ? 'hiddenInset' : 'default',
-	trafficLightPosition: isMac ? { x: 14, y: 14 } : undefined,
+	titleBarStyle: isMac ? 'hidden' : 'default',
 	minWidth: 975,
 	minHeight: 480,
 	movable: true,
@@ -710,6 +710,16 @@ function createDefaultWindow() {
 	// installed, so the window had no icon on Linux.
 	icon: path.join(__dirname, 'icon.png')
   })
+  // titleBarStyle 'hidden' still draws the traffic lights; this takes them
+  // away. macOS brings them back on the way out of fullscreen, so it is
+  // applied again then.
+  if (isMac) {
+	const hideTrafficLights = () => {
+		if (win && !win.isDestroyed()) win.setWindowButtonVisibility(false);
+	};
+	hideTrafficLights();
+	win.on('leave-full-screen', hideTrafficLights);
+  }
   // don't ovverride win.webContents.setFrameRate(144);
   win.on('closed', () => {
     win = null;

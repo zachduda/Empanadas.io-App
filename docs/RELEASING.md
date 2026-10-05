@@ -75,7 +75,8 @@ list, so clients still on the previous release accept either.
 ## macOS
 
 The app runs on macOS: it has an application menu (so Cmd+Q/W/C/V work), the
-window keeps its traffic lights via `titleBarStyle: 'hiddenInset'`, clicking the
+window hides its traffic lights (`titleBarStyle: 'hidden'` plus
+`setWindowButtonVisibility(false)`) in favour of the app's own controls, clicking the
 dock icon reopens a closed window, and `empanadas-io://` links arrive through
 `open-url`.
 
