@@ -94,6 +94,8 @@ Still missing before a macOS release:
   Developer ID Application certificate, an Apple Developer Program membership,
   and a macOS runner. `npm run build:mac` on any other platform silently skips
   signing, and an unsigned build is Gatekeeper-blocked on other people's Macs.
+  On Apple Silicon it is worse than blocked: a downloaded arm64 app with no
+  real signature is "damaged" and can only be thrown away. See [CI](#ci).
 - **A pinned Team ID.** Until `CONFIG.macTeamId` is set, the macOS updater
   declines up front and points at the download page, because it cannot tell
   whose signature it would be looking at.
@@ -123,9 +125,10 @@ CI installs that browser, so those assertions run on every push and PR.
 
 ## CI
 
-`.github/workflows/node.js.yml` validates every push and PR, then builds
-unsigned Windows and macOS artifacts and attaches them to the run. Download them
-from the run's **Artifacts** section; they are kept for 14 days.
+`.github/workflows/node.js.yml` validates every push and PR, then builds an
+unsigned Windows installer and ad-hoc signed macOS apps and attaches them to the
+run. Download them from the run's **Artifacts** section; they are kept for 14
+days.
 
 CI deliberately does not publish. It passes `--publish never`, because
 electron-builder otherwise detects CI and implicitly tries to upload to the
@@ -133,5 +136,26 @@ GitHub release — which fails the build when no token is set and, when a token
 *is* set, will attempt to add assets to an existing release. Releases stay a
 manual, signed step.
 
-CI artifacts are unsigned, so the updater will refuse to install them. They are
-for checking that a change packages and launches, not for distribution.
+CI artifacts are not release-signed, so the updater will refuse to install them.
+They are for checking that a change packages and launches, not for distribution.
+
+The macOS apps are ad-hoc signed (signed, but by no one in particular) because
+Apple Silicon will not run a downloaded native app without a signature. It
+calls one "damaged" and offers only the Trash. Electron's arm64 binaries come
+with just the linker's signature, which is not enough. Intel builds never
+showed this because unsigned x86_64 code may still run, under Rosetta. The
+macOS job checks both apps with `codesign --verify --deep --strict` and starts
+the arm64 one, so an unsigned or unlaunchable build fails CI instead of
+reaching a Mac.
+
+To open one: drag it to Applications and open it. macOS says it "could not
+verify" the app; click **Done**, then **System Settings › Privacy & Security ›
+Open Anyway**. Or clear the quarantine flag yourself:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/empanadas.io.app
+```
+
+Hardened runtime is switched off for these builds only. With it on, library
+validation rejects frameworks that have no Team ID, and ad-hoc signatures never
+have one. Release builds signed with a Developer ID keep it on.

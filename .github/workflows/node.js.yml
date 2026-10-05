@@ -63,9 +63,22 @@ jobs:
               dist/*.yml
           - name: macOS
             os: macos-latest
-            # Notarization needs Apple credentials that CI does not have, and
-            # electron-builder would fail rather than skip it.
-            args: --mac --config.mac.notarize=false
+            # Ad-hoc signed (identity "-"), because unsigned does not work on
+            # Apple Silicon. Electron's arm64 binaries carry only the signature
+            # the linker stamps on them, which seals nothing, and macOS calls a
+            # downloaded arm64 app without a real signature "damaged" and
+            # offers only the Trash. An ad-hoc signature gets the ordinary
+            # "Apple could not verify" prompt instead, which Privacy & Security
+            # can let through. Intel builds never hit this: unsigned x86_64
+            # code is still allowed to run, under Rosetta.
+            #
+            # Hardened runtime is off for this build only. With it on, library
+            # validation refuses any framework without a Team ID - and ad-hoc
+            # signatures never have one - so the app would die at launch.
+            # Release builds, signed with a Developer ID, keep it on.
+            #
+            # Notarization needs Apple credentials that CI does not have.
+            args: --mac --config.mac.identity=- --config.mac.hardenedRuntime=false --config.mac.notarize=false
             artifact: macos-app
             files: |
               dist/*.dmg
@@ -94,13 +107,48 @@ jobs:
     # CI and implicitly tries to publish to GitHub, which fails the build with
     # "GitHub Personal Access Token is not set" even though nothing here is
     # meant to be published.
-    - name: Build (unsigned)
+    - name: Build (not release-signed)
       run: npx electron-builder ${{ matrix.args }} --publish never
       env:
         # Stops electron-builder from picking up any incidental keychain
-        # identity on the macOS runner and producing an inconsistently signed
-        # build. Unsigned is the honest output here.
+        # identity on the runner and producing an inconsistently signed build.
+        # Unsigned (Windows) or ad-hoc (macOS) is the honest output here.
         CSC_IDENTITY_AUTO_DISCOVERY: false
+
+    # What would have caught the arm64 build that macOS called "damaged": it
+    # packaged fine, it just was not signed. --verify fails on a bundle with no
+    # signature, a broken one, or an unsigned binary nested inside it.
+    #
+    # Starting the native app catches what a signature check cannot: an ad-hoc
+    # signature with hardened runtime on verifies cleanly and then dies in dyld
+    # on library validation. The runner is Apple Silicon, so this is the same
+    # arm64 build a Mac with an M-series chip downloads.
+    - name: Check the macOS apps are signed and start
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        for app in dist/mac-arm64/*.app dist/mac/*.app; do
+          echo "::group::$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1
+          echo "::endgroup::"
+        done
+
+        app=$(echo dist/mac-arm64/*.app)
+        exes=("$app"/Contents/MacOS/*)
+        "${exes[0]}" --no-update > launch.log 2>&1 &
+        pid=$!
+        sleep 15
+        if ! kill -0 "$pid" 2>/dev/null; then
+          status=0
+          wait "$pid" || status=$?
+          cat launch.log
+          echo "::error::$app exited during startup (status $status)"
+          exit 1
+        fi
+        kill "$pid"
+        echo "$app was still running after 15s"
 
     - name: Upload ${{ matrix.name }} artifact
       uses: actions/upload-artifact@v4
