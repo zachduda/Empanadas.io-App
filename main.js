@@ -130,21 +130,8 @@ function handleDeepLink(url) {
 	}
 }
 
-// --- Signing in through the default browser ---------------------------------
-// "Log in with Google/GitHub/Discord" opens the provider in the user's own
-// browser, where they are usually signed in to it already, instead of in a
-// window of the app's. The site starts it by sending the app to
-// /v2/auth/browser?t=<ticket>, which is opened in the browser rather than
-// loaded (see isBrowserSignInUrl()), and the browser hands the result back
-// with an empanadas-io://auth link. See lib/urls.js.
-
-// How long the app waits on the browser. The site gives a ticket ten minutes.
 const BROWSER_SIGNIN_TTL = 10 * 60 * 1000;
 
-// When the app last sent a sign-in out to the browser. A link that comes back
-// with none outstanding was not asked for - a stale tab, a second click on
-// "Open Empanadas.io", or something else on the machine - and is ignored
-// rather than replacing whatever page the user is on.
 let browserSignInAt = 0;
 
 function startBrowserSignIn(url) {
@@ -163,14 +150,11 @@ function finishBrowserSignIn(link) {
 	browserSignInAt = 0;
 	closeAuthWindows();
 
-	// macOS keeps running with its window closed; open one to finish in.
 	if (!win || win.isDestroyed()) createDefaultWindow();
 	if (win.isMinimized()) win.restore();
 	win.show();
 	win.focus();
 	if (isMac) app.focus({ steal: true });
-	// flow.php redeems the ticket in this window's session and carries on from
-	// there: 2FA, linking a provider, a new account.
 	win.loadURL(url).catch(() => {});
 }
 
@@ -202,12 +186,7 @@ app.on('open-url', (event, url) => {
 	handleDeepLink(url);
 });
 
-// Deny anything the site does not need. Without a handler Electron prompts (or
-// on some permissions silently grants), and the window loads a remote page.
 function lockDownPermissions() {
-	// Fullscreen and pointer lock are the only ones a game page has a real use
-	// for; everything else - camera, microphone, geolocation, USB, HID, MIDI,
-	// notifications, arbitrary clipboard reads - is refused outright.
 	const ALLOWED = new Set(['fullscreen', 'pointerLock']);
 
 	const ses = session.defaultSession;
@@ -220,19 +199,10 @@ function lockDownPermissions() {
 	ses.setPermissionCheckHandler((contents, permission, origin) =>
 		ALLOWED.has(permission) && isAppUrl(origin));
 
-	// Chrome's device-picker APIs bypass the permission handler above.
 	ses.setDevicePermissionHandler(() => false);
 	if (ses.setBluetoothPairingHandler) ses.setBluetoothPairingHandler(() => {});
 }
 
-// Everything above hardens the shell. Once the window is on empanadas.io, the
-// page's own headers are what stand between an injected script and the app, and
-// those are served by the site, not set here.
-//
-// This only reports. Injecting a policy from the app would be enforcing a guess
-// about what the site needs, and getting it wrong breaks the game with no error
-// the user can act on - the right fix is the header, on the server. The warning
-// makes its absence visible during development instead of never.
 let cspReported = false;
 
 function reportMissingCsp(details) {
@@ -251,8 +221,6 @@ function reportMissingCsp(details) {
 	}
 }
 
-// Electron allows one onHeadersReceived listener per session, so everything
-// that reads responses goes through this one.
 function watchResponses() {
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		reportMissingCsp(details);
@@ -261,18 +229,12 @@ function watchResponses() {
 	});
 }
 
-// --- Offline games ----------------------------------------------------------
-// See lib/offline.js for the whole arrangement.
-
-// Once per run: registering again on every dashboard load would only ask the
-// browser to re-check a worker it already re-checks by itself.
 let offlineRegistered = false;
 
 function trackSignIn(details) {
 	if (!offlineStore) return;
 	const signal = offline.signInSignal(details);
 	if (signal === 'in') {
-		// The Go menu's pages are greyed out while signed out.
 		if (offlineStore.signedIn()) buildAppMenu();
 	} else if (signal === 'out') {
 		const wasSignedIn = offlineStore.get().signedIn;
@@ -285,9 +247,6 @@ function trackSignIn(details) {
 	}
 }
 
-// Signed out, the games stop being playable offline, and the copies go too.
-// Only the worker and its cache: the games' saves live in localStorage and
-// the site clears those itself when it signs out.
 function forgetOfflineGames() {
 	session.defaultSession.clearStorageData({
 		origin: offline.SITE,
@@ -323,12 +282,6 @@ function enableOfflineGames(contents) {
 		})
 		.finally(() => clearTimeout(timer));
 }
-
-// "Clear cache" on the account page. Only what can be fetched again: the HTTP
-// cache, compiled scripts, shaders and DNS. Cookies are left alone (UAK and the
-// session are the sign-in), and so is localStorage (the games' saves), and the
-// offline games' worker and its copies - that worker is network first, so it
-// never serves anything stale while the site is reachable.
 async function clearAppCache() {
 	const ses = session.defaultSession;
 	const results = await Promise.allSettled([
@@ -344,7 +297,6 @@ async function clearAppCache() {
 	return { ok: failed.length === 0 };
 }
 
-// The splash, with a note of what failed to load, if anything.
 function showSplash(failedUrl) {
 	if (!win || win.isDestroyed()) return;
 	const query = {};
@@ -357,16 +309,9 @@ function showSplash(failedUrl) {
 	win.loadFile('download.html', { query }).catch(() => {});
 }
 
-// Resolves { ok } from the main process, where a request is not subject to
-// CORS. The splash is a file:// page, and a fetch() from it to ping.php is
-// dropped whenever the site answers with its usual
-// Access-Control-Allow-Origin: https://empanadas.io - which left the app on
-// "Check Your Internet" with a working connection.
 async function pingSite() {
 	const url = offline.SITE + '/v2/ping.php?usingnativeapp=1&firsthello=1&_=' + Date.now();
 	const abort = new AbortController();
-	// Under the splash's own 10 second fallback, so a connection that hangs
-	// ends on the offline screen rather than racing it to the dashboard.
 	const timer = setTimeout(() => abort.abort(), 8000);
 	try {
 		const res = await net.fetch(url, { cache: 'no-store', signal: abort.signal });
@@ -379,26 +324,8 @@ async function pingSite() {
 	}
 }
 
-// Sign-in popups. "Log in with Google/GitHub/Discord" is a window.open() - and
-// denying it is exactly what the page sees as a blocked popup: window.open()
-// returns null and the site reports that the popup was blocked. So the popup is
-// allowed, as a window with none of this app's privileges.
-//
-// The site does not open the provider directly. login.js opens its own
-// /v2/auth/flow.php?service=github, which then redirects to github.com, so the
-// first URL the popup asks for is on empanadas.io. Allowing only provider URLs
-// here is what kept the popup from ever appearing.
 const AUTH_PRELOAD = path.join(__dirname, 'Content/JS/auth-preload.js');
-
-// The contents that belong to a sign-in popup. A WeakSet, so a closed popup is
-// not kept alive by being remembered.
 const authContents = new WeakSet();
-
-// setWindowOpenHandler has no handle on the contents it is about to create, and
-// 'web-contents-created' cannot tell why it fired. Electron creates the child
-// synchronously between the two, so the handler flags what is coming and the
-// next created contents claims the flag. 'did-create-window' marks it a second
-// time in case that ever stops being synchronous.
 let openingAuthWindow = false;
 
 function authWindowOptions() {
@@ -415,9 +342,6 @@ function authWindowOptions() {
 		minimizable: false,
 		maximizable: false,
 		fullscreenable: false,
-		// A child window inherits the opener's webPreferences, so every one of
-		// these has to be restated: inheriting would give accounts.google.com
-		// the window controls and the updater bridge.
 		webPreferences: {
 			preload: AUTH_PRELOAD,
 			sandbox: true,
@@ -436,10 +360,6 @@ function authWindowOptions() {
 function decorateAuthWindow(child) {
 	authContents.add(child.webContents);
 	if (child.setMenu) child.setMenu(null);
-	// Created hidden. When the site sends a sign-in out to the browser the
-	// popup is closed before it has drawn anything, and the user never sees a
-	// blank window flash up and vanish. Otherwise it shows once it has
-	// something to show, or after a moment regardless.
 	const reveal = () => {
 		if (!child.isDestroyed() && !child.isVisible()) child.show();
 	};
@@ -450,32 +370,17 @@ function decorateAuthWindow(child) {
 	child.on('page-title-updated', (event) => event.preventDefault());
 }
 
-// Is this a window.open() the site is allowed to turn into a sign-in popup?
-//
-//  - straight to a provider, which is what older versions of the site did;
-//  - or to the site itself *as a popup*, i.e. window.open() with a size. That
-//    is login.js's startOauth() and core.js's sign-out window. A plain
-//    target="_blank" link to the site arrives as 'foreground-tab' instead and
-//    is handled below.
 function isSignInPopupRequest(url, disposition) {
 	return isAuthUrl(url) || (isAppUrl(url) && disposition === 'new-window');
 }
 
-// Links to the site that ask for a new tab (target="_blank") have nowhere to
-// go in a single-window app. Denying them outright made those links do
-// nothing, so they open in place instead.
 function openInMainWindow(url) {
 	if (!win || win.isDestroyed()) return;
-	// Rejects when the page turns out to be a redirect off the site, like
-	// /coffee: the guard cancels that and opens it in the browser instead.
 	win.loadURL(url).catch(() => {});
 	if (win.isMinimized()) win.restore();
 	win.focus();
 }
 
-// A sign-in popup that lands on an ordinary page of the site is finished, and
-// that page belongs in the main window: the account page after "Connect
-// GitHub", the login page with a provider error on it. See isHandoffUrl().
 function handOff(popupContents, url) {
 	openInMainWindow(url);
 	closePopup(popupContents);
@@ -494,19 +399,11 @@ function closeAuthWindows() {
 	}
 }
 
-// Has this contents shown a page yet? A popup that was only ever on its way
-// somewhere else has nothing in it worth keeping open.
 function hasPage(contents) {
 	const url = contents.getURL();
 	return url !== '' && url !== 'about:blank';
 }
 
-// The main window was redirected to a provider - a plain link to
-// /v2/auth/flow?service=github&tie=1, like the account page's "Connect"
-// buttons. The main window does not leave empanadas.io, so the provider page
-// opens in a sign-in popup instead. flow.php has already stored the OAuth state
-// in the session the popup shares, so the round trip completes there and
-// handOff() brings the result back.
 let authWindow = null;
 
 function openAuthWindow(url) {
@@ -523,16 +420,6 @@ function openAuthWindow(url) {
 	authWindow.loadURL(url);
 }
 
-// In-page window controls sit inside a '-webkit-app-region: drag' titlebar,
-// and on Windows a click on a drag region never reaches the page: it is taken
-// as the start of a window move. Chromium applies the titlebar's 'drag' to
-// everything inside it, so a minimize or maximize control that does not mark
-// itself 'no-drag' is a drag handle, and clicking it does nothing.
-//
-// The titlebar is rendered by the site's config.php, so instead of depending
-// on every page getting this right, anything clickable is made 'no-drag'
-// here. A user-origin !important rule wins over the page's own styles,
-// including inline ones. Plain text in the bar keeps dragging the window.
 const WINDOW_CHROME_CSS = [
 	'a, button, input, select, textarea, label, summary, i, svg,',
 	'[onclick], [role="button"], [data-app-window], .btn {',
@@ -540,24 +427,15 @@ const WINDOW_CHROME_CSS = [
 	'}'
 ].join('\n');
 
-// Applies to every WebContents, including any the site manages to spawn.
 app.on('web-contents-created', (_event, contents) => {
 	if (openingAuthWindow) {
 		openingAuthWindow = false;
 		authContents.add(contents);
 	}
 
-	// The app embeds nothing, so a <webview> could only have come from the
-	// remote page.
 	contents.on('will-attach-webview', (event) => event.preventDefault());
 
-	// will-navigate does not fire for server-side redirects, so a 302 off
-	// empanadas.io would otherwise walk straight past the check below.
 	const guard = (event, url, isRedirect, isMainFrame) => {
-		// The site asking for a sign-in to happen in the browser. Whichever
-		// window it came from stays put: the main window on the page the user
-		// was on, the login page showing that the sign-in continues elsewhere.
-		// A popup goes, since the browser is doing its job now.
 		if (isMainFrame && isBrowserSignInUrl(url)) {
 			event.preventDefault();
 			startBrowserSignIn(url);
@@ -566,13 +444,8 @@ app.on('web-contents-created', (_event, contents) => {
 		}
 
 		if (authContents.has(contents)) {
-			// A sign-in flow is several navigations - consent, 2FA, the
-			// redirect back, the roundabout through the sibling sites - so the
-			// popup may move between those hosts, and nowhere else.
 			if (!isPopupUrl(url)) {
 				event.preventDefault();
-				// Anywhere else is for the browser: a provider's help link,
-				// or a window.open() of the site that redirects off it.
 				if (isMainFrame && /^https:\/\//i.test(url)) {
 					shell.openExternal(url);
 					if (!hasPage(contents)) closePopup(contents);
@@ -589,25 +462,15 @@ app.on('web-contents-created', (_event, contents) => {
 		if (isAppUrl(url)) return;
 		event.preventDefault();
 
-		// Only the main window's own top-level navigations from here on: an
-		// iframe that bounces through accounts.google.com is not the user
-		// asking to sign in.
 		if (!isMainFrame || !win || win.isDestroyed() || contents !== win.webContents) return;
 
 		if (isRedirect && isAuthUrl(url)) {
-			// A site that predates browser sign-in sends the window straight
-			// to the provider. Keep that working, in a popup.
 			openAuthWindow(url);
 		} else if (/^https:\/\//i.test(url) && !isSsoUrl(url)) {
-			// A link to Discord, GitHub or anywhere else used to do nothing at
-			// all. The user's own browser is where it belongs - and that goes
-			// for the site's own links that redirect off it too, like /coffee
-			// on to PayPal, which were silently dropped.
 			shell.openExternal(url);
 		}
 	};
-	// Electron 44 carries isMainFrame on the event; the positional argument
-	// is the deprecated spelling of the same thing.
+
 	const mainFrame = (event, positional) =>
 		typeof event.isMainFrame === 'boolean' ? event.isMainFrame : positional !== false;
 	contents.on('will-navigate', (event, url, _isInPlace, isMainFrame) =>
@@ -649,9 +512,6 @@ app.on('web-contents-created', (_event, contents) => {
 	contents.on('did-create-window', (child) => decorateAuthWindow(child));
 });
 
-// Google rejects OAuth from a user agent it recognises as an embedded browser,
-// which is what the default string ("... Empanadas.io/1.11.0 ... Electron/44
-// ...") advertises. Present a plain Chrome user agent to the auth hosts only.
 function useBrowserUserAgentForAuth() {
 	const clean = browserUserAgent(app.userAgentFallback, app.getName());
 
@@ -669,26 +529,18 @@ function useBrowserUserAgentForAuth() {
 	});
 }
 
-// The splash's blue. Also what shows while a page of the site is still waiting
-// on its stylesheets - see the 'did-navigate' handler below.
 const WINDOW_BACKGROUND = '#1e1e91';
 
 function createDefaultWindow() {
 	win = new BrowserWindow({
     width: 1100,
     height: 700,
-	// The app draws its own minimize, maximize and close buttons on every
-	// platform. On macOS the window keeps its native frame - so it still
-	// resizes, snaps and goes fullscreen like any other Mac window - with the
-	// title bar hidden and the traffic lights switched off below.
 	frame: isMac,
 	titleBarStyle: isMac ? 'hidden' : 'default',
 	minWidth: 975,
 	minHeight: 480,
 	movable: true,
 	minimizable: true,
-	// 'resizeable' is not an option name - the window was only resizable
-	// because true is the default.
 	resizable: true,
 	title: 'Empanadas.io',
 	backgroundColor: WINDOW_BACKGROUND,
@@ -701,22 +553,13 @@ function createDefaultWindow() {
 	  disableBlinkFeatures: "Auxclick",
 	  sandbox: true,
 	  webviewTag: false,
-	  // The site is the only thing loaded here; there is nothing for it to
-	  // reach on the local machine.
 	  allowRunningInsecureContent: false,
 	  experimentalFeatures: false,
 	  devTools: false,
-	  // A webPreferences option. It sat on the window options instead, where
-	  // Electron ignores it, so every page had been drawn at 100%.
-	  zoomFactor: 1.1
+	  zoomFactor: 1.05
 	},
-	// Relative to the working directory, which is not the app folder once
-	// installed, so the window had no icon on Linux.
 	icon: path.join(__dirname, 'icon.png')
   })
-  // titleBarStyle 'hidden' still draws the traffic lights; this takes them
-  // away. macOS brings them back on the way out of fullscreen, so it is
-  // applied again then.
   if (isMac) {
 	const hideTrafficLights = () => {
 		if (win && !win.isDestroyed()) win.setWindowButtonVisibility(false);
@@ -743,16 +586,6 @@ function createDefaultWindow() {
   };
   win.on('maximize', sendWindowState);
   win.on('unmaximize', sendWindowState);
-
-  // From the splash to the site - or between any two pages served by
-  // different renderer processes - Chromium gives the new page a fresh view,
-  // and that view does not inherit the window's backgroundColor. It stays
-  // white from the moment the response arrives until the page's stylesheets
-  // have loaded and it can paint, which is a white flash between the blue
-  // splash and the dashboard's dark theme. Setting the colour again once the
-  // navigation commits covers the new view before it is ever drawn. Nothing
-  // the site sends can fix this: the page is not allowed to paint at all
-  // while its CSS is loading.
   win.webContents.on('did-navigate', () => {
 	if (win && !win.isDestroyed()) win.setBackgroundColor(WINDOW_BACKGROUND);
   });
@@ -766,28 +599,12 @@ function createDefaultWindow() {
 	if (offline.isDashboardUrl(url)) enableOfflineGames(win.webContents);
   })
 
-  // A page of the site that cannot load - the connection dropped, or a game
-  // opened offline before it was stored - used to leave Chromium's blank error
-  // page in a frameless window, with nothing to click. The splash knows what
-  // to do: retry, and offer the offline games.
   win.webContents.on('did-fail-load', (_event, errorCode, _description, url, isMainFrame) => {
 	// -3 is ERR_ABORTED: a navigation replaced by another one, not a failure.
 	if (!isMainFrame || errorCode === -3 || !isAppUrl(url)) return;
 	showSplash(url);
   })
-  
-	//const electronDl = require('electron-dl');
-	//electronDl();
-	
-// {download} = require('electron-dl');
 
-//ipcMain.on('download-button', async (event, {url}) => {
- 	//const win = BrowserWindow.getFocusedWindow();
- 	//console.log(await download(win, url));
-//});
-
-  // Navigation is filtered in the 'web-contents-created' handler above, which
-  // covers redirects and any contents the page spawns, not just this window.
   win.loadFile('download.html')
   //win.webContents.openDevTools();
   return win;
@@ -798,18 +615,11 @@ function mainWindow() {
 	return win && !win.isDestroyed() ? win : null;
 }
 
-// "Back to the dashboard", from a game's button or the Go menu. Offline that
-// fails to load, and did-fail-load brings the splash up instead.
 function goToDashboard() {
 	const w = mainWindow();
 	if (w) w.loadURL(offline.SITE + '/v2/dashboard').catch(() => {});
 }
 
-// One of the games, from the Go menu. Only while signed in, like the menu
-// items themselves. From the splash - which is what shows when the site cannot
-// be reached - it opens the stored copy straight away, as the splash's own
-// buttons do; anywhere else the worker is network first, so the plain address
-// gets the live game. A failure is handled by did-fail-load.
 function openGame(name) {
 	const w = mainWindow();
 	const status = offlineStore ? offlineStore.get() : null;
@@ -819,15 +629,9 @@ function openGame(name) {
 	w.loadURL(url).catch(() => {});
 }
 
-// Registered once for the life of the app, not per window: on macOS the window
-// is recreated when the dock icon is clicked, and ipcMain.handle throws if the
-// same channel is registered twice.
 function registerIpcHandlers() {
 	const target = mainWindow;
 
-	// The preload is attached to whatever the window navigates to, so every
-	// handler checks who is actually calling rather than trusting that it can
-	// only be our own page.
 	const handle = (channel, fn) => {
 		ipcMain.handle(channel, (event, ...args) => {
 			if (!isTrustedSender(event)) {
@@ -856,8 +660,7 @@ function registerIpcHandlers() {
 	handle('app-ping', () => pingSite());
 	handle('app-clear-cache', () => clearAppCache());
 	handle('offline-status', () => offlineStore ? offlineStore.get() : { signedIn: false, ready: false, available: false });
-	// Opens one of the stored games. Only the names in lib/offline.js, and
-	// only while signed in: offline play is for accounts, as the app is.
+
 	handle('offline-play', (name) => {
 		const url = offline.gameUrl(name);
 		const w = target();
@@ -869,13 +672,6 @@ function registerIpcHandlers() {
 	handle('app-home', () => goToDashboard());
 }
 
-// Without an application menu macOS has no Cmd+Q, Cmd+W, or - the one that
-// actually bites - Cmd+C/Cmd+V, since those are menu-driven rather than
-// handled by the web contents. Windows and Linux keep their existing
-// (menu-less, frameless) look.
-//
-// Built again whenever the sign-in changes (trackSignIn), since the Go menu's
-// pages are only enabled while signed in.
 function buildAppMenu() {
 	if (!isMac) return;
 
@@ -973,9 +769,6 @@ function buildAppMenu() {
 }
 
 app.on('ready', function()  {
-  // The second instance only exists to hand its arguments to the first (see
-  // requestSingleInstanceLock above) and is already quitting. Without this it
-  // still opened a window and started an update check on its way out.
   if (!gotTheLock) return;
   offlineStore = offline.createStore(path.join(app.getPath('userData'), 'offline.json'));
   lockDownPermissions();
@@ -990,8 +783,6 @@ app.on('ready', function()  {
 
 app.on('activate', () => {
   if (!gotTheLock || !app.isReady()) return;
-  // Clicking the dock icon with no windows open must reopen one, otherwise
-  // 'window-all-closed' below leaves the app running with nothing to show.
   if (!win || win.isDestroyed()) {
 	  createDefaultWindow();
   } else {
