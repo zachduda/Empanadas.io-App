@@ -20,26 +20,11 @@ const CONFIG = {
 	},
 
 	requireHash: true,
-
-	// --- release signature (all platforms) ---------------------------
-	// A detached OpenPGP signature over the asset, uploaded next to it as
-	// <asset>.sig. Unlike the hashes, this does not come from GitHub's own
-	// metadata, so it still holds if the GitHub account is taken over.
-	//
-	// Enforced whenever release-keys.json is present, which it is in any real
-	// build. Nobody can turn that off remotely: removing the file from a signed
-	// app breaks the app's own code signature.
 	releaseKeysFile: path.join(__dirname, 'release-keys.json'),
 
 	// --- Windows code signing ----------------------------------------
 	requireSignature: true,
 	expectedPublisher: 'Empanadas.io',
-	// SHA-1 thumbprints of the Authenticode certificates allowed to sign a
-	// release. Empty means "any certificate whose subject contains
-	// expectedPublisher", which is weaker: a certificate naming Empanadas.io
-	// issued to someone else would pass. Keep two entries across a cert
-	// rollover so in-flight clients accept both the old and the new one.
-	// Print one with: node scripts/thumbprint.js <installer.exe>
 	pinnedThumbprints: [],
 
 	// --- macOS code signing ------------------------------------------
@@ -101,17 +86,8 @@ let state = { status: 'idle', version: null, progress: 0, error: null };
 let busy = false;
 let lastManualCheck = 0;
 let timer = null;
-
-// The version the user said "Not now" or "Later" to. Background checks run
-// every six hours and used to ask again each time - a modal dialog over the
-// game, for an update the user had already turned down. Now only a check the
-// user asks for (the menu, or the site's update banner) asks again this run.
-// status is what to report meanwhile: 'declined', or 'ready' when the update
-// was downloaded and verified but "Later" was chosen at the install prompt.
 let declined = null;
 
-// Dialogs are parented to the main window so they are modal to it and cannot
-// open behind it. main.js supplies the window; see setWindowProvider().
 let windowProvider = () => null;
 
 function setWindowProvider(fn) {
@@ -169,10 +145,6 @@ function request(url, { headers = {}, timeout = CONFIG.requestTimeoutMs } = {}) 
 	requireAllowedUrl(url);
 
 	return new Promise((resolve, reject) => {
-		// 'manual' rather than 'follow' so each hop is checked. With 'follow',
-		// a redirect to http:// or to an unrelated host would be taken
-		// silently, and an update downloaded over plain http is an update an
-		// on-path attacker gets to choose.
 		const req = net.request({ method: 'GET', url, redirect: 'manual' });
 		req.setHeader('User-Agent', USER_AGENT);
 		for (const [k, v] of Object.entries(headers)) req.setHeader(k, v);
@@ -227,8 +199,6 @@ async function getText(url, headers) {
 	});
 }
 
-// For small binaries - signature files, a few hundred bytes. Capped so a
-// mislabelled or hostile response cannot be read into memory unbounded.
 async function getBuffer(url, maxBytes = 64 * 1024) {
 	const res = await request(url, { headers: { Accept: 'application/octet-stream' } });
 	return new Promise((resolve, reject) => {
@@ -276,8 +246,6 @@ async function download(url, dest, onProgress, maxBytes = 0) {
 
 		res.on('data', (chunk) => {
 			received += chunk.length;
-			// A server that ignores content-length should not be able to fill
-			// the user's disk.
 			if (maxBytes && received > maxBytes) {
 				res.destroy();
 				fail(new Error('Download exceeded the expected size of ' + maxBytes + ' bytes'));
@@ -285,9 +253,6 @@ async function download(url, dest, onProgress, maxBytes = 0) {
 			}
 			sha256.update(chunk);
 			sha512.update(chunk);
-			// Respect backpressure - the installer is >100 MB and arrives far
-			// faster than it lands on disk, so without this it all piles up
-			// in memory.
 			if (!out.write(chunk)) {
 				res.pause();
 				out.once('drain', () => res.resume());
@@ -346,15 +311,6 @@ const MANIFEST_NAME = {
 	linux: 'latest-linux.yml'
 }[process.platform] || 'latest.yml';
 
-// Pulls the SHA-512 for one specific asset out of an electron-builder manifest.
-//
-// The manifest lists every artifact of that platform - both architectures, the
-// zip and the dmg - so the top-level `sha512:` is only right for whichever one
-// `path:` names. Matching on the file name is what makes this correct when a
-// release has more than one.
-//
-// Written as a line scan rather than a YAML parse: the shape is fixed and
-// known, and this avoids a YAML dependency inside the verification path.
 function sha512FromManifest(yml, assetName) {
 	const lines = yml.split(/\r?\n/);
 	let inEntry = false;
@@ -391,10 +347,6 @@ async function collectExpectedHashes(release, asset) {
 		if (m) expected['sha' + m[1]] = m[2].toLowerCase();
 	}
 
-	// A release that ships both platforms carries both latest.yml and
-	// latest-mac.yml, so the manifest has to be chosen by platform. Reading the
-	// wrong one would compare the mac zip against the Windows installer's hash
-	// and refuse every update.
 	const manifest = (release.assets || []).find((a) =>
 		a.state === 'uploaded' && a.name.toLowerCase() === MANIFEST_NAME);
 
@@ -444,12 +396,6 @@ function verifyHashes(expected, actual) {
 	}
 }
 
-// --- release signature ------------------------------------------------
-
-// Reads the pinned keys off disk. Missing file means the project has not
-// adopted release signing yet and the check is skipped; a file that is present
-// but unreadable or malformed is an error, because that is what tampering looks
-// like and "corrupt" must never soften into "skip".
 function loadReleaseKeys() {
 	if (!fs.existsSync(CONFIG.releaseKeysFile)) return null;
 
@@ -557,9 +503,6 @@ async function verifyAuthenticode(file) {
 	const thumbprint = String(info.thumbprint || '').toUpperCase();
 	const subject = String(info.subject || '');
 
-	// A pinned thumbprint identifies one specific certificate, so when there is
-	// one it is the whole check - the publisher name is a property of that
-	// certificate and adds nothing.
 	if (CONFIG.pinnedThumbprints.length) {
 		const pinned = CONFIG.pinnedThumbprints.map((t) => String(t).replace(/\s/g, '').toUpperCase());
 		if (!pinned.includes(thumbprint)) {
@@ -571,9 +514,6 @@ async function verifyAuthenticode(file) {
 		return;
 	}
 
-	// No pin configured: fall back to the publisher name in the subject. This is
-	// weaker - a certificate issued to someone else with "Empanadas.io" in its
-	// subject would pass - so it is only the interim position.
 	if (CONFIG.expectedPublisher &&
 		!subject.toLowerCase().includes(CONFIG.expectedPublisher.toLowerCase())) {
 		problem('Installer is signed by an unexpected publisher: ' + subject);
@@ -602,8 +542,6 @@ function run(command, args, options = {}) {
 	});
 }
 
-// Reads the identity out of a signed bundle. `codesign -dv` writes its report
-// to stderr as key=value lines.
 async function codesignInfo(bundle) {
 	const { stderr } = await run('/usr/bin/codesign', ['-dv', '--verbose=4', bundle]);
 	const info = {};
@@ -620,9 +558,6 @@ async function verifyMacSignature(bundle) {
 		log('WARNING:', why);
 	};
 
-	// --deep --strict checks the whole bundle, not just the outer seal: the
-	// framework and helper binaries inside an Electron app are separately
-	// signed, and an unsigned one swapped in would otherwise go unnoticed.
 	try {
 		await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', bundle]);
 	} catch (err) {
@@ -644,8 +579,6 @@ async function verifyMacSignature(bundle) {
 		return;
 	}
 
-	// The Team ID is the pin: it says the Apple Developer account that signed
-	// this, which a certificate subject string cannot be trusted to convey.
 	if (CONFIG.macTeamId) {
 		if (info.TeamIdentifier !== CONFIG.macTeamId) {
 			problem('Downloaded app was signed by team ' + (info.TeamIdentifier || '(none)') +
@@ -658,8 +591,6 @@ async function verifyMacSignature(bundle) {
 		return;
 	}
 
-	// Gatekeeper's own assessment, which is what fails if the build was never
-	// notarized or the notarization was revoked.
 	if (CONFIG.macRequireNotarized) {
 		try {
 			await run('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=4', bundle]);
@@ -673,9 +604,6 @@ async function verifyMacSignature(bundle) {
 	log('codesign OK:', info.Identifier, 'team', info.TeamIdentifier);
 }
 
-// Dispatches to whichever signature scheme the platform actually has. This is
-// the second, independent check: the OpenPGP signature says the release came
-// from the project, this says the binary is one the OS will accept.
 async function verifySignature(file) {
 	if (process.platform === 'win32') return verifyAuthenticode(file);
 	if (process.platform === 'darwin') return verifyMacSignature(file);
@@ -684,18 +612,12 @@ async function verifySignature(file) {
 	}
 }
 
-// userData, not temp: the installer is verified and then launched from here, and
-// on a shared machine the system temp directory is somewhere another user can
-// write. That would let them swap the file between the hash check and the
-// spawn - the app would run their binary having verified ours.
 function cacheDir() {
 	const dir = path.join(app.getPath('userData'), 'updates');
 	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 	return dir;
 }
 
-// The asset name comes from the release, so it is not automatically a safe path
-// component. Keep it to something that can only ever name a file in cacheDir().
 function safeAssetName(version, name) {
 	const base = path.basename(String(name)).replace(/[^A-Za-z0-9._-]/g, '_');
 	const tag = String(version).replace(/[^A-Za-z0-9._-]/g, '_');
@@ -710,8 +632,6 @@ function cleanCache(keep) {
 	for (const name of fs.readdirSync(dir)) {
 		if (name === keep) continue;
 		try {
-			// recursive: a staging directory from an interrupted macOS install
-			// is a tree, not a file.
 			fs.rmSync(path.join(dir, name), { recursive: true, force: true });
 		} catch (err) {
 			log('could not remove stale', name + ':', err.message);
@@ -733,8 +653,6 @@ async function runInstaller(file) {
 
 // --- macOS install ----------------------------------------------------
 
-// The running app bundle, derived from the executable inside it:
-//   .../Empanadas.io.app/Contents/MacOS/empanadas.io
 function currentAppBundle() {
 	const exe = app.getPath('exe');
 	const bundle = path.resolve(exe, '..', '..', '..');
@@ -744,10 +662,6 @@ function currentAppBundle() {
 	return bundle;
 }
 
-// Unpacks the release zip. `ditto` rather than `unzip`: it preserves the
-// extended attributes and symlinks an app bundle's code signature is computed
-// over, and unzip quietly destroys them - the signature check would then fail
-// on a perfectly good download.
 async function extractZip(zipPath, into) {
 	fs.mkdirSync(into, { recursive: true, mode: 0o700 });
 	await run('/usr/bin/ditto', ['-x', '-k', zipPath, into]);
@@ -760,17 +674,9 @@ async function extractZip(zipPath, into) {
 	return path.join(into, entries[0]);
 }
 
-// Replaces the running bundle and relaunches.
-//
-// This cannot be done from inside the process being replaced, so it is handed
-// to a small shell script that waits for this app to exit first. The swap moves
-// the old bundle aside rather than deleting it, so a failure part-way through
-// leaves the user with a working app instead of an empty /Applications entry.
 async function installMacUpdate(newBundle, staging) {
 	const target = currentAppBundle();
 
-	// Fail here, before anything is moved, if the app lives somewhere this user
-	// cannot write - a copy in /Applications installed by another account, say.
 	try {
 		fs.accessSync(path.dirname(target), fs.constants.W_OK);
 	} catch (err) {
@@ -856,10 +762,6 @@ async function checkForUpdates({ silent = true } = {}) {
 			return state;
 		}
 
-		// Reasons this platform cannot install an update, checked before
-		// anything is downloaded. Finding out after pulling 90 MB that the
-		// build was never going to be installable is a waste of the user's
-		// bandwidth and ends in an error dialog rather than an explanation.
 		const blocked = !CONFIG.assetPatterns[process.platform]
 			? 'There is no automatic update for ' + process.platform + '.'
 			: (process.platform === 'darwin' && CONFIG.requireSignature && !CONFIG.macTeamId)
@@ -949,14 +851,8 @@ async function checkForUpdates({ silent = true } = {}) {
 		fs.renameSync(partPath, finalPath);
 		downloadPath = finalPath;
 
-		// Two independent signatures. The OpenPGP one is checked first because
-		// it is the one that does not depend on GitHub: if the release itself
-		// is not ours, there is no reason to go on and ask the OS about it.
 		await verifyReleaseSignature(release, asset, finalPath);
 
-		// Windows verifies the installer directly. macOS has to unpack the zip
-		// first, because what gets signed and installed there is the .app
-		// inside it, not the archive.
 		let macBundle = null;
 		if (process.platform === 'darwin') {
 			stagingDir = path.join(cacheDir(), 'staging-' + process.pid);
@@ -990,8 +886,6 @@ async function checkForUpdates({ silent = true } = {}) {
 
 		setState({ status: 'installing', version: latest });
 		if (macBundle) {
-			// installMacUpdate takes ownership of the staging directory: its
-			// script removes it after the swap, so the cleanup below must not.
 			const handoff = stagingDir;
 			stagingDir = null;
 			await installMacUpdate(macBundle, handoff);
@@ -1004,9 +898,6 @@ async function checkForUpdates({ silent = true } = {}) {
 		setProgressBar(-1);
 		log('failed:', err.message);
 		setState({ status: 'error', error: err.message });
-
-		// Anything that failed verification is deleted rather than left lying
-		// around in a directory the app launches things from.
 		if (downloadPath) {
 			try {
 				fs.rmSync(downloadPath, { force: true });

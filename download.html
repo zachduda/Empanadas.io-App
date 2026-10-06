@@ -9,9 +9,7 @@
 <meta name="referrer" content="origin">
 <meta name="application-name" content="Empanadas.io">
 <meta name="msapplication-TileColor" content="#1e1e91">
-<!-- No crossorigin attribute: on a file:// page it stops the stylesheet loading. -->
 <link rel="stylesheet" href="Content/CSS/splash.css">
-<!-- Jeff stands in for the logo when offline, already loaded. -->
 <link rel="preload" as="image" href="Content/Images/jeff.gif">
 </head>
 <body>
@@ -37,9 +35,6 @@
 <script>
 const app = window.electronWindow || null;
 
-// 8 seconds, like the main process's own ping: a connection that hangs has to
-// be decided before the 10 second fallback at the bottom sends the window to
-// the dashboard anyway.
 function ping(timeoutMs = 8000) {
 	if (app && typeof app.ping === "function") {
 		return app.ping().then(function(res) {
@@ -70,26 +65,20 @@ const start = Date.now();
 const logo = document.getElementById("logo");
 const msg = document.getElementById("msg");
 const status = document.getElementById("status");
-// Long enough for the logo to land and the name to settle (see splash.css);
-// an answer that comes sooner waits for it.
 const minwait = 1500;
-// noint: showing "Check Your Internet". leaving: on the way to the dashboard or
-// a game, which nothing turns back - if that load fails, main.js brings this
-// page back with ?failed=1.
 let noint = false;
 let leaving = false;
 
 const query = new URLSearchParams(window.location.search);
 const GAME_NAMES = { spin: "Spin", flappy: "Flappy" };
 const failedGame = Object.prototype.hasOwnProperty.call(GAME_NAMES, query.get("game")) ? query.get("game") : null;
-// A page of the site has just failed to load (see showSplash() in main.js).
+
 const failedBefore = query.get("failed") === "1";
 
 const offlineBox = document.getElementById("offline");
 const offlineNote = document.getElementById("offlinenote");
 const playRow = document.getElementById("playrow");
 
-// A new status line, eased in rather than swapped.
 function say(html) {
 	if (status.innerHTML === html) return;
 	status.innerHTML = html;
@@ -98,9 +87,6 @@ function say(html) {
 	status.classList.add("changed");
 }
 
-// The offline games, offered for one of two reasons: "offline" (the site
-// cannot be reached) or "slow" (no answer yet - the games need not wait for
-// one). Only while main.js says the account has them (see lib/offline.js).
 let offered = null;
 let offering = null;
 
@@ -108,7 +94,6 @@ function offerGames(reason) {
 	if (!app || !app.offline || leaving || offered === reason || offering === reason) return;
 	offering = reason;
 	app.offline.status().then(function(state) {
-		// Overtaken: offline while asking if it was slow, or the reverse.
 		if (offering !== reason) return;
 		offering = null;
 		if (leaving || !state || (reason === "slow" && noint)) return;
@@ -119,7 +104,6 @@ function offerGames(reason) {
 }
 
 function showOffer(reason, state) {
-	// Still trying: nothing to say about games that are not there.
 	if (reason === "slow" && !state.available) return;
 	offered = reason;
 	if (state.available) {
@@ -159,8 +143,6 @@ function setButtons(enabled) {
 playRow.addEventListener("click", function(e) {
 	const button = e.target.closest("button[data-game]");
 	if (!button || !app || !app.offline || leaving) return;
-	// The player has chosen: an answer from the server now, or a retry, must
-	// not send the window to the dashboard instead.
 	leaving = true;
 	clearTimeout(retryTimer);
 	retryTimer = null;
@@ -196,7 +178,6 @@ function noInt() {
 	if (retryTimer === null && !retrying) retryTimer = setTimeout(retry, RETRY_MS);
 }
 
-// One ping at a time, whether from the timer or the "online" event.
 function retry() {
 	clearTimeout(retryTimer);
 	retryTimer = null;
@@ -225,8 +206,6 @@ function finishedLoading(params="", force=false) {
 	clearTimeout(retryTimer);
 	retryTimer = null;
 	setButtons(false);
-	// The logo gets to land first. Then the bar fills, everything eases out,
-	// and the dashboard takes over.
 	const wait = Math.max(0, minwait - (Date.now() - start));
 	setTimeout(function() {
 		document.body.classList.add("ready");
@@ -241,21 +220,13 @@ function finishedLoading(params="", force=false) {
 }
 
 function download() {
-	// Nothing to wait for: the browser knows it has no connection, or a page
-	// of the site has just failed to load. The offline screen goes up at once
-	// and the retries find out when the site is back.
 	if(navigator.onLine === false || failedBefore) {
 		noInt();
 		return;
 	}
-
-	// Only said if the answer is slow. A quick failure goes straight to the
-	// offline screen, rather than flashing this first.
 	const slow = setTimeout(function() {
 		if (!noint && !leaving) say("Waiting for Server...");
 	}, 2500);
-	// A connection that hangs takes the whole 8 seconds to call. The games
-	// need no answer, so they are offered while it is still coming.
 	const slower = setTimeout(function() {
 		if (!noint && !leaving) offerGames("slow");
 	}, 4000);
@@ -273,7 +244,6 @@ function download() {
 	});
 }
 
-// The site answered, but not with "Pong!": go anyway.
 setTimeout(function(){
 	if(navigator.onLine && !noint) {
 		finishedLoading("&forceapptimeout=1");

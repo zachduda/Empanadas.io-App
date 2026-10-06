@@ -1,25 +1,16 @@
 const {app, BrowserWindow, ipcMain, Menu, net, shell, session} = require('electron');
 const path = require('path');
 const updater = require('./updater');
-
 const isMac = process.platform === 'darwin';
 
-// isAppUrl / isAuthUrl decide what counts as "our site" and what counts as a
-// sign-in provider. They live in lib/urls.js so they can be tested without a
-// running Electron; see the comments there for why the host is parsed rather
-// than prefix-matched.
 const {
 	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl,
 	isBrowserSignInUrl, isAuthDeepLink, authRedeemUrl, browserUserAgent
 } = require('./lib/urls');
 const offline = require('./lib/offline');
 
-// download.html is the only local page, and it is the only sender allowed to
-// drive the window chrome besides the site itself.
 const SPLASH_URL = require('url').pathToFileURL(path.join(__dirname, 'download.html')).href;
 
-// The splash is reloaded with a query string when a page fails to load (see
-// showSplash()), so it is recognised by its path, not its full URL.
 function isSplashUrl(url) {
 	try {
 		const parsed = new URL(url);
@@ -33,7 +24,6 @@ function isSplashUrl(url) {
 function isTrustedSender(event) {
 	let url = '';
 	try {
-		// senderFrame throws if the frame was disposed between send and handle.
 		url = (event.senderFrame && event.senderFrame.url) || '';
 	} catch (err) {
 		return false;
@@ -41,53 +31,13 @@ function isTrustedSender(event) {
 	return isAppUrl(url) || isSplashUrl(url);
 }
 
-// Created on 'ready', when the data folder is known. See lib/offline.js.
 let offlineStore = null;
-
-//const Store = require('electron-store');
-
-//const store = new Store();
-
-//store.set('Settings.Theme', 0);
-//console.log(store.get('Settings.Theme'));
-
-//store.set('Settings.Volume', 100);
-//console.log(store.get('Settings.Volume'));
-
-// NOTE: this used to read appendSwitch('no-proxy-server') but the string held a
-// zero-width space (U+200B) after 'server', so Chromium never recognised the
-// switch and the app has always honoured the system proxy. Left off
-// deliberately - turning it on now would cut off anyone behind a corporate
-// proxy, including the updater's calls to api.github.com.
-// app.commandLine.appendSwitch('no-proxy-server')
-
-// No GPU switches beyond these: the installed app should draw the way Chrome
-// does on the same machine. It used to force the discrete GPU
-// (force_high_performance_gpu), the one thing it did differently from Chrome,
-// and Flappy's canvas came out solid black on top of a menu that drew fine.
-//
-// Nothing on empanadas.io uses WebGL - the games draw on a 2D canvas - so it
-// is switched off, which is GPU attack surface the remote page no longer has.
-// `npm start` used to pass these on its own, so only development had them.
 app.commandLine.appendSwitch('disable-webgl')
 app.commandLine.appendSwitch('disable-webgl2')
 
 let win;
 
 app.enableSandbox();
-
-//console.log(process.argv);
-
-//app.setUserTasks([
-//  {
-//    program: process.execPath,
-//    arguments: '--new-window',
-//    iconPath: process.execPath,
-//    iconIndex: 0,
-//    title: 'New Window',
-//    description: 'Create a new window'
-//  }
-//])
 
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -97,30 +47,22 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('empanadas-io')
 }
 
-// A deep link can arrive before the window exists, so hold onto the last one
-// and hand it over once there's a renderer to hand it to.
 let pendingDeepLink = null;
 
 function handleDeepLink(url) {
 	if (typeof url !== 'string' || !url.startsWith('empanadas-io:')) return;
-	// Anything on the machine can invoke the protocol handler, so treat the URL
-	// as untrusted input: it has to parse, and it does not get to be unbounded
-	// before it reaches the page.
 	if (url.length > 2048) return;
 	try {
 		if (new URL(url).protocol !== 'empanadas-io:') return;
 	} catch (err) {
 		return;
 	}
-	// A browser sign-in coming back. The main process finishes it; the page
-	// never sees the link.
+
 	if (isAuthDeepLink(url)) {
 		finishBrowserSignIn(url);
 		return;
 	}
-	// Only the site listens for these. The splash does not, so a link that
-	// arrives while it is up waits for the site rather than being sent to a
-	// page that drops it.
+
 	if (win && !win.isDestroyed() && isAppUrl(win.webContents.getURL())) {
 		if (win.isMinimized()) win.restore();
 		win.focus();
@@ -164,23 +106,15 @@ if (!gotTheLock) {
 	app.quit()
 	} else {
 	  app.on('second-instance', (event, commandLine, workingDirectory) => {
-		// Someone tried to run a second instance, we should focus our window.
 		if (win) {
 		  if (win.isMinimized()) win.restore()
 		  win.focus()
 		}
-		// Windows and Linux deliver the protocol URL as an argv entry.
 		handleDeepLink(commandLine.find((arg) => arg.startsWith('empanadas-io:')));
 	})
-
-	// A link that launched the app, rather than reaching one already running,
-	// is in this process's own argv on Windows and Linux. Only
-	// 'second-instance' was ever checked, so those links were dropped.
 	handleDeepLink(process.argv.find((arg) => typeof arg === 'string' && arg.startsWith('empanadas-io:')));
 }
 
-// macOS never puts the URL in argv - it arrives here instead, and can fire
-// before 'ready'.
 app.on('open-url', (event, url) => {
 	event.preventDefault();
 	handleDeepLink(url);
@@ -269,14 +203,10 @@ function enableOfflineGames(contents) {
 			} else if (offlineStore.get().signedIn) {
 				offlineStore.ready();
 			} else {
-				// Signed out while the worker was installing: the sign-out
-				// already cleared storage, and this put a worker back.
 				forgetOfflineGames();
 			}
 		})
 		.catch((err) => {
-			// Most likely the site has not published /sw.js yet. Try again on
-			// the next dashboard load.
 			offlineRegistered = false;
 			console.warn('[offline] the games could not be stored for offline play: ' + err.message);
 		})
@@ -305,7 +235,6 @@ function showSplash(failedUrl) {
 		const game = offline.gameOf(failedUrl);
 		if (game) query.game = game;
 	}
-	// Rejects if replaced by another navigation; nothing to do about that.
 	win.loadFile('download.html', { query }).catch(() => {});
 }
 
@@ -365,7 +294,6 @@ function decorateAuthWindow(child) {
 	};
 	child.once('ready-to-show', reveal);
 	setTimeout(reveal, 1500);
-	// The provider decides the title; the window says what it is for.
 	child.setTitle('Sign in');
 	child.on('page-title-updated', (event) => event.preventDefault());
 }
@@ -489,13 +417,10 @@ app.on('web-contents-created', (_event, contents) => {
 		}
 		if (fromSite && isSignInPopupRequest(url, disposition)) {
 			openingAuthWindow = true;
-			// If the window never gets created, the flag must not be left
-			// lying around for some unrelated WebContents to pick up.
+
 			setImmediate(() => { openingAuthWindow = false; });
 			return {
 				action: 'allow',
-				// The popup closes with the window that opened it rather than
-				// outliving it as an orphan the user cannot get back to.
 				outlivesOpener: false,
 				overrideBrowserWindowOptions: authWindowOptions()
 			};
@@ -507,8 +432,6 @@ app.on('web-contents-created', (_event, contents) => {
 		}
 		return { action: 'deny' };
 	});
-
-	// Every window the handler above lets through is a sign-in popup.
 	contents.on('did-create-window', (child) => decorateAuthWindow(child));
 });
 
@@ -567,19 +490,16 @@ function createDefaultWindow() {
 	hideTrafficLights();
 	win.on('leave-full-screen', hideTrafficLights);
   }
-  // don't ovverride win.webContents.setFrameRate(144);
+  
   win.on('closed', () => {
     win = null;
   })
 
-  // Re-applied on every page load: inserted CSS does not survive navigation.
   win.webContents.on('dom-ready', () => {
 	if (!isAppUrl(win.webContents.getURL())) return;
 	win.webContents.insertCSS(WINDOW_CHROME_CSS, { cssOrigin: 'user' }).catch(() => {});
   })
 
-  // Lets the site swap its maximize/restore icon, including when the window is
-  // maximized some other way - a double-click on the titlebar, Win+Up, snap.
   const sendWindowState = () => {
 	if (!win || win.isDestroyed()) return;
 	win.webContents.send('window-state', { maximized: win.isMaximized() });
@@ -600,7 +520,6 @@ function createDefaultWindow() {
   })
 
   win.webContents.on('did-fail-load', (_event, errorCode, _description, url, isMainFrame) => {
-	// -3 is ERR_ABORTED: a navigation replaced by another one, not a failure.
 	if (!isMainFrame || errorCode === -3 || !isAppUrl(url)) return;
 	showSplash(url);
   })
