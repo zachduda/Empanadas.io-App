@@ -272,12 +272,16 @@ function trackSignIn(details) {
 	if (!offlineStore) return;
 	const signal = offline.signInSignal(details);
 	if (signal === 'in') {
-		offlineStore.signedIn();
+		// The Go menu's pages are greyed out while signed out.
+		if (offlineStore.signedIn()) buildAppMenu();
 	} else if (signal === 'out') {
 		const wasSignedIn = offlineStore.get().signedIn;
 		offlineStore.signedOut();
 		offlineRegistered = false;
-		if (wasSignedIn) forgetOfflineGames();
+		if (wasSignedIn) {
+			forgetOfflineGames();
+			buildAppMenu();
+		}
 	}
 }
 
@@ -789,11 +793,37 @@ function createDefaultWindow() {
   return win;
 }
 
+// The main window, or null once it is closed (macOS keeps the app running).
+function mainWindow() {
+	return win && !win.isDestroyed() ? win : null;
+}
+
+// "Back to the dashboard", from a game's button or the Go menu. Offline that
+// fails to load, and did-fail-load brings the splash up instead.
+function goToDashboard() {
+	const w = mainWindow();
+	if (w) w.loadURL(offline.SITE + '/v2/dashboard').catch(() => {});
+}
+
+// One of the games, from the Go menu. Only while signed in, like the menu
+// items themselves. From the splash - which is what shows when the site cannot
+// be reached - it opens the stored copy straight away, as the splash's own
+// buttons do; anywhere else the worker is network first, so the plain address
+// gets the live game. A failure is handled by did-fail-load.
+function openGame(name) {
+	const w = mainWindow();
+	const status = offlineStore ? offlineStore.get() : null;
+	if (!w || !status || !status.signedIn || !offline.gameUrl(name)) return;
+	const fromSplash = isSplashUrl(w.webContents.getURL());
+	const url = fromSplash && status.available ? offline.offlinePlayUrl(name) : offline.gameUrl(name);
+	w.loadURL(url).catch(() => {});
+}
+
 // Registered once for the life of the app, not per window: on macOS the window
 // is recreated when the dock icon is clicked, and ipcMain.handle throws if the
 // same channel is registered twice.
 function registerIpcHandlers() {
-	const target = () => win && !win.isDestroyed() ? win : null;
+	const target = mainWindow;
 
 	// The preload is attached to whatever the window navigates to, so every
 	// handler checks who is actually calling rather than trusting that it can
@@ -836,20 +866,24 @@ function registerIpcHandlers() {
 		w.loadURL(offline.offlinePlayUrl(name)).catch(() => {});
 		return true;
 	});
-	// "Back to the dashboard" from a game. Offline that fails to load, and
-	// did-fail-load brings the splash up instead.
-	handle('app-home', () => {
-		const w = target();
-		if (w) w.loadURL(offline.SITE + '/v2/dashboard').catch(() => {});
-	});
+	handle('app-home', () => goToDashboard());
 }
 
 // Without an application menu macOS has no Cmd+Q, Cmd+W, or - the one that
 // actually bites - Cmd+C/Cmd+V, since those are menu-driven rather than
 // handled by the web contents. Windows and Linux keep their existing
 // (menu-less, frameless) look.
+//
+// Built again whenever the sign-in changes (trackSignIn), since the Go menu's
+// pages are only enabled while signed in.
 function buildAppMenu() {
 	if (!isMac) return;
+
+	const signedIn = !!(offlineStore && offlineStore.get().signedIn);
+	const history = () => {
+		const w = mainWindow();
+		return w ? w.webContents.navigationHistory : null;
+	};
 
 	Menu.setApplicationMenu(Menu.buildFromTemplate([
 		{
@@ -889,6 +923,41 @@ function buildAppMenu() {
 				{ role: 'reload' },
 				{ type: 'separator' },
 				{ role: 'togglefullscreen' }
+			]
+		},
+		{
+			label: 'Go',
+			submenu: [
+				{
+					label: 'Back',
+					accelerator: 'Cmd+[',
+					click: () => { const h = history(); if (h && h.canGoBack()) h.goBack(); }
+				},
+				{
+					label: 'Forward',
+					accelerator: 'Cmd+]',
+					click: () => { const h = history(); if (h && h.canGoForward()) h.goForward(); }
+				},
+				{ type: 'separator' },
+				{
+					label: 'Dashboard',
+					accelerator: 'Cmd+Shift+D',
+					enabled: signedIn,
+					click: () => goToDashboard()
+				},
+				{ type: 'separator' },
+				{
+					label: 'Launch Flappy',
+					accelerator: 'Cmd+1',
+					enabled: signedIn,
+					click: () => openGame('flappy')
+				},
+				{
+					label: 'Launch Spin',
+					accelerator: 'Cmd+2',
+					enabled: signedIn,
+					click: () => openGame('spin')
+				}
 			]
 		},
 		{
