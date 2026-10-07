@@ -131,11 +131,11 @@ check('starts signed out with nothing stored', () => {
 check('offline play needs a sign-in and the stored games', () => {
 	const file = path.join(tmp, 'b', 'offline.json');
 	const store = createStore(file);
-	assert.strictEqual(store.ready(), false, 'ready before a sign-in');
+	assert.strictEqual(store.ready([...SCOPES]), false, 'ready before a sign-in');
 	assert.strictEqual(store.get().available, false);
 	store.signedIn();
 	assert.strictEqual(store.get().available, false, 'available before the games are stored');
-	store.ready();
+	store.ready([...SCOPES]);
 	assert.strictEqual(store.get().available, true);
 	// And it survives a restart.
 	assert.deepStrictEqual(createStore(file).get(),
@@ -146,7 +146,7 @@ check('signing out takes offline play away, and it stays away', () => {
 	const file = path.join(tmp, 'c', 'offline.json');
 	const store = createStore(file);
 	store.signedIn();
-	store.ready();
+	store.ready([...SCOPES]);
 	store.signedOut();
 	assert.deepStrictEqual(store.get(), { available: false, signedIn: false, ready: false, games: [] });
 	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false, games: [] });
@@ -177,7 +177,7 @@ check('a save from before Tower offers only the games its worker was installed f
 	assert(playableOffline(store.get(), 'spin') && playableOffline(store.get(), 'flappy'));
 	assert(!playableOffline(store.get(), 'tower'), 'Tower offered before its worker was installed');
 	// The next dashboard load online registers every scope, and then it is.
-	assert.strictEqual(store.ready(), true, 'recording the new scopes is a change');
+	assert.strictEqual(store.ready(['/spin', '/flappy', '/tower']), true, 'recording the new scopes is a change');
 	assert(playableOffline(store.get(), 'tower'));
 	assert.deepStrictEqual(createStore(file).get().games, ['spin', 'flappy', 'tower']);
 });
@@ -188,6 +188,24 @@ check('stored scopes this version does not know are ignored', () => {
 	assert.deepStrictEqual(createStore(file).get().games, ['spin', 'tower']);
 	fs.writeFileSync(file, JSON.stringify({ signedIn: true, ready: true, scopes: [] }));
 	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: true, ready: true, games: [] });
+});
+
+check('ready() records only the scopes it is given', () => {
+	const file = path.join(tmp, 'g', 'offline.json');
+	const store = createStore(file);
+	store.signedIn();
+	store.ready(['/spin', '/tower']);
+	assert.deepStrictEqual(store.get().games, ['spin', 'tower']);
+	assert.deepStrictEqual(createStore(file).get().games, ['spin', 'tower'], 'not kept across a restart');
+	// A later registration finding less stored is believed too.
+	store.ready(['/flappy']);
+	assert.deepStrictEqual(store.get().games, ['flappy']);
+	store.ready(['/v2', 7, '/flappy', '/flappy']);
+	assert.deepStrictEqual(store.get().games, ['flappy'], 'unknown or repeated scopes were kept');
+	for (const junk of [undefined, null, '/spin', { 0: '/spin' }]) {
+		store.ready(junk);
+		assert.deepStrictEqual(store.get(), { available: false, signedIn: true, ready: true, games: [] }, String(junk));
+	}
 });
 
 check('only a game in the status can be played offline', () => {
@@ -207,27 +225,81 @@ check('the registration script parses and registers every scope', () => {
 	assert(/register\('\/sw\.js'/.test(src), 'does not register /sw.js');
 });
 
-check('the registration script waits for the workers to activate', async () => {
-	// Driven for real against a fake navigator.serviceWorker.
+// A fake navigator.serviceWorker and Cache API for registerScript(). Each
+// scope's registration starts installing; finish(scope, state) moves it on.
+// pages are the game pages in the cache.
+function fakeWorkers({ pages = [...SCOPES], updateFails = false } = {}) {
 	const registered = [];
-	const listeners = [];
-	const worker = { state: 'installing', addEventListener: (t, fn) => listeners.push(fn) };
+	const updated = [];
+	const regs = {};
 	const context = vm.createContext({
 		navigator: { serviceWorker: { register: (url, opts) => {
-			registered.push(opts.scope);
-			return Promise.resolve({ active: null, installing: worker });
+			registered.push(url + ' ' + opts.scope);
+			if (!regs[opts.scope]) {
+				const listeners = [];
+				const worker = { state: 'installing', addEventListener: (t, fn) => listeners.push(fn) };
+				regs[opts.scope] = {
+					active: null, installing: worker, waiting: null, listeners,
+					update: () => { updated.push(opts.scope); return updateFails ? Promise.reject(new Error('offline')) : Promise.resolve(); }
+				};
+			}
+			return Promise.resolve(regs[opts.scope]);
 		} } },
+		caches: { match: (url) => Promise.resolve(pages.includes(url) ? {} : undefined) },
 		Promise, Error
 	});
-	let done = false;
-	const result = vm.runInContext(registerScript(), context).then((v) => { done = v; });
-	await new Promise((r) => setImmediate(r));
-	assert.deepStrictEqual(registered, ['/spin', '/flappy', '/tower']);
-	assert.strictEqual(done, false, 'resolved before the workers were active');
-	worker.state = 'activated';
-	listeners.forEach((fn) => fn());
+	const finish = (scope, state) => {
+		const reg = regs[scope];
+		const worker = reg.installing;
+		worker.state = state;
+		reg.installing = null;
+		if (state === 'activated') reg.active = worker;
+		reg.listeners.forEach((fn) => fn());
+	};
+	return { context, registered, updated, finish };
+}
+
+const tick = () => new Promise((r) => setImmediate(r));
+
+check('the registration script waits for every worker, then names the stored games', async () => {
+	const fake = fakeWorkers();
+	let done;
+	const result = vm.runInContext(registerScript(), fake.context).then((v) => { done = v; });
+	await tick();
+	assert.deepStrictEqual(fake.registered, ['/sw.js /spin', '/sw.js /flappy', '/sw.js /tower']);
+	assert.deepStrictEqual(fake.updated, ['/spin', '/flappy', '/tower'], 'an existing worker is not refreshed');
+	fake.finish('/spin', 'activated');
+	fake.finish('/flappy', 'activated');
+	await tick();
+	assert.strictEqual(done, undefined, 'resolved before every worker was active');
+	fake.finish('/tower', 'activated');
 	await result;
-	assert.strictEqual(done, true);
+	assert.deepStrictEqual(Array.from(done), ['/spin', '/flappy', '/tower']);
+});
+
+check('a worker that did not install, or a page not stored, is left out', async () => {
+	const fake = fakeWorkers({ pages: ['/spin', '/flappy'] });
+	const result = vm.runInContext(registerScript(), fake.context);
+	await tick();
+	fake.finish('/spin', 'redundant');
+	fake.finish('/flappy', 'activated');
+	fake.finish('/tower', 'activated');
+	// /spin: no worker. /tower: a worker, but (say, the site's sw.js from
+	// before Tower) it stored no Tower page.
+	assert.deepStrictEqual(Array.from(await result), ['/flappy']);
+});
+
+check('a failed update still waits for the workers and reports them', async () => {
+	const fake = fakeWorkers({ updateFails: true });
+	const result = vm.runInContext(registerScript(), fake.context);
+	await tick();
+	for (const scope of SCOPES) fake.finish(scope, 'activated');
+	assert.deepStrictEqual(Array.from(await result), [...SCOPES]);
+});
+
+check('with no service workers, the registration script reports nothing stored', async () => {
+	const context = vm.createContext({ navigator: {}, Promise, Error });
+	assert.strictEqual(await vm.runInContext(registerScript(), context), null);
 });
 
 module.exports = { failures };

@@ -125,6 +125,9 @@ function showOffer(reason, state) {
 		playRow.style.display = null;
 		if (reason === "slow") {
 			offlineNote.textContent = "Taking a while? You can play offline while we keep trying.";
+		} else if (failedGame && missing.indexOf(failedGame) !== -1) {
+			// Its button is hidden, so "try again" would be no help.
+			offlineNote.textContent = GAME_NAMES[failedGame] + " isn't downloaded for offline play yet. Connect once more to get it, or pick another game.";
 		} else if (failedGame) {
 			offlineNote.textContent = GAME_NAMES[failedGame] + " couldn't load. Try again, or pick another game.";
 		} else {

@@ -405,6 +405,13 @@ async function main() {
 			}));
 			check('a game not yet stored is not offered', view.buttons.join() === 'Play Spin,Play Flappy', view.buttons.join());
 			check('...and the note says how to get it', /Connect once more to download Tower too\./.test(view.note), view.note);
+			// Tower opened online (the macOS menu) and the load failed: its
+			// button is hidden, so the note must not say to try it again.
+			await page.goto(PAGE + '?failed=1&game=tower');
+			await page.waitForTimeout(800);
+			const failed = await page.textContent('#offlinenote');
+			check('a failed game that is not stored says to connect, not to try again',
+				/^Tower isn't downloaded for offline play yet\. Connect once more/.test(failed), failed);
 			await ctx.close();
 		}
 

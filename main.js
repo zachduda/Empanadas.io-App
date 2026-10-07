@@ -197,11 +197,14 @@ function enableOfflineGames(contents) {
 		timer = setTimeout(() => reject(new Error('timed out')), 2 * 60 * 1000);
 	});
 	Promise.race([contents.executeJavaScript(offline.registerScript()), timeout])
-		.then((ok) => {
-			if (ok !== true) {
+		.then((scopes) => {
+			if (!Array.isArray(scopes)) {
 				offlineRegistered = false;
 			} else if (offlineStore.get().signedIn) {
-				offlineStore.ready();
+				offlineStore.ready(scopes);
+				// Some game is not stored (a flaky connection, or the site's
+				// worker not knowing it yet): try again on the next dashboard.
+				if (scopes.length < offline.SCOPES.length) offlineRegistered = false;
 			} else {
 				forgetOfflineGames();
 			}
