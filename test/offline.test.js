@@ -10,7 +10,8 @@ const os = require('os');
 const path = require('path');
 const vm = require('vm');
 const {
-	GAMES, SCOPES, gameUrl, offlinePlayUrl, gameOf, isDashboardUrl, signInSignal, registerScript, createStore
+	GAMES, SCOPES, LEGACY_SCOPES, gameUrl, playableOffline, offlinePlayUrl, gameOf, isDashboardUrl, signInSignal,
+	registerScript, createStore
 } = require('../lib/offline');
 
 const failures = [];
@@ -37,9 +38,10 @@ function check(what, fn) {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'empanadas-offline-'));
 
-check('only the two games can be opened offline', () => {
+check('only the three games can be opened offline', () => {
 	assert.strictEqual(gameUrl('spin'), 'https://empanadas.io/spin');
 	assert.strictEqual(gameUrl('flappy'), 'https://empanadas.io/flappy');
+	assert.strictEqual(gameUrl('tower'), 'https://empanadas.io/tower');
 	for (const name of ['dashboard', '', 'constructor', '__proto__', 'toString', '../v2/login', null, undefined]) {
 		assert.strictEqual(gameUrl(name), null, JSON.stringify(name) + ' was accepted');
 	}
@@ -51,6 +53,7 @@ check('a game opened from the splash tells the worker the site is unreachable', 
 	// to the plain address.
 	assert.strictEqual(offlinePlayUrl('spin'), 'https://empanadas.io/spin?offline=1');
 	assert.strictEqual(offlinePlayUrl('flappy'), 'https://empanadas.io/flappy?offline=1');
+	assert.strictEqual(offlinePlayUrl('tower'), 'https://empanadas.io/tower?offline=1');
 	assert.strictEqual(offlinePlayUrl('dashboard'), null);
 	assert.strictEqual(offlinePlayUrl('__proto__'), null);
 	// If it fails anyway, the splash still names the game.
@@ -58,13 +61,17 @@ check('a game opened from the splash tells the worker the site is unreachable', 
 });
 
 check('the worker scopes are the game pages and nothing wider', () => {
-	assert.deepStrictEqual([...SCOPES], ['/spin', '/flappy']);
+	assert.deepStrictEqual([...SCOPES], ['/spin', '/flappy', '/tower']);
+	for (const name of Object.keys(GAMES)) {
+		assert(SCOPES.includes(new URL(GAMES[name]).pathname), name + ' has no scope');
+	}
 });
 
 check('names which game a URL is', () => {
 	assert.strictEqual(gameOf('https://empanadas.io/spin?au=1'), 'spin');
 	assert.strictEqual(gameOf('https://empanadas.io/spin.html'), 'spin');
 	assert.strictEqual(gameOf('https://empanadas.io/flappy/'), 'flappy');
+	assert.strictEqual(gameOf('https://empanadas.io/tower.html'), 'tower');
 	assert.strictEqual(gameOf('https://empanadas.io/v2/dashboard'), null);
 	assert.strictEqual(gameOf('https://empanadas.io.example.com/spin'), null);
 	assert.strictEqual(gameOf('http://empanadas.io/spin'), null);
@@ -118,7 +125,7 @@ check('any request to logout.php is a sign-out', () => {
 
 check('starts signed out with nothing stored', () => {
 	const store = createStore(path.join(tmp, 'a', 'offline.json'));
-	assert.deepStrictEqual(store.get(), { available: false, signedIn: false, ready: false });
+	assert.deepStrictEqual(store.get(), { available: false, signedIn: false, ready: false, games: [] });
 });
 
 check('offline play needs a sign-in and the stored games', () => {
@@ -131,7 +138,8 @@ check('offline play needs a sign-in and the stored games', () => {
 	store.ready();
 	assert.strictEqual(store.get().available, true);
 	// And it survives a restart.
-	assert.deepStrictEqual(createStore(file).get(), { available: true, signedIn: true, ready: true });
+	assert.deepStrictEqual(createStore(file).get(),
+		{ available: true, signedIn: true, ready: true, games: ['spin', 'flappy', 'tower'] });
 });
 
 check('signing out takes offline play away, and it stays away', () => {
@@ -140,8 +148,8 @@ check('signing out takes offline play away, and it stays away', () => {
 	store.signedIn();
 	store.ready();
 	store.signedOut();
-	assert.deepStrictEqual(store.get(), { available: false, signedIn: false, ready: false });
-	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false });
+	assert.deepStrictEqual(store.get(), { available: false, signedIn: false, ready: false, games: [] });
+	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false, games: [] });
 	// Signing in again does not bring the old "ready" back: the stored games
 	// were deleted with the sign-out, so they have to be stored again.
 	store.signedIn();
@@ -151,14 +159,48 @@ check('signing out takes offline play away, and it stays away', () => {
 check('a damaged file reads as signed out', () => {
 	const file = path.join(tmp, 'd.json');
 	fs.writeFileSync(file, '{"signedIn": tru');
-	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false });
+	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false, games: [] });
 	fs.writeFileSync(file, JSON.stringify({ signedIn: 'yes', ready: true }));
-	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false });
+	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: false, ready: false, games: [] });
 	fs.writeFileSync(file, JSON.stringify({ signedIn: false, ready: true }));
 	assert.strictEqual(createStore(file).get().ready, false, 'ready without a sign-in');
 });
 
-check('the registration script parses and registers both scopes', () => {
+check('a save from before Tower offers only the games its worker was installed for', () => {
+	// offline.json as an app from before /tower wrote it: no scopes.
+	const file = path.join(tmp, 'e', 'offline.json');
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, JSON.stringify({ signedIn: true, ready: true }));
+	const store = createStore(file);
+	assert.deepStrictEqual(store.get(), { available: true, signedIn: true, ready: true, games: ['spin', 'flappy'] });
+	assert.deepStrictEqual([...LEGACY_SCOPES], ['/spin', '/flappy']);
+	assert(playableOffline(store.get(), 'spin') && playableOffline(store.get(), 'flappy'));
+	assert(!playableOffline(store.get(), 'tower'), 'Tower offered before its worker was installed');
+	// The next dashboard load online registers every scope, and then it is.
+	assert.strictEqual(store.ready(), true, 'recording the new scopes is a change');
+	assert(playableOffline(store.get(), 'tower'));
+	assert.deepStrictEqual(createStore(file).get().games, ['spin', 'flappy', 'tower']);
+});
+
+check('stored scopes this version does not know are ignored', () => {
+	const file = path.join(tmp, 'f.json');
+	fs.writeFileSync(file, JSON.stringify({ signedIn: true, ready: true, scopes: ['/tower', '/v2', 42, '/spin'] }));
+	assert.deepStrictEqual(createStore(file).get().games, ['spin', 'tower']);
+	fs.writeFileSync(file, JSON.stringify({ signedIn: true, ready: true, scopes: [] }));
+	assert.deepStrictEqual(createStore(file).get(), { available: false, signedIn: true, ready: true, games: [] });
+});
+
+check('only a game in the status can be played offline', () => {
+	const status = { available: true, signedIn: true, ready: true, games: ['spin'] };
+	assert(playableOffline(status, 'spin'));
+	assert(!playableOffline(status, 'flappy'));
+	assert(!playableOffline(Object.assign({}, status, { available: false }), 'spin'));
+	assert(!playableOffline({ available: true }, 'spin'), 'no games list');
+	assert(!playableOffline(Object.assign({}, status, { games: ['__proto__'] }), '__proto__'));
+	assert(!playableOffline(null, 'spin'));
+});
+
+check('the registration script parses and registers every scope', () => {
 	const src = registerScript();
 	new vm.Script(src); // throws on a syntax error
 	for (const scope of SCOPES) assert(src.includes(JSON.stringify(scope)), scope + ' is not registered');
@@ -180,7 +222,7 @@ check('the registration script waits for the workers to activate', async () => {
 	let done = false;
 	const result = vm.runInContext(registerScript(), context).then((v) => { done = v; });
 	await new Promise((r) => setImmediate(r));
-	assert.deepStrictEqual(registered, ['/spin', '/flappy']);
+	assert.deepStrictEqual(registered, ['/spin', '/flappy', '/tower']);
 	assert.strictEqual(done, false, 'resolved before the workers were active');
 	worker.state = 'activated';
 	listeners.forEach((fn) => fn());

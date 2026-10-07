@@ -363,8 +363,8 @@ async function main() {
 					.map((el) => el.getBoundingClientRect().bottom))
 			}));
 			check('offline with the games stored, the offline state still shows', view.msg === 'Check Your Internet', view.msg);
-			check('offline with the games stored, they are offered', view.shown && view.buttons.join() === 'Play Spin,Play Flappy',
-				view.buttons.join());
+			check('offline with the games stored, they are offered',
+				view.shown && view.buttons.join() === 'Play Spin,Play Flappy,Play Tower', view.buttons.join());
 			check('the offer says progress is kept and synced', /syncs when you're back online/.test(view.note), view.note);
 			check('the offer fits in the window', view.bottom <= 700, 'bottom at ' + view.bottom + 'px');
 			await page.setViewportSize({ width: 975, height: 480 });
@@ -378,6 +378,33 @@ async function main() {
 			const played = await page.evaluate(() => window.__played);
 			check('a play button asks the app for that game', played.join() === 'flappy', played.join());
 
+			await ctx.close();
+		}
+
+		// --- only the games stored for offline play are offered ---------------
+		// An app updated to a version with a new game has no worker for it until
+		// the dashboard next loads online, so the splash must not offer it yet.
+		{
+			const ctx = await browser.newContext({ viewport: { width: 1100, height: 700 } });
+			const page = await ctx.newPage();
+			await page.addInitScript(() => {
+				window.electronWindow = {
+					ping: () => Promise.resolve({ ok: false, status: 0, pong: false }),
+					offline: {
+						status: () => Promise.resolve({ signedIn: true, ready: true, available: true, games: ['spin', 'flappy'] }),
+						play: () => Promise.resolve(true)
+					}
+				};
+			});
+			await page.goto(PAGE);
+			await page.waitForTimeout(1500);
+			const view = await page.evaluate(() => ({
+				buttons: [...document.querySelectorAll('#playrow button')]
+					.filter((b) => b.offsetParent !== null).map((b) => b.textContent),
+				note: document.getElementById('offlinenote').textContent
+			}));
+			check('a game not yet stored is not offered', view.buttons.join() === 'Play Spin,Play Flappy', view.buttons.join());
+			check('...and the note says how to get it', /Connect once more to download Tower too\./.test(view.note), view.note);
 			await ctx.close();
 		}
 

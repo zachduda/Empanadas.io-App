@@ -29,7 +29,8 @@ contextBridge.exposeInMainWorld('electronWindow', {
   // in main.js. Resolves { ok }, or null if the page is not empanadas.io.
   clearCache: () => ipcRenderer.invoke('app-clear-cache'),
   // Offline games (lib/offline.js). status() resolves { signedIn, ready,
-  // available }; play() opens 'spin' or 'flappy' when available is true.
+  // available, games }; play() opens a game when it is in games ('spin',
+  // 'flappy' or 'tower').
   offline: {
     status: () => ipcRenderer.invoke('offline-status'),
     play: (game) => ipcRenderer.invoke('offline-play', String(game)),
