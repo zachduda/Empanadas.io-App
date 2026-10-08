@@ -28,6 +28,7 @@
 		<div class="play-row" id="playrow">
 			<button type="button" data-game="spin">Play Spin</button>
 			<button type="button" data-game="flappy">Play Flappy</button>
+			<button type="button" data-game="tower">Play Tower</button>
 		</div>
 		<p id="offlinenote"></p>
 	</div>
@@ -70,7 +71,7 @@ let noint = false;
 let leaving = false;
 
 const query = new URLSearchParams(window.location.search);
-const GAME_NAMES = { spin: "Spin", flappy: "Flappy" };
+const GAME_NAMES = { spin: "Spin", flappy: "Flappy", tower: "Tower" };
 const failedGame = Object.prototype.hasOwnProperty.call(GAME_NAMES, query.get("game")) ? query.get("game") : null;
 
 const failedBefore = query.get("failed") === "1";
@@ -103,24 +104,42 @@ function offerGames(reason) {
 	});
 }
 
+// The names of a list of games: "Tower", "Spin and Tower".
+function gameList(names) {
+	const words = names.map(function(name) { return GAME_NAMES[name]; });
+	return words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words.join("");
+}
+
 function showOffer(reason, state) {
 	if (reason === "slow" && !state.available) return;
 	offered = reason;
 	if (state.available) {
+		// Only the games stored for offline play: one added by an app update
+		// is not, until the dashboard next loads online.
+		const games = Array.isArray(state.games) ? state.games : Object.keys(GAME_NAMES);
+		const buttons = playRow.querySelectorAll("button");
+		for (let i = 0; i < buttons.length; i++) {
+			buttons[i].style.display = games.indexOf(buttons[i].getAttribute("data-game")) === -1 ? "none" : null;
+		}
+		const missing = Object.keys(GAME_NAMES).filter(function(name) { return games.indexOf(name) === -1; });
 		playRow.style.display = null;
 		if (reason === "slow") {
 			offlineNote.textContent = "Taking a while? You can play offline while we keep trying.";
+		} else if (failedGame && missing.indexOf(failedGame) !== -1) {
+			// Its button is hidden, so "try again" would be no help.
+			offlineNote.textContent = GAME_NAMES[failedGame] + " isn't downloaded for offline play yet. Connect once more to get it, or pick another game.";
+		} else if (failedGame) {
+			offlineNote.textContent = GAME_NAMES[failedGame] + " couldn't load. Try again, or pick another game.";
 		} else {
-			offlineNote.textContent = failedGame
-				? GAME_NAMES[failedGame] + " couldn't load. Try again, or pick the other game."
-				: "You can still play offline. Your progress is saved on this device and syncs when you're back online.";
+			offlineNote.textContent = "You can still play offline. Your progress is saved on this device and syncs when you're back online."
+				+ (missing.length ? " Connect once more to download " + gameList(missing) + " too." : "");
 		}
 		document.body.classList.add("games");
 	} else {
 		playRow.style.display = "none";
 		offlineNote.textContent = state.signedIn
 			? "Connect once more to finish downloading the games for offline play."
-			: "Sign in once while you're online, and you can play Spin and Flappy offline too.";
+			: "Sign in once while you're online, and you can play " + gameList(Object.keys(GAME_NAMES)) + " offline too.";
 	}
 	offlineBox.style.display = "block";
 }

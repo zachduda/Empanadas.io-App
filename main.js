@@ -197,11 +197,14 @@ function enableOfflineGames(contents) {
 		timer = setTimeout(() => reject(new Error('timed out')), 2 * 60 * 1000);
 	});
 	Promise.race([contents.executeJavaScript(offline.registerScript()), timeout])
-		.then((ok) => {
-			if (ok !== true) {
+		.then((scopes) => {
+			if (!Array.isArray(scopes)) {
 				offlineRegistered = false;
 			} else if (offlineStore.get().signedIn) {
-				offlineStore.ready();
+				offlineStore.ready(scopes);
+				// Some game is not stored (a flaky connection, or the site's
+				// worker not knowing it yet): try again on the next dashboard.
+				if (scopes.length < offline.SCOPES.length) offlineRegistered = false;
 			} else {
 				forgetOfflineGames();
 			}
@@ -544,7 +547,7 @@ function openGame(name) {
 	const status = offlineStore ? offlineStore.get() : null;
 	if (!w || !status || !status.signedIn || !offline.gameUrl(name)) return;
 	const fromSplash = isSplashUrl(w.webContents.getURL());
-	const url = fromSplash && status.available ? offline.offlinePlayUrl(name) : offline.gameUrl(name);
+	const url = fromSplash && offline.playableOffline(status, name) ? offline.offlinePlayUrl(name) : offline.gameUrl(name);
 	w.loadURL(url).catch(() => {});
 }
 
@@ -578,12 +581,14 @@ function registerIpcHandlers() {
 
 	handle('app-ping', () => pingSite());
 	handle('app-clear-cache', () => clearAppCache());
-	handle('offline-status', () => offlineStore ? offlineStore.get() : { signedIn: false, ready: false, available: false });
+	handle('offline-status', () => offlineStore ? offlineStore.get() : { signedIn: false, ready: false, available: false, games: [] });
 
 	handle('offline-play', (name) => {
 		const url = offline.gameUrl(name);
 		const w = target();
-		if (!url || !w || !offlineStore || !offlineStore.get().available) return false;
+		// Only a game whose worker is installed: one added by an app update
+		// is not stored until the dashboard next loads online.
+		if (!url || !w || !offlineStore || !offline.playableOffline(offlineStore.get(), name)) return false;
 		// A failure is handled by did-fail-load, which brings the splash back.
 		w.loadURL(offline.offlinePlayUrl(name)).catch(() => {});
 		return true;
@@ -672,6 +677,12 @@ function buildAppMenu() {
 					accelerator: 'Cmd+2',
 					enabled: signedIn,
 					click: () => openGame('spin')
+				},
+				{
+					label: 'Launch Tower',
+					accelerator: 'Cmd+3',
+					enabled: signedIn,
+					click: () => openGame('tower')
 				}
 			]
 		},

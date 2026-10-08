@@ -129,8 +129,10 @@ check('the sign-in popup does not inherit the preload', () => {
 check('offline play only opens the listed games, and only while signed in', () => {
 	assert(/const url = offline\.gameUrl\(name\);/.test(mainSrc),
 		"the 'offline-play' handler no longer resolves the game through offline.gameUrl()");
-	assert(/!offlineStore\.get\(\)\.available\) return false;/.test(mainSrc),
-		"the 'offline-play' handler no longer checks that offline play is available");
+	// playableOffline() is available plus that game's own worker: a game added
+	// by an update is not stored until the dashboard next loads online.
+	assert(/!offline\.playableOffline\(offlineStore\.get\(\), name\)\) return false;/.test(mainSrc),
+		"the 'offline-play' handler no longer checks that this game is playable offline");
 });
 
 check('signing out deletes the stored games', () => {
