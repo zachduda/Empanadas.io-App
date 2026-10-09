@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain, Menu, net, shell, session} = require('electron');
+const {app, BrowserWindow, ipcMain, Menu, net, shell, session, systemPreferences} = require('electron');
 const path = require('path');
 const updater = require('./updater');
 const isMac = process.platform === 'darwin';
@@ -34,6 +34,10 @@ function isTrustedSender(event) {
 let offlineStore = null;
 app.commandLine.appendSwitch('disable-webgl')
 app.commandLine.appendSwitch('disable-webgl2')
+
+// Electron 38+ no longer stops macOS adding its own "Enter Full Screen" to the
+// View menu, next to the togglefullscreen item buildAppMenu() already has.
+if (isMac) systemPreferences.setUserDefault('NSFullScreenMenuItemEverywhere', 'boolean', false);
 
 let win;
 
