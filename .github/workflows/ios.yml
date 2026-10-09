@@ -1,0 +1,52 @@
+# Builds the iOS app and runs its unit tests whenever anything under ios/
+# changes. Unsigned: signing and App Store uploads happen from Xcode.
+
+name: iOS
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+  pull_request:
+    branches: [ "main" ]
+    paths: [ "ios/**", ".github/workflows/ios.yml" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-15
+
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install XcodeGen
+      run: brew install xcodegen
+
+    - name: Generate the Xcode project
+      run: xcodegen generate
+
+    # Whichever iPhone simulator this runner's Xcode ships with, rather than a
+    # hard-coded model name that disappears with the next Xcode update.
+    - name: Pick a simulator
+      id: sim
+      run: |
+        udid=$(xcrun simctl list devices available --json \
+          | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,l in sorted(d.items(), reverse=True) if "iOS" in r for x in l if x["name"].startswith("iPhone")))')
+        echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+    - name: Build and test
+      run: |
+        set -o pipefail
+        xcodebuild test \
+          -project Empanadas.xcodeproj \
+          -scheme Empanadas \
+          -destination "id=${{ steps.sim.outputs.udid }}" \
+          CODE_SIGNING_ALLOWED=NO

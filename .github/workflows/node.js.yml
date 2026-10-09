@@ -114,6 +114,11 @@ jobs:
         # identity on the runner and producing an inconsistently signed build.
         # Unsigned (Windows) or ad-hoc (macOS) is the honest output here.
         CSC_IDENTITY_AUTO_DISCOVERY: false
+        # electron-builder skips signing entirely on pull requests unless told
+        # otherwise, which left the macOS app unsigned and failed the check
+        # below on every PR. Safe here: the macOS identity is ad-hoc ("-") and
+        # Windows has no certificate, so no secrets are involved.
+        CSC_FOR_PULL_REQUEST: true
 
     # What would have caught the arm64 build that macOS called "damaged": it
     # packaged fine, it just was not signed. --verify fails on a bundle with no
