@@ -1,9 +1,8 @@
 // window.empanadasApp: what the iOS app offers the site. Injected at document
 // start into the main frame of every page; does nothing off empanadas.io.
 // The desktop app's equivalent is window.electronWindow (Content/JS/preload.js
-// in the Empanadas.io-App repo). This one deliberately has no window controls:
-// the site should check for empanadasApp to know it is in the iOS app and hide
-// its own navigation, which the app replaces with native tabs.
+// in the Empanadas.io-App repo). This one deliberately has no window controls,
+// and it hides the site's navbar: the app replaces it with native tabs.
 (function () {
   'use strict';
 
@@ -19,14 +18,30 @@
     return handler.postMessage({ cmd: cmd, args: args || {} });
   }
 
-  // <html data-native-app="ios">, for CSS. The server can do better (leave
-  // the navigation out of the page entirely, see ios/SITE-CHANGES.md); this is
-  // for anything decided in the browser.
-  function mark() {
-    if (document.documentElement) document.documentElement.setAttribute('data-native-app', 'ios');
+  // <html data-native-app="ios">, for the site's CSS, and a style that hides
+  // its navbar. Every page draws it as <nav id="nav"> (getNav() in the site's
+  // config.php, or inline on the static pages). Done before the page renders
+  // so the bar never flashes up; <html> may not exist yet at document start,
+  // so wait for it if need be.
+  var NATIVE_CSS = '#nav { display: none !important; }';
+
+  function mark(root) {
+    root.setAttribute('data-native-app', 'ios');
+    var style = document.createElement('style');
+    style.setAttribute('data-empanadas-app', '');
+    style.textContent = NATIVE_CSS;
+    root.appendChild(style);
   }
-  mark();
-  document.addEventListener('DOMContentLoaded', mark, { once: true });
+
+  if (document.documentElement) {
+    mark(document.documentElement);
+  } else {
+    new MutationObserver(function (_records, observer) {
+      if (!document.documentElement) return;
+      observer.disconnect();
+      mark(document.documentElement);
+    }).observe(document, { childList: true });
+  }
 
   var deepLinkListeners = [];
 
