@@ -47,18 +47,15 @@ The `iOS` GitHub Actions workflow does the same on every change under `ios/`.
 
 ## Before it works end to end
 
-The site needs the changes in [SITE-CHANGES.md](SITE-CHANGES.md). The most
-important are recognising the app's user agent, sending its sign-ins to the
-browser and the `app_settings` endpoint. Until then:
-
-- "Log in with Google" fails inside the app, because Google blocks embedded web views.
-- Settings shows its fallback and links to the web account page.
-- The site's own navbar still shows under the native tabs.
+The site changes the app depends on are in zachduda/Empanadas-io#70: the
+user agent, browser sign-in and the `app_settings` endpoint. They take effect
+once that is deployed. [SITE-CHANGES.md](SITE-CHANGES.md) lists what is still
+open.
 
 ## Before submitting to the App Store
 
-- Apply the review blockers in SITE-CHANGES.md §6: the coffee interstitial,
-  Sign in with Apple, and the post-deletion redirect.
+- Turn on Sign in with Apple (SITE-CHANGES.md §6). The coffee links are
+  already gone in the app.
 - Check `Resources/PrivacyInfo.xcprivacy` against the privacy policy, and fill
   in the matching App Privacy answers in App Store Connect.
 - Replace the app icon if you want a dedicated one. The current one is

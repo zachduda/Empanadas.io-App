@@ -2,10 +2,24 @@
 
 The iOS app is a native shell around empanadas.io, so part of the work is on
 the site (the `zachduda/Empanadas-io` repo). Everything below refers to files
-under `html/` there. Nothing in this list has been applied yet.
+under `html/` there.
 
-Sections 1–4 are needed before the app works properly. Sections 5–7 are needed
-before it can pass App Review.
+## Status
+
+Done in zachduda/Empanadas-io#70: sections 1, 2, 3 and 5, the dashboard part
+of section 4, and the coffee links in section 6. The app itself hides the
+navbar (`Resources/bridge.js`), since `getNav()` lives in config.php, which is
+not in that repo.
+
+Still to do:
+
+- **Sign in with Apple** (section 6). The Apple provider in
+  `v2/auth/flow.php` is commented out and needs its key on the server.
+- **Passkeys** (section 7). This needs the apple-app-site-association file,
+  which contains the Team ID.
+- **Phone-width check** (end of section 4).
+
+The sections below are kept as the record of what the app expects from the site.
 
 ## 1. Recognise the iOS app
 
@@ -77,7 +91,8 @@ Settings). Taps on the dashboard's links to `/v2/account` and to the games
 already open the native screens. Leave out what is now duplicated when
 `iosAppVersion() !== null`:
 
-- the navbar from `getNav()`;
+- the navbar from `getNav()`. The app now hides `<nav id="nav">` itself, so
+  this is optional;
 - the dashboard footer buttons (Settings / Feedback / Sign Out). Sign Out is
   in the native Settings screen;
 - the "Desktop App" card on `v2/account/index.php`.
