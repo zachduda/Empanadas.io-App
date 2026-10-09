@@ -137,11 +137,15 @@ final class WebPage: NSObject, Identifiable {
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
+    /// WebKitErrorFrameLoadInterruptedByPolicyChange: a navigation the policy
+    /// delegate cancelled. Only defined in WebKit's C headers, not in WKError.
+    private static let frameLoadInterruptedByPolicyChange = 102
+
     private func handle(_ error: Error) {
         let error = error as NSError
         // A navigation this page cancelled itself, or replaced with another.
         if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled { return }
-        if error.domain == WKError.errorDomain && error.code == WKError.frameLoadInterruptedByPolicyChange.rawValue { return }
+        if error.domain == "WebKitErrorDomain" && error.code == Self.frameLoadInterruptedByPolicyChange { return }
         if error.domain == NSURLErrorDomain, let failing = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
             lastRequestedURL = failing
         }
@@ -340,8 +344,8 @@ extension WebPage: WKUIDelegate {
 
     // Same as the desktop app's lockDownPermissions(): the site needs no
     // camera or microphone, so nothing gets one.
-    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+    func webView(_ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+                 initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
         .deny
     }
 }
