@@ -8,3 +8,9 @@ node_modules/
 *desktop.ini
 *.7z
 /dist/builder-debug.yml
+
+# iOS (ios/project.yml generates the Xcode project)
+/ios/*.xcodeproj/
+/ios/build/
+xcuserdata/
+DerivedData/

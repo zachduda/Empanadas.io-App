@@ -27,7 +27,8 @@
     "files": [
       "**/*",
       "!test",
-      "!scripts"
+      "!scripts",
+      "!ios"
     ],
     "publish": [
       {
