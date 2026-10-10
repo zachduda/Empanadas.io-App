@@ -7,8 +7,8 @@ under `html/` there.
 ## Status
 
 Done in zachduda/Empanadas-io#70: sections 1, 2, 3 and 5, the dashboard part
-of section 4, and the coffee links in section 6. Section 8, the `/ios/` API,
-is in the site's `html/ios/`. The app itself hides the navbar
+of section 4, and the coffee links in section 6. Section 8, the `/v2/ios/` API,
+is in the site's `html/v2/ios/`. The app itself hides the navbar
 (`Resources/bridge.js`), since `getNav()` lives in config.php, which is not in
 that repo.
 
@@ -209,14 +209,18 @@ Apple Developer Team ID:
 
 The app already has the matching `webcredentials:empanadas.io` entitlement.
 
-## 8. `/ios/`: the app's own API
+## 8. `/v2/ios/`: the app's own API
 
 The native Settings screen reads the signed-in account from
-`GET /ios/account.php` (`html/ios/account.php` on the site). It replaces
+`GET /v2/ios/account.php` (`html/v2/ios/account.php` on the site). It replaces
 `getdata.php?type=app_settings` from section 5, which the app still falls back
-to while `/ios/` answers 404.
+to while `/v2/ios/` answers 404.
 
-Every `/ios/` endpoint answers in JSON, errors included, with a matching HTTP
+It is under `/v2/` because the session cookie is scoped to `/v2` and
+Cloudflare caches what is outside it. At `/ios/` the app was sent no session
+cookie, so every answer was `no_session`.
+
+Every `/v2/ios/` endpoint answers in JSON, errors included, with a matching HTTP
 status, so the app can say what went wrong instead of "couldn't be loaded":
 
 ```json

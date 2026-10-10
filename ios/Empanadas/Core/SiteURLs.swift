@@ -66,8 +66,10 @@ enum SiteURLs {
     static let contact = page("/v2/contact")
     static let privacy = page("/privacy.html")
     static let terms = page("/terms.html")
-    /// The app's own API on the site: JSON in, JSON out (html/ios/ there).
-    static let iosAccount = page("/ios/account.php")
+    /// The app's own API on the site: JSON in, JSON out (html/v2/ios/ there).
+    /// It has to be under /v2/: the session cookie is scoped to /v2, so
+    /// AccountAPI sends it nowhere else, and Cloudflare caches the rest.
+    static let iosAccount = page("/v2/ios/account.php")
 
     static func page(_ path: String) -> URL {
         site.appending(path: path)
