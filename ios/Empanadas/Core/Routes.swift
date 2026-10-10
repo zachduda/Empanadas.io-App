@@ -35,6 +35,17 @@ enum Game: String, CaseIterable, Identifiable {
 
     var url: URL { SiteURLs.page("/" + rawValue) }
 
+    /// Flappy and Tower draw their own close button in the top bar. The
+    /// player hides its native one for them, and their button closes the
+    /// player instead of loading the homepage (WebPage's game exit rule).
+    /// Spin has none, so it keeps the native one.
+    var hasOwnCloseButton: Bool {
+        switch self {
+        case .spin: false
+        case .flappy, .tower: true
+        }
+    }
+
     /// Which game a URL is, or nil. /spin, /spin.html and /spin?au=1 are all
     /// Spin.
     static func of(_ url: URL) -> Game? {

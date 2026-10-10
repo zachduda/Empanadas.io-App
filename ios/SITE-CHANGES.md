@@ -7,9 +7,10 @@ under `html/` there.
 ## Status
 
 Done in zachduda/Empanadas-io#70: sections 1, 2, 3 and 5, the dashboard part
-of section 4, and the coffee links in section 6. The app itself hides the
-navbar (`Resources/bridge.js`), since `getNav()` lives in config.php, which is
-not in that repo.
+of section 4, and the coffee links in section 6. Section 8, the `/ios/` API,
+is in the site's `html/ios/`. The app itself hides the navbar
+(`Resources/bridge.js`), since `getNav()` lives in config.php, which is not in
+that repo.
 
 Still to do:
 
@@ -207,3 +208,47 @@ Apple Developer Team ID:
 ```
 
 The app already has the matching `webcredentials:empanadas.io` entitlement.
+
+## 8. `/ios/`: the app's own API
+
+The native Settings screen reads the signed-in account from
+`GET /ios/account.php` (`html/ios/account.php` on the site). It replaces
+`getdata.php?type=app_settings` from section 5, which the app still falls back
+to while `/ios/` answers 404.
+
+Every `/ios/` endpoint answers in JSON, errors included, with a matching HTTP
+status, so the app can say what went wrong instead of "couldn't be loaded":
+
+```json
+{ "ok": false, "api": 1, "reason": "no_session" }
+```
+
+Reasons: `no_session` (401), `wrong_method` (405), `not_found` (404),
+`unavailable` (503, accounts are switched off), `server_error` (500).
+
+A successful answer:
+
+```json
+{
+  "ok": true, "api": 1,
+  "account": {
+    "id": 42, "username": "tester", "email": "t@example.com",
+    "email_verified": true, "pending_email": null,
+    "pfp": "/Content/Images/ProfilePics/lg/abc.jpeg",
+    "pfp_small": "/Content/Images/ProfilePics/sm/abc.jpeg",
+    "has_custom_pfp": true, "created_at": "2024-01-02 03:04:05",
+    "birthday": "2000-01-02", "star_sign": "Capricorn",
+    "connections": ["discord", "google"], "two_factor": true, "passkeys": 2
+  },
+  "has_birthday": true,
+  "settings": { "publicaccount": 1, "starsign": 1, "allownf": 1, "analytics": 1,
+                "theme": 0, "promoemails": 1, "otheremails": 1,
+                "recapemails": 1, "newsignins": 1 },
+  "csrf": "..."
+}
+```
+
+Changes still go through `/v2/account_edit.php`, the same handler the website
+uses, with that `csrf`: `account_change=settings&<field>=<value>` for a
+setting, and `account_change=delete_account&cp=DELETE` for Delete Account,
+which the app confirms in a native modal where the player types DELETE.

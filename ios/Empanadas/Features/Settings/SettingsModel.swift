@@ -71,8 +71,16 @@ final class SettingsModel {
     /// account_edit.php), for instance when the web account page was opened
     /// in the meantime and issued a new one. Fetch the current one and try
     /// once more.
+    ///
+    /// With no snapshot (it failed to load earlier), one is fetched first, so
+    /// deleting the account never depends on the Settings screen having
+    /// loaded.
     private func withFreshToken(_ app: AppModel, _ body: (String) async throws -> Void) async throws {
-        guard let csrf = snapshot?.csrf else { throw AccountError.unavailable }
+        if snapshot == nil {
+            snapshot = try await app.account.snapshot()
+            loadError = nil
+        }
+        guard let csrf = snapshot?.csrf else { throw AccountError.unavailable("") }
         do {
             try await body(csrf)
         } catch AccountError.staleToken {

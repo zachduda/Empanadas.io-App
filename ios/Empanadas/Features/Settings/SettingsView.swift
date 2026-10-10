@@ -46,18 +46,9 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    if settings.snapshot != nil {
-                        Button("Delete Account", role: .destructive) { deletingAccount = true }
-                    } else {
-                        // Without the native settings (the site has not got
-                        // the app_settings endpoint), the web page's Danger
-                        // Zone still does it.
-                        NavigationLink {
-                            WebDestination(url: SiteURLs.account, title: "Account")
-                        } label: {
-                            Text("Delete Account").foregroundStyle(.red)
-                        }
-                    }
+                    // Always native: the modal fetches the account's csrf
+                    // token itself if Settings could not load it.
+                    Button("Delete Account", role: .destructive) { deletingAccount = true }
                 } footer: {
                     Text("Deleting your account removes your profile, friends and game stats. It can't be undone.")
                 }
@@ -91,6 +82,7 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $deletingAccount) {
                 DeleteAccountView(settings: settings)
+                    .presentationDetents([.medium, .large])
             }
         }
     }
@@ -112,14 +104,29 @@ struct SettingsView: View {
                 .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(settings.snapshot?.username ?? "Your Account")
-                        .font(.headline)
-                    if let email = settings.snapshot?.email, !email.isEmpty {
-                        Text(email)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    if let account = settings.snapshot?.account {
+                        Text(account.username)
+                            .font(.headline)
+                        if !account.email.isEmpty {
+                            Text(account.email)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let pending = account.pendingEmail {
+                            Text("Confirm \(pending) from your inbox")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    } else if settings.isLoading {
+                        // Shaped like the real thing while it loads.
+                        Text("Username").font(.headline)
+                        Text("name@example.com").font(.subheadline)
+                    } else {
+                        Text("Your Account")
+                            .font(.headline)
                     }
                 }
+                .redacted(reason: settings.snapshot == nil && settings.isLoading ? .placeholder : [])
             }
             .padding(.vertical, 4)
 
@@ -194,7 +201,13 @@ struct SettingsView: View {
             NavigationLink {
                 WebDestination(url: SiteURLs.twoFactor, title: "Two-Factor Authentication")
             } label: {
-                Label("Two-Factor Authentication", systemImage: "lock.shield")
+                LabeledContent {
+                    if let account = settings.snapshot?.account {
+                        Text(account.twoFactor ? "On" : "Off")
+                    }
+                } label: {
+                    Label("Two-Factor Authentication", systemImage: "lock.shield")
+                }
             }
         }
     }
@@ -244,40 +257,62 @@ struct SettingsView: View {
 }
 
 /// In-app account deletion, which App Review requires of any app that lets
-/// people create an account (guideline 5.1.1(v)). Same confirmation as the
-/// site's Danger Zone: type DELETE.
+/// people create an account (guideline 5.1.1(v)). A native modal with the
+/// same confirmation as the site's Danger Zone - type DELETE - that sends the
+/// same request to /v2/account_edit.php (account_change=delete_account).
 private struct DeleteAccountView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let settings: SettingsModel
 
     @State private var phrase = ""
-    @State private var understood = false
+    @FocusState private var phraseFocused: Bool
 
+    /// DELETE_CONFIRM_PHRASE in the site's account_edit.php.
     private static let confirmationPhrase = "DELETE"
+
+    private var confirmed: Bool {
+        phrase.trimmingCharacters(in: .whitespacesAndNewlines) == Self.confirmationPhrase
+    }
+
+    private var deleting: Bool { settings.savingField == "delete_account" }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Your profile, friends and game stats will be removed. This can't be undone.")
+                    Label {
+                        Text("Your profile, friends and game stats will be removed. This can't be undone.")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    }
                 }
                 Section {
-                    TextField("Type \(Self.confirmationPhrase) to confirm", text: $phrase)
+                    TextField(Self.confirmationPhrase, text: $phrase)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
-                    Toggle("I understand this is permanent", isOn: $understood)
+                        .submitLabel(.done)
+                        .focused($phraseFocused)
+                        .onSubmit { if confirmed { delete() } }
+                        .accessibilityLabel("Type \(Self.confirmationPhrase) to confirm")
+                } header: {
+                    Text("Type \(Self.confirmationPhrase) to confirm")
+                } footer: {
+                    Text("We'll email you a link to undo this. It works for a limited time.")
                 }
                 Section {
-                    Button("Delete My Account", role: .destructive) {
-                        Task {
-                            if await settings.deleteAccount(confirmation: phrase, app: model) {
-                                dismiss()
-                                model.accountDeleted()
+                    Button(role: .destructive) {
+                        delete()
+                    } label: {
+                        HStack {
+                            Text("Delete My Account")
+                            if deleting {
+                                Spacer()
+                                ProgressView()
                             }
                         }
                     }
-                    .disabled(phrase != Self.confirmationPhrase || !understood || settings.savingField != nil)
+                    .disabled(!confirmed || settings.savingField != nil)
                 }
             }
             .navigationTitle("Delete Account")
@@ -285,8 +320,11 @@ private struct DeleteAccountView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(deleting)
                 }
             }
+            .interactiveDismissDisabled(deleting)
+            .onAppear { phraseFocused = true }
             .alert("Couldn't Delete", isPresented: Binding(
                 get: { settings.saveError != nil },
                 set: { if !$0 { settings.saveError = nil } }
@@ -294,6 +332,17 @@ private struct DeleteAccountView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(settings.saveError ?? "")
+            }
+        }
+    }
+
+    private func delete() {
+        guard confirmed, settings.savingField == nil else { return }
+        Haptics.play("warning")
+        Task {
+            if await settings.deleteAccount(confirmation: Self.confirmationPhrase, app: model) {
+                dismiss()
+                model.accountDeleted()
             }
         }
     }

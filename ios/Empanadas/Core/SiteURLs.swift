@@ -48,6 +48,8 @@ enum SiteURLs {
     private static let browserSignInPaths: Set<String> = ["/v2/auth/browser", "/v2/auth/browser.php"]
 
     static let dashboardPaths: Set<String> = ["/v2/dashboard", "/v2/dashboard.php"]
+    /// The homepage, which the games' own close buttons go back to.
+    static let homePaths: Set<String> = ["/", "/index", "/index.html", "/index.php"]
     static let accountPaths: Set<String> = ["/v2/account", "/v2/account/index.php"]
     static let loginPaths: Set<String> = ["/v2/login", "/v2/login.php"]
     static let logoutPaths: Set<String> = ["/v2/auth/logout", "/v2/auth/logout.php"]
@@ -64,6 +66,8 @@ enum SiteURLs {
     static let contact = page("/v2/contact")
     static let privacy = page("/privacy.html")
     static let terms = page("/terms.html")
+    /// The app's own API on the site: JSON in, JSON out (html/ios/ there).
+    static let iosAccount = page("/ios/account.php")
 
     static func page(_ path: String) -> URL {
         site.appending(path: path)
@@ -120,6 +124,14 @@ enum SiteURLs {
 
     static func isPath(_ url: URL, in paths: Set<String>) -> Bool {
         isAppURL(url) && paths.contains(normalizedPath(url))
+    }
+
+    /// Where a game sends the player when they leave it: its own close button
+    /// (backToGames() in the site's _flappy.js and _tower.js) replaces the
+    /// page with the homepage, or the dashboard. In the full-screen player
+    /// that means "close the player", whatever started the navigation.
+    static func isGameExitURL(_ url: URL) -> Bool {
+        isPath(url, in: homePaths) || isPath(url, in: dashboardPaths)
     }
 
     // MARK: - Browser sign-in
