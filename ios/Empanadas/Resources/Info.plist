@@ -18,10 +18,6 @@
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -33,8 +29,12 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -43,28 +43,28 @@
 	<key>UIApplicationShortcutItems</key>
 	<array>
 		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>io.empanadas.app.play.flappy</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play Flappy</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>bird.fill</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Play Flappy</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>io.empanadas.app.play.flappy</string>
 		</dict>
 		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>io.empanadas.app.play.spin</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play Spin</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>arrow.triangle.2.circlepath</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Play Spin</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>io.empanadas.app.play.spin</string>
 		</dict>
 		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>io.empanadas.app.play.tower</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play Tower</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>square.stack.3d.up.fill</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Play Tower</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>io.empanadas.app.play.tower</string>
 		</dict>
 	</array>
 	<key>UILaunchScreen</key>
