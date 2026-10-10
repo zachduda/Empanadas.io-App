@@ -18,12 +18,31 @@ struct SettingsView: View {
 
         NavigationStack {
             Form {
+                if showsOfflineNotice {
+                    Section {
+                        OfflineNotice(isOnline: model.isOnline, updatedAt: settings.updatedAt,
+                                      refreshFailed: settings.loadError != nil) {
+                            Task { await settings.load(app: model) }
+                        }
+                    } footer: {
+                        if !model.isOnline {
+                            Text("Your settings can be changed again once you're back online.")
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
                 accountHeader
 
                 if settings.snapshot != nil {
-                    appearanceSection
-                    privacySection
-                    emailSection
+                    Group {
+                        appearanceSection
+                        privacySection
+                        emailSection
+                    }
+                    // A change has to reach the site to count.
+                    .disabled(!model.isOnline)
                 } else if settings.isLoading {
                     Section {
                         ProgressView().frame(maxWidth: .infinity)
@@ -55,9 +74,12 @@ struct SettingsView: View {
             }
             .disabled(settings.savingField != nil)
             .navigationTitle("Settings")
-            .brandedNavigationBar()
+            .glassNavigationBar()
             .task { await settings.load(app: model) }
             .refreshable { await settings.load(app: model) }
+            .onChange(of: model.isOnline) { _, online in
+                if online { Task { await settings.load(app: model) } }
+            }
             .navigationDestination(isPresented: $settings.needsCaptcha) {
                 WebDestination(url: SiteURLs.page("/v2/captcha"), title: "Quick Check")
             }
@@ -85,6 +107,14 @@ struct SettingsView: View {
                     .presentationDetents([.medium, .large])
             }
         }
+    }
+
+    /// Offline, or the refresh failed while the saved copy is on screen.
+    private var showsOfflineNotice: Bool {
+        guard settings.snapshot != nil else { return false }
+        if !model.isOnline { return true }
+        guard let error = settings.loadError else { return false }
+        return error != .signedOut
     }
 
     // MARK: - Sections

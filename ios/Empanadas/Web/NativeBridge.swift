@@ -68,6 +68,15 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             await WebEnvironment.clearCache()
             return (["ok": true], nil)
 
+        case "pageColor":
+            // Only ever a colour to paint around the page; anything that does
+            // not parse as an opaque one is ignored.
+            guard let text = args["color"] as? String, let color = CSSColor(text), !color.isTransparent else {
+                return (false, nil)
+            }
+            page.setPageColor(UIColor(red: color.red, green: color.green, blue: color.blue, alpha: 1))
+            return (true, nil)
+
         default:
             return (nil, "Unknown command")
         }

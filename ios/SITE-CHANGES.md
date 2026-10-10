@@ -256,3 +256,52 @@ Changes still go through `/v2/account_edit.php`, the same handler the website
 uses, with that `csrf`: `account_change=settings&<field>=<value>` for a
 setting, and `account_change=delete_account&cp=DELETE` for Delete Account,
 which the app confirms in a native modal where the player types DELETE.
+
+### The dashboard and the leaderboard
+
+The Home tab is the dashboard drawn natively, from
+`GET /v2/ios/dashboard.php` (`iosDashboard()` and `iosSpinHistory()` in
+`v2/_lib.php`): the same tiles, game cards, meters, experience, friends and
+Spin Progress chart as `v2/dashboard.php`. The chart is one point a day (the
+day's highest lifetime spins, today's from the live total) rather than the
+web chart's relative-label groups, since the app draws a date axis.
+
+```json
+{
+  "ok": true, "api": 1,
+  "account": { "username": "tester", "uuid": "ab-12", "pfp": "/Content/...",
+               "has_custom_pfp": true, "email_verified": true, "days": 9 },
+  "peppers": 12, "pumpkins": 4, "pumpkin_season": true,
+  "spin":   { "lifetime": 280000, "prestige": 3, "ascends": 1, "spins": 50000, "progress": 2.5 },
+  "flappy": { "high": 40, "recent": 10, "played": 9, "progress": 25.0 },
+  "tower":  { "high": 0, "recent": 0, "played": 0, "progress": 0.0 },
+  "xp":     { "total": 10500, "rank": "Seasoned Empanada", "icon": "💎",
+              "next": null, "next_rank": null, "progress": 100.0 },
+  "friends": { "total": 3, "online": 1, "pending": 2, "list": [
+               { "username": "pal", "uuid": "cd-34", "pfp": "/x.png", "default_pfp": false,
+                 "state": "online", "label": "Online" } ] },
+  "spin_history": [ { "date": "2026-10-10", "spins": 280000 } ],
+  "generated": 1760000000
+}
+```
+
+The Leaderboard tab reads `GET /v2/ios/leaderboard.php`: the boards of
+`/v2/beta/leader.php` (`leaderboard()`, the shared cache), plus `you`, the
+player's own profile id, so the app can mark their row. It checks the session
+without refreshing it, as `account.php` does.
+
+```json
+{
+  "ok": true, "api": 1,
+  "spin":   [ { "rank": 1, "id": "AB12", "username": "top", "pfp": "/Content/...",
+                "default_pfp": false, "private": false, "score": 5000,
+                "ascends": 2, "prestige": 7 } ],
+  "flappy": [ { "rank": 1, "id": "ef56", "username": "bird", "private": false,
+                "score": 80, "recent": 12 } ],
+  "tower":  [],
+  "you": "ab12", "generated": 1760000000, "age": 10, "ttl": 45
+}
+```
+
+Both are kept on the device after every good answer, so the tabs open with
+the last copy at launch and while offline.

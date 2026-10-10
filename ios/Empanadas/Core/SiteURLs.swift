@@ -48,20 +48,20 @@ enum SiteURLs {
     private static let browserSignInPaths: Set<String> = ["/v2/auth/browser", "/v2/auth/browser.php"]
 
     static let dashboardPaths: Set<String> = ["/v2/dashboard", "/v2/dashboard.php"]
+    static let leaderboardPaths: Set<String> = ["/leaderboard", "/leaderboard.html"]
     /// The homepage, which the games' own close buttons go back to.
     static let homePaths: Set<String> = ["/", "/index", "/index.html", "/index.php"]
     static let accountPaths: Set<String> = ["/v2/account", "/v2/account/index.php"]
     static let loginPaths: Set<String> = ["/v2/login", "/v2/login.php"]
     static let logoutPaths: Set<String> = ["/v2/auth/logout", "/v2/auth/logout.php"]
 
-    static let dashboard = page("/v2/dashboard")
     static let login = page("/v2/login")
     static let logout = page("/v2/auth/logout.php")
     static let account = page("/v2/account")
     static let profile = page("/v2/profile")
     static let twoFactor = page("/v2/account_2fa")
     static let profilePicture = page("/v2/update_pfp")
-    static let leaderboard = page("/leaderboard.html")
+    static let verifyEmail = page("/v2/verify_email")
     static let feedback = page("/v2/feedback")
     static let privacy = page("/privacy.html")
     static let terms = page("/terms.html")
@@ -69,9 +69,31 @@ enum SiteURLs {
     /// It has to be under /v2/: the session cookie is scoped to /v2, so
     /// AccountAPI sends it nowhere else, and Cloudflare caches the rest.
     static let iosAccount = page("/v2/ios/account.php")
+    static let iosDashboard = page("/v2/ios/dashboard.php")
+    static let iosLeaderboard = page("/v2/ios/leaderboard.php")
 
     static func page(_ path: String) -> URL {
         site.appending(path: path)
+    }
+
+    /// A player's profile page, by the id the site gives it.
+    static func playerProfile(id: String) -> URL {
+        page("/v2/profile/" + id.lowercased())
+    }
+
+    /// The profile page with its player search open.
+    static let findFriends: URL = {
+        var components = URLComponents(url: SiteURLs.profile, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "search", value: "1")]
+        return components.url!
+    }()
+
+    /// A picture path as the site gives it ("/Content/Images/..."), made
+    /// absolute. Only https: never a plain-http or file URL.
+    static func resolve(_ path: String?) -> URL? {
+        guard let path, !path.isEmpty, let url = URL(string: path, relativeTo: site)?.absoluteURL,
+              url.scheme?.lowercased() == "https" else { return nil }
+        return url
     }
 
     // MARK: - Classifying URLs

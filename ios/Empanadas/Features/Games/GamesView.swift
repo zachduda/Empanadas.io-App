@@ -8,6 +8,17 @@ struct GamesView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+                if !model.isOnline {
+                    Label("You're offline. Games you've played before still work, and your progress syncs when you're back.",
+                          systemImage: "wifi.slash")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .padding([.horizontal, .top])
+                }
+
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(Game.allCases) { game in
                         Button {
@@ -21,20 +32,23 @@ struct GamesView: View {
                 }
                 .padding()
 
-                NavigationLink {
-                    WebDestination(url: SiteURLs.leaderboard, title: "Leaderboards")
+                Button {
+                    model.navigate(to: .leaderboard)
                 } label: {
                     Label("Leaderboards", systemImage: "trophy.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal)
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Games")
-            .brandedNavigationBar()
+            .glassNavigationBar()
+            .animation(.smooth, value: model.isOnline)
         }
     }
 }
@@ -57,9 +71,9 @@ private struct GameCard: View {
         .foregroundStyle(.white)
         .padding()
         .background(
-            LinearGradient(colors: [Color("Brand"), Color("Brand").opacity(0.7)],
+            LinearGradient(colors: [game.tint, game.tint.opacity(0.72)],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 20)
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -77,13 +91,23 @@ struct GamePlayerView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Color.black.ignoresSafeArea()
+            // The game's own background, out to the screen's edges: around the
+            // camera housing and the home indicator too, never a band of blue.
+            PageBackdrop(page: page)
 
             if let page {
                 WebViewContainer(webView: page.webView)
                     .ignoresSafeArea()
                 if page.loadError != nil {
-                    ConnectionErrorView { page.reload() }
+                    if page.offlineCopyMissing {
+                        ConnectionErrorView(
+                            title: "Not Saved for Offline Yet",
+                            message: "Play \(game.title) once while you're online, and it'll be ready next time you're not.",
+                            systemImage: "icloud.slash"
+                        ) { page.reload() }
+                    } else {
+                        ConnectionErrorView { page.reload() }
+                    }
                 }
             }
 
@@ -99,7 +123,8 @@ struct GamePlayerView: View {
         .persistentSystemOverlays(.hidden)
         .onAppear {
             if page == nil {
-                page = model.makePage(game.url, interceptsRoutes: true, ownRoute: .game(game), pullToRefresh: false)
+                page = model.makePage(game.url, interceptsRoutes: true, ownRoute: .game(game), pullToRefresh: false,
+                                      loadsFromCacheOffline: true)
                 page?.webView.scrollView.bounces = false
             }
             UIApplication.shared.isIdleTimerDisabled = true
@@ -118,11 +143,12 @@ struct GamePlayerView: View {
         Button {
             model.closeGame()
         } label: {
+            // Glass over whatever the game draws there, light or dark.
             Image(systemName: "xmark")
                 .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(width: 36, height: 36)
-                .background(.ultraThinMaterial, in: Circle())
+                .background(.regularMaterial, in: Circle())
         }
         .padding(.leading, 16)
         .padding(.top, 8)

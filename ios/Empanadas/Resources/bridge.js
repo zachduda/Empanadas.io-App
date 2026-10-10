@@ -43,7 +43,45 @@
     }).observe(document, { childList: true });
   }
 
-  var deepLinkListeners = [];
+  // The page's background colour, for the app to paint around the page (the
+  // safe areas, the overscroll) instead of a fixed colour. Sent whenever it
+  // changes: the stylesheets load without blocking, and core.js switches the
+  // theme once the account arrives.
+  var lastColor = null;
+
+  function backgroundOf(el) {
+    if (!el) return null;
+    var color = getComputedStyle(el).backgroundColor;
+    return (!color || color === 'transparent' || /^rgba\(.*,\s*0\)$/.test(color)) ? null : color;
+  }
+
+  function reportColor() {
+    var color = backgroundOf(document.body) || backgroundOf(document.documentElement);
+    if (!color || color === lastColor) return;
+    lastColor = color;
+    call('pageColor', { color: color }).catch(function () { /* not ours to worry about */ });
+  }
+
+  function watchColor() {
+    reportColor();
+    var observer = new MutationObserver(reportColor);
+    [document.documentElement, document.body].forEach(function (el) {
+      if (el) observer.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
+    });
+    // A theme change that fades the background in reports the colour it
+    // ends on, not one from halfway through.
+    if (document.body) document.body.addEventListener('transitionend', reportColor);
+    window.addEventListener('load', function () {
+      reportColor();
+      setTimeout(reportColor, 600);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', watchColor);
+  } else {
+    watchColor();
+  }
 
   var app = {
     platform: 'ios',
@@ -62,26 +100,8 @@
     // desktop app.
     ping: function () { return call('ping'); },
     // Empties the app's cache but keeps cookies and saves. Resolves { ok }.
-    clearCache: function () { return call('clearCache'); },
-    // empanadas-io:// links the app was opened with. Returns an unsubscribe.
-    onDeepLink: function (callback) {
-      deepLinkListeners.push(callback);
-      return function () {
-        var i = deepLinkListeners.indexOf(callback);
-        if (i >= 0) deepLinkListeners.splice(i, 1);
-      };
-    }
+    clearCache: function () { return call('clearCache'); }
   };
-
-  // Called by the app (WebPage.run) with a deep link that is not one it
-  // handles natively.
-  Object.defineProperty(app, '_deliverDeepLink', {
-    value: function (url) {
-      deepLinkListeners.slice().forEach(function (callback) {
-        try { callback(url); } catch (err) { /* one bad listener must not stop the rest */ }
-      });
-    }
-  });
 
   Object.freeze(app);
   Object.defineProperty(window, 'empanadasApp', { value: app, writable: false, configurable: false });

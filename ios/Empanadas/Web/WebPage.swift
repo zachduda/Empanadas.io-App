@@ -14,6 +14,9 @@ final class WebPage: NSObject, Identifiable {
         /// The screen this page already is, so its own links load in place.
         var ownRoute: NativeRoute?
         var pullToRefresh = true
+        /// Without a connection, load from the copy WebKit's cache already
+        /// has (the games: static pages that keep their saves on the device).
+        var loadsFromCacheOffline = false
     }
 
     enum Kind {
@@ -38,6 +41,14 @@ final class WebPage: NSObject, Identifiable {
     private(set) var canGoBack = false
     private(set) var hasLoaded = false
     private(set) var loadError: Error?
+    /// The page's background colour, as it reported it. What the space around
+    /// the page is painted, rather than a fixed colour.
+    private(set) var pageColor: UIColor?
+    /// Showing the copy from WebKit's cache because there was no connection.
+    private(set) var isOfflineCopy = false
+    /// The cached copy was tried too, and there was none.
+    private(set) var offlineCopyMissing = false
+    @ObservationIgnored private var triedCache = false
 
     /// A page of the app's own, with the bridge.
     init(url: URL?, options: Options = Options(), app: AppModel) {
@@ -83,14 +94,15 @@ final class WebPage: NSObject, Identifiable {
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsLinkPreview = false
         webView.isOpaque = false
-        webView.backgroundColor = UIColor(named: "Brand")
+        webView.backgroundColor = .systemBackground
+        webView.scrollView.backgroundColor = .systemBackground
         #if DEBUG
         webView.isInspectable = true
         #endif
 
         if pullToRefresh {
             let refresh = UIRefreshControl()
-            refresh.tintColor = .white
+            refresh.tintColor = .secondaryLabel
             refresh.addTarget(self, action: #selector(pulledToRefresh(_:)), for: .valueChanged)
             webView.scrollView.refreshControl = refresh
         }
@@ -113,16 +125,63 @@ final class WebPage: NSObject, Identifiable {
     func load(_ url: URL) {
         lastRequestedURL = url
         loadError = nil
-        webView.load(URLRequest(url: url))
+        triedCache = false
+        offlineCopyMissing = false
+        if prefersCache {
+            loadFromCache(url)
+        } else {
+            isOfflineCopy = false
+            webView.load(URLRequest(url: url))
+        }
     }
 
     func reload() {
         loadError = nil
-        if webView.url == nil, let lastRequestedURL {
-            webView.load(URLRequest(url: lastRequestedURL))
+        triedCache = false
+        offlineCopyMissing = false
+        if prefersCache, let url = lastRequestedURL ?? webView.url {
+            loadFromCache(url)
+        } else if webView.url == nil || isOfflineCopy, let url = lastRequestedURL ?? webView.url {
+            // A copy from the cache, or nothing at all: go to the site.
+            isOfflineCopy = false
+            webView.load(URLRequest(url: url))
         } else {
             webView.reload()
         }
+    }
+
+    /// The page's background, from the bridge. Painted behind and around the
+    /// page: the safe areas, the overscroll, the gap before it draws.
+    func setPageColor(_ color: UIColor) {
+        guard color != pageColor else { return }
+        pageColor = color
+        webView.backgroundColor = color
+        webView.scrollView.backgroundColor = color
+        webView.underPageBackgroundColor = color
+    }
+
+    private var prefersCache: Bool {
+        (options?.loadsFromCacheOffline ?? false) && app?.isOnline == false
+    }
+
+    /// Loads whatever WebKit's cache has for the page, however old: the page
+    /// and, while it loads, everything it asks for. A page that was never
+    /// opened online has nothing there, and fails as before.
+    private func loadFromCache(_ url: URL) {
+        triedCache = true
+        isOfflineCopy = true
+        webView.load(URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad))
+    }
+
+    /// Errors that mean "no way to the site", as opposed to one it gave.
+    nonisolated static func isConnectionError(_ error: Error) -> Bool {
+        let error = error as NSError
+        guard error.domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost, NSURLErrorTimedOut, NSURLErrorDNSLookupFailed,
+            NSURLErrorInternationalRoamingOff, NSURLErrorDataNotAllowed, NSURLErrorCallIsActive,
+        ].contains(error.code)
     }
 
     func goBack() {
@@ -132,12 +191,6 @@ final class WebPage: NSObject, Identifiable {
     @objc private func pulledToRefresh(_ sender: UIRefreshControl) {
         reload()
         sender.endRefreshing()
-    }
-
-    /// Runs a script in the page, ignoring the result. Only for scripts the
-    /// app wrote itself.
-    func run(_ script: String) {
-        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     /// WebKitErrorFrameLoadInterruptedByPolicyChange: a navigation the policy
@@ -151,6 +204,14 @@ final class WebPage: NSObject, Identifiable {
         if error.domain == "WebKitErrorDomain" && error.code == Self.frameLoadInterruptedByPolicyChange { return }
         if error.domain == NSURLErrorDomain, let failing = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
             lastRequestedURL = failing
+        }
+        // No connection: a game can still start from the copy in the cache.
+        if options?.loadsFromCacheOffline == true, Self.isConnectionError(error), let url = lastRequestedURL {
+            if !triedCache {
+                loadFromCache(url)
+                return
+            }
+            offlineCopyMissing = true
         }
         loadError = error
     }
@@ -266,9 +327,6 @@ extension WebPage: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         hasLoaded = true
         loadError = nil
-        if case .main = kind, let url = webView.url, SiteURLs.isAppURL(url) {
-            app?.pageDidLoad(self)
-        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

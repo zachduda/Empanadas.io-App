@@ -20,6 +20,9 @@ final class RoutesTests: XCTestCase {
         XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/v2/account")), .settings)
         XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/v2/account/index.php")), .settings)
         XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/tower?au=1")), .game(.tower))
+        XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/leaderboard")), .leaderboard)
+        XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/leaderboard.html")), .leaderboard)
+        XCTAssertNil(NativeRoute.of(url("https://example.com/leaderboard")))
         XCTAssertNil(NativeRoute.of(url("https://empanadas.io/v2/profile/abc")))
         XCTAssertNil(NativeRoute.of(url("https://empanadas.io/v2/account_2fa")))
     }
@@ -45,6 +48,8 @@ final class RoutesTests: XCTestCase {
     func testDeepLinks() {
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://home")), .home)
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://settings")), .settings)
+        XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://leaderboard")), .leaderboard)
+        XCTAssertNil(NativeRoute.of(deepLink: url("empanadas-io://leaderboard/spin")))
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://play/flappy")), .game(.flappy))
         XCTAssertNil(NativeRoute.of(deepLink: url("empanadas-io://play/pacman")))
         XCTAssertNil(NativeRoute.of(deepLink: url("empanadas-io://play")))

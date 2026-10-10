@@ -1,22 +1,25 @@
 # Empanadas.io for iOS
 
-A native SwiftUI shell around empanadas.io, playing the same role the Electron
-app plays on the desktop. The site is still the product. The app adds native
-navigation, a native Settings screen, browser sign-in, a full-screen game
-player and the iOS integrations App Review expects.
+A native SwiftUI app around empanadas.io, playing the same role the Electron
+app plays on the desktop. The games are still the site's. The app adds native
+navigation, a native dashboard, leaderboard and Settings screen, browser
+sign-in, a full-screen game player, offline support and the iOS integrations
+App Review expects.
 
 ## What's native and what's web
 
 | | |
 |---|---|
-| **Tabs**: Home, Games, Settings | Native. These replace the site's navbar. |
-| **Home** | The dashboard (web). Taps on its links to `/v2/account` and the games open the native screens. |
-| **Games** | Native list. Each game opens in a full-screen web player. Flappy and Tower use their own close button, which closes the player; Spin gets a native one. Leaving a game for the homepage or the dashboard closes the player. |
+| **Tabs**: Home, Games, Leaderboard, Settings | Native. These replace the site's navbar. The navigation bars are the system's own (Liquid Glass on iOS 26, a translucent material before it), in light or dark to match the theme. |
+| **Home** | The dashboard, native, from `/v2/ios/dashboard.php`: the stats tiles, a card per game with its meter, the Spin Progress chart (Swift Charts: total or per day, 1W to All, drag to read a day), friends and who is online, experience and rank, and pumpkins in season. Profiles, friend search and the profile picture open the site's pages on top. Refreshes once a minute while showing, and after a game closes. |
+| **Games** | Native list. Each game opens in a full-screen web player. Flappy and Tower use their own close button, which closes the player; Spin gets a native one. Leaving a game for the homepage or the dashboard closes the player. The space around a game (the camera housing, the home indicator) takes the game's own background colour. |
+| **Leaderboard** | Native, from `/v2/ios/leaderboard.php`: Spin, Flappy and Tower, with medals for the top three and the player's own row marked. Refreshes while showing, at the pace the site's cache rebuilds. Rows open the player's profile. |
 | **Settings** | The account (picture, name, address) and native controls for theme, privacy and email preferences, read from `/v2/ios/account.php`. Also has sign out, delete account (a native modal: type DELETE), haptics, clear cache and the version. Email/username, connections, passkeys, 2FA and the profile picture open the site's own pages. |
 | **Sign-in** | The login page (web). Google/GitHub/Discord go through the system browser (`ASWebAuthenticationSession`) using the site's existing browser sign-in flow. |
 | **Popups** | 2FA, captcha and other script-opened windows open in a sheet, limited to the site, the providers and the SSO hosts. |
 | **Quick actions** | Play Flappy / Spin / Tower from the Home Screen icon. |
-| **Deep links** | `empanadas-io://home`, `://settings` and `://play/<game>` open native screens. `://auth?...` finishes a sign-in. Any other link is passed to the site via `window.empanadasApp.onDeepLink`. |
+| **Offline** | Home, Leaderboard and Settings keep their last good answer on the device (`Core/OfflineStore.swift`) and open with it at launch and without a connection, saying when it was saved. Settings can't be changed offline. Profile pictures are cached on disk. A game opened offline starts from the copy in WebKit's cache, so any game played online before works offline; the games keep their saves on the device and sync them when back online. Everything refreshes when the connection returns. |
+| **Deep links** | `empanadas-io://home`, `://leaderboard`, `://settings` and `://play/<game>` open native screens. `://auth?...` finishes a sign-in. Anything else is ignored. |
 
 The navigation rules (`Core/SiteURLs.swift`) port `lib/urls.js` one-for-one,
 and the tests port `test/urls.test.js`. If you change a rule on one side,
@@ -49,7 +52,9 @@ The `iOS` GitHub Actions workflow does the same on every change under `ios/`.
 
 The site changes the app depends on are in zachduda/Empanadas-io#70 (the
 user agent and browser sign-in) and the site's `html/v2/ios/` directory, the
-app's own JSON API (`/v2/ios/account.php`). They take effect once deployed.
+app's own JSON API (`account.php`, `dashboard.php` and `leaderboard.php`).
+They take effect once deployed: until `dashboard.php` and `leaderboard.php`
+are live, the Home and Leaderboard tabs say they couldn't load (HTTP 404).
 [SITE-CHANGES.md](SITE-CHANGES.md) lists what is still open.
 
 ## Before submitting to the App Store
@@ -70,11 +75,13 @@ app's own JSON API (`/v2/ios/account.php`). They take effect once deployed.
 
 ## Next steps
 
-- **Offline play.** The desktop app keeps Spin, Flappy and Tower working
-  offline through the site's service worker (`lib/offline.js`). WKWebView only
+- **Offline play without a first visit.** Games start offline from WebKit's
+  cache, so only after being played online once. The desktop app goes further
+  with the site's service worker (`sw.js`, `lib/offline.js`). WKWebView only
   runs service workers for App-Bound Domains (`WKAppBoundDomains`), which also
-  restricts navigation, so bundling the three games into the app is likely the
-  better route.
+  blocks script injection on every other domain, so it needs testing on a
+  device against the sign-in popups before it ships. Bundling the three games
+  is the other route.
 - **Game Center.** Leaderboards and achievements, fed by the games through
   `window.empanadasApp`. This needs leaderboard IDs in App Store Connect.
 - **Push notifications** for friend requests and messages.
