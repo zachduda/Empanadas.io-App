@@ -16,7 +16,7 @@ struct AccountSettings: Decodable, Equatable {
     var newsignins: Int
 }
 
-/// Who is signed in: the "account" object of /ios/account.php
+/// Who is signed in: the "account" object of /v2/ios/account.php
 /// (iosAccountProfile() in the site's v2/_lib.php).
 struct AccountProfile: Decodable, Equatable {
     var id: Int
@@ -86,12 +86,12 @@ struct AccountProfile: Decodable, Equatable {
     }
 }
 
-/// GET /ios/account.php: the account, its settings, and the csrf token that
+/// GET /v2/ios/account.php: the account, its settings, and the csrf token that
 /// changes to them go back to /v2/account_edit.php with.
 ///
 /// Also reads the older /v2/getdata.php?type=app_settings answer, which has
 /// username, email and pfp at the top level instead of an "account" object,
-/// for a site that does not have /ios/ yet.
+/// for a site that does not have /v2/ios/ yet.
 struct AccountSnapshot: Decodable {
     var account: AccountProfile
     let hasBirthday: Bool
@@ -173,12 +173,12 @@ final class AccountAPI {
         cookieStore = WKWebsiteDataStore.default().httpCookieStore
     }
 
-    /// The signed-in account, from /ios/account.php.
+    /// The signed-in account, from /v2/ios/account.php.
     func snapshot() async throws -> AccountSnapshot {
         let (data, response) = try await send(URLRequest(url: SiteURLs.iosAccount))
         let reply = Self.iosReply(data)
 
-        // A site without /ios/ yet: nginx's own 404 page, not our JSON.
+        // A site without /v2/ios/ yet: nginx's own 404 page, not our JSON.
         if response.statusCode == 404 && reply == nil {
             return try await legacySnapshot()
         }
@@ -198,7 +198,7 @@ final class AccountAPI {
         }
     }
 
-    /// The answer every /ios/ endpoint gives: {"ok": Bool, "reason": String?}.
+    /// The answer every /v2/ios/ endpoint gives: {"ok": Bool, "reason": String?}.
     /// Nil when the body is not that (an HTML error page, a proxy's answer).
     nonisolated static func iosReply(_ data: Data) -> (ok: Bool, reason: String?)? {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -206,7 +206,7 @@ final class AccountAPI {
         return (ok, object["reason"] as? String)
     }
 
-    /// GET /v2/getdata.php?type=app_settings, which /ios/account.php replaced.
+    /// GET /v2/getdata.php?type=app_settings, which /v2/ios/account.php replaced.
     private func legacySnapshot() async throws -> AccountSnapshot {
         let (data, response) = try await send(URLRequest(url: getDataURL("app_settings")))
         let text = plainText(data)
