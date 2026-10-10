@@ -63,7 +63,6 @@ enum SiteURLs {
     static let profilePicture = page("/v2/update_pfp")
     static let leaderboard = page("/leaderboard.html")
     static let feedback = page("/v2/feedback")
-    static let contact = page("/v2/contact")
     static let privacy = page("/privacy.html")
     static let terms = page("/terms.html")
     /// The app's own API on the site: JSON in, JSON out (html/v2/ios/ there).
