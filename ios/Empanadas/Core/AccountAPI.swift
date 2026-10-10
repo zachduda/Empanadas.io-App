@@ -16,24 +16,115 @@ struct AccountSettings: Decodable, Equatable {
     var newsignins: Int
 }
 
-/// GET /v2/getdata.php?type=app_settings. That type does not exist on the
-/// site yet; ios/SITE-CHANGES.md has the PHP for it.
+/// Who is signed in: the "account" object of /ios/account.php
+/// (iosAccountProfile() in the site's v2/_lib.php).
+struct AccountProfile: Decodable, Equatable {
+    var id: Int
+    var username: String
+    var email: String
+    var emailVerified: Bool
+    /// An address change waiting on its confirmation link.
+    var pendingEmail: String?
+    /// The large profile picture, as the site gives it: usually a path.
+    var pfp: String?
+    var pfpSmall: String?
+    var hasCustomPfp: Bool
+    var createdAt: String?
+    var birthday: String?
+    var starSign: String?
+    /// Linked sign-in providers, lowercased: "google", "github", "discord".
+    var connections: [String]
+    var twoFactor: Bool
+    var passkeys: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, username, email, pfp, birthday, connections, passkeys
+        case emailVerified = "email_verified"
+        case pendingEmail = "pending_email"
+        case pfpSmall = "pfp_small"
+        case hasCustomPfp = "has_custom_pfp"
+        case createdAt = "created_at"
+        case starSign = "star_sign"
+        case twoFactor = "two_factor"
+    }
+
+    // Lenient: a field the site adds or drops later must not cost the player
+    // the whole Settings screen. Only the name is required.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        username = try c.decode(String.self, forKey: .username)
+        id = (try? c.decodeIfPresent(Int.self, forKey: .id)) ?? 0
+        email = (try? c.decodeIfPresent(String.self, forKey: .email)) ?? ""
+        emailVerified = (try? c.decodeIfPresent(Bool.self, forKey: .emailVerified)) ?? false
+        pendingEmail = try? c.decodeIfPresent(String.self, forKey: .pendingEmail)
+        pfp = try? c.decodeIfPresent(String.self, forKey: .pfp)
+        pfpSmall = try? c.decodeIfPresent(String.self, forKey: .pfpSmall)
+        hasCustomPfp = (try? c.decodeIfPresent(Bool.self, forKey: .hasCustomPfp)) ?? (pfp != nil)
+        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+        birthday = try? c.decodeIfPresent(String.self, forKey: .birthday)
+        starSign = try? c.decodeIfPresent(String.self, forKey: .starSign)
+        connections = (try? c.decodeIfPresent([String].self, forKey: .connections)) ?? []
+        twoFactor = (try? c.decodeIfPresent(Bool.self, forKey: .twoFactor)) ?? false
+        passkeys = (try? c.decodeIfPresent(Int.self, forKey: .passkeys)) ?? 0
+    }
+
+    init(username: String, email: String, pfp: String?) {
+        id = 0
+        self.username = username
+        self.email = email
+        emailVerified = false
+        pendingEmail = nil
+        self.pfp = pfp
+        pfpSmall = pfp
+        hasCustomPfp = pfp != nil
+        createdAt = nil
+        birthday = nil
+        starSign = nil
+        connections = []
+        twoFactor = false
+        passkeys = 0
+    }
+}
+
+/// GET /ios/account.php: the account, its settings, and the csrf token that
+/// changes to them go back to /v2/account_edit.php with.
+///
+/// Also reads the older /v2/getdata.php?type=app_settings answer, which has
+/// username, email and pfp at the top level instead of an "account" object,
+/// for a site that does not have /ios/ yet.
 struct AccountSnapshot: Decodable {
-    let username: String
-    let email: String
-    /// The profile picture, as the site stores it: possibly a path.
-    let pfp: String?
+    var account: AccountProfile
     let hasBirthday: Bool
     var settings: AccountSettings
     var csrf: String
 
+    var username: String { account.username }
+    var email: String { account.email }
+
     var pictureURL: URL? {
-        pfp.flatMap { URL(string: $0, relativeTo: SiteURLs.site)?.absoluteURL }
+        account.pfp.flatMap { URL(string: $0, relativeTo: SiteURLs.site)?.absoluteURL }
     }
 
     enum CodingKeys: String, CodingKey {
-        case username, email, pfp, settings, csrf
+        case account, settings, csrf
+        case username, email, pfp
         case hasBirthday = "has_birthday"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if c.contains(.account) {
+            account = try c.decode(AccountProfile.self, forKey: .account)
+        } else {
+            account = AccountProfile(
+                username: try c.decode(String.self, forKey: .username),
+                email: (try? c.decodeIfPresent(String.self, forKey: .email)) ?? "",
+                pfp: try? c.decodeIfPresent(String.self, forKey: .pfp)
+            )
+        }
+        hasBirthday = (try? c.decodeIfPresent(Bool.self, forKey: .hasBirthday)) ?? false
+        settings = try c.decode(AccountSettings.self, forKey: .settings)
+        csrf = try c.decode(String.self, forKey: .csrf)
     }
 }
 
@@ -42,8 +133,9 @@ enum AccountError: LocalizedError, Equatable {
     case needsCaptcha
     case rateLimited
     case staleToken
-    /// The site does not have the app_settings endpoint (yet).
-    case unavailable
+    /// The site answered, but not with an account. The detail (the site's
+    /// reason, or the HTTP status) is shown so a report says what went wrong.
+    case unavailable(String)
     case server(String)
     case network
 
@@ -53,7 +145,9 @@ enum AccountError: LocalizedError, Equatable {
         case .needsCaptcha: "Please complete a quick check first."
         case .rateLimited: "That's a lot of changes at once. Try again in a minute."
         case .staleToken: "Your session needs refreshing. Try again."
-        case .unavailable: "Settings couldn't be loaded."
+        case .unavailable(let detail): detail.isEmpty
+            ? "Your account couldn't be loaded."
+            : "Your account couldn't be loaded (\(detail))."
         case .server(let reason): reason.isEmpty ? "Something went wrong on our end. Try again!" : reason
         case .network: "Couldn't reach Empanadas.io. Check your connection."
         }
@@ -79,17 +173,52 @@ final class AccountAPI {
         cookieStore = WKWebsiteDataStore.default().httpCookieStore
     }
 
+    /// The signed-in account, from /ios/account.php.
     func snapshot() async throws -> AccountSnapshot {
-        let (data, _) = try await send(URLRequest(url: getDataURL("app_settings")))
-        switch plainText(data) {
+        let (data, response) = try await send(URLRequest(url: SiteURLs.iosAccount))
+        let reply = Self.iosReply(data)
+
+        // A site without /ios/ yet: nginx's own 404 page, not our JSON.
+        if response.statusCode == 404 && reply == nil {
+            return try await legacySnapshot()
+        }
+        guard let reply else {
+            throw AccountError.unavailable("HTTP \(response.statusCode)")
+        }
+        if reply.ok {
+            do {
+                return try JSONDecoder().decode(AccountSnapshot.self, from: data)
+            } catch {
+                throw AccountError.unavailable("unexpected reply")
+            }
+        }
+        switch reply.reason {
         case "no_session": throw AccountError.signedOut
-        case "no_type", "unavailable", "wrong_method": throw AccountError.unavailable
+        default: throw AccountError.unavailable(reply.reason ?? "HTTP \(response.statusCode)")
+        }
+    }
+
+    /// The answer every /ios/ endpoint gives: {"ok": Bool, "reason": String?}.
+    /// Nil when the body is not that (an HTML error page, a proxy's answer).
+    nonisolated static func iosReply(_ data: Data) -> (ok: Bool, reason: String?)? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let ok = object["ok"] as? Bool else { return nil }
+        return (ok, object["reason"] as? String)
+    }
+
+    /// GET /v2/getdata.php?type=app_settings, which /ios/account.php replaced.
+    private func legacySnapshot() async throws -> AccountSnapshot {
+        let (data, response) = try await send(URLRequest(url: getDataURL("app_settings")))
+        let text = plainText(data)
+        switch text {
+        case "no_session": throw AccountError.signedOut
+        case "no_type", "unavailable", "wrong_method": throw AccountError.unavailable(text)
         default: break
         }
         do {
             return try JSONDecoder().decode(AccountSnapshot.self, from: data)
         } catch {
-            throw AccountError.unavailable
+            throw AccountError.unavailable("HTTP \(response.statusCode)")
         }
     }
 
@@ -99,8 +228,9 @@ final class AccountAPI {
         try await change("settings", [(field, String(value))], csrf: csrf)
     }
 
-    /// Deletes the account, as the account page's Danger Zone does. The site
-    /// requires the typed phrase; the Settings screen asks the player for it.
+    /// Deletes the account: the same account_edit.php request the account
+    /// page's Danger Zone sends. The site checks the typed phrase (DELETE)
+    /// itself; the Settings screen asks the player for it.
     func deleteAccount(confirmation: String, csrf: String) async throws {
         try await change("delete_account", [("cp", confirmation)], csrf: csrf)
     }

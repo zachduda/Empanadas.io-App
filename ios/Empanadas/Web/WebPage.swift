@@ -74,6 +74,9 @@ final class WebPage: NSObject, Identifiable {
         return nil
     }
 
+    /// The native screen this page is, if any.
+    var ownRoute: NativeRoute? { options?.ownRoute }
+
     private func setUp(pullToRefresh: Bool) {
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -174,6 +177,13 @@ final class WebPage: NSObject, Identifiable {
             if options.interceptsRoutes, action.navigationType == .linkActivated,
                let route = NativeRoute.of(url), route != options.ownRoute {
                 app.navigate(to: route)
+                return .cancel
+            }
+            // A game leaving for the homepage or the dashboard, by script as
+            // much as by link: its own close button does that. Close the
+            // player rather than load the site's homepage inside it.
+            if case .game? = options.ownRoute, SiteURLs.isGameExitURL(url) {
+                app.closeGame()
                 return .cancel
             }
             if SiteURLs.isPath(url, in: SiteURLs.logoutPaths) {

@@ -11,8 +11,8 @@ player and the iOS integrations App Review expects.
 |---|---|
 | **Tabs**: Home, Games, Settings | Native. These replace the site's navbar. |
 | **Home** | The dashboard (web). Taps on its links to `/v2/account` and the games open the native screens. |
-| **Games** | Native list. Each game opens in a full-screen web player with a close button. Links to the dashboard close it. |
-| **Settings** | Native controls for theme, privacy and email preferences. Also has sign out, delete account, haptics, clear cache and the version. Email/username, connections, passkeys, 2FA and the profile picture open the site's own pages. |
+| **Games** | Native list. Each game opens in a full-screen web player. Flappy and Tower use their own close button, which closes the player; Spin gets a native one. Leaving a game for the homepage or the dashboard closes the player. |
+| **Settings** | The account (picture, name, address) and native controls for theme, privacy and email preferences, read from `/ios/account.php`. Also has sign out, delete account (a native modal: type DELETE), haptics, clear cache and the version. Email/username, connections, passkeys, 2FA and the profile picture open the site's own pages. |
 | **Sign-in** | The login page (web). Google/GitHub/Discord go through the system browser (`ASWebAuthenticationSession`) using the site's existing browser sign-in flow. |
 | **Popups** | 2FA, captcha and other script-opened windows open in a sheet, limited to the site, the providers and the SSO hosts. |
 | **Quick actions** | Play Flappy / Spin / Tower from the Home Screen icon. |
@@ -47,10 +47,10 @@ The `iOS` GitHub Actions workflow does the same on every change under `ios/`.
 
 ## Before it works end to end
 
-The site changes the app depends on are in zachduda/Empanadas-io#70: the
-user agent, browser sign-in and the `app_settings` endpoint. They take effect
-once that is deployed. [SITE-CHANGES.md](SITE-CHANGES.md) lists what is still
-open.
+The site changes the app depends on are in zachduda/Empanadas-io#70 (the
+user agent and browser sign-in) and the site's `html/ios/` directory, the
+app's own JSON API (`/ios/account.php`). They take effect once deployed.
+[SITE-CHANGES.md](SITE-CHANGES.md) lists what is still open.
 
 ## Before submitting to the App Store
 

@@ -44,6 +44,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             app.navigate(to: .game(game))
             return (true, nil)
 
+        case "closeGame":
+            // Only from the game player, so a page elsewhere cannot use it to
+            // close a game it is not part of.
+            guard case .game? = page.ownRoute else { return (false, nil) }
+            app.closeGame()
+            return (true, nil)
+
         case "share":
             // Only the site's own pages: this is not a way to put arbitrary
             // links in front of the player with the app's name on them.

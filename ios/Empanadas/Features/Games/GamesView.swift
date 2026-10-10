@@ -87,18 +87,13 @@ struct GamePlayerView: View {
                 }
             }
 
-            Button {
-                model.activeGame = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.ultraThinMaterial, in: Circle())
+            // Flappy and Tower have their own close button, which closes the
+            // player (see Game.hasOwnCloseButton); a second one here would sit
+            // across the screen from it. It still shows until the game is up,
+            // and whenever it failed to load, so there is always a way out.
+            if showsNativeClose {
+                closeButton
             }
-            .padding(.leading, 16)
-            .padding(.top, 8)
-            .accessibilityLabel("Close \(game.title)")
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
@@ -112,5 +107,25 @@ struct GamePlayerView: View {
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
         }
+    }
+
+    private var showsNativeClose: Bool {
+        guard game.hasOwnCloseButton, let page else { return true }
+        return !page.hasLoaded || page.loadError != nil
+    }
+
+    private var closeButton: some View {
+        Button {
+            model.closeGame()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .padding(.leading, 16)
+        .padding(.top, 8)
+        .accessibilityLabel("Close \(game.title)")
     }
 }

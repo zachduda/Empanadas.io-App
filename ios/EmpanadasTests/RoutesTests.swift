@@ -24,6 +24,24 @@ final class RoutesTests: XCTestCase {
         XCTAssertNil(NativeRoute.of(url("https://empanadas.io/v2/account_2fa")))
     }
 
+    func testOnlyFlappyAndTowerDrawTheirOwnCloseButton() {
+        XCTAssertFalse(Game.spin.hasOwnCloseButton)
+        XCTAssertTrue(Game.flappy.hasOwnCloseButton)
+        XCTAssertTrue(Game.tower.hasOwnCloseButton)
+    }
+
+    func testWhereAGameSendsThePlayerWhenTheyLeave() {
+        // backToGames() in the site's _flappy.js and _tower.js.
+        XCTAssertTrue(SiteURLs.isGameExitURL(url("https://empanadas.io/#games")))
+        XCTAssertTrue(SiteURLs.isGameExitURL(url("https://empanadas.io/")))
+        XCTAssertTrue(SiteURLs.isGameExitURL(url("https://empanadas.io")))
+        XCTAssertTrue(SiteURLs.isGameExitURL(url("https://empanadas.io/index.php")))
+        XCTAssertTrue(SiteURLs.isGameExitURL(url("https://empanadas.io/v2/dashboard")))
+        XCTAssertFalse(SiteURLs.isGameExitURL(url("https://empanadas.io/flappy")), "the game itself")
+        XCTAssertFalse(SiteURLs.isGameExitURL(url("https://empanadas.io/v2/login")))
+        XCTAssertFalse(SiteURLs.isGameExitURL(url("https://example.com/")))
+    }
+
     func testDeepLinks() {
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://home")), .home)
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://settings")), .settings)
@@ -75,6 +93,74 @@ final class AccountAPITests: XCTestCase {
     func testFormBodyEncodesEverythingButTheUnreservedCharacters() {
         let body = AccountAPI.formBody([("account_change", "delete_account"), ("cp", "DE LETE&é")])
         XCTAssertEqual(String(data: body, encoding: .utf8), "account_change=delete_account&cp=DE%20LETE%26%C3%A9")
+    }
+
+    private func snapshot(_ json: String) throws -> AccountSnapshot {
+        try JSONDecoder().decode(AccountSnapshot.self, from: Data(json.utf8))
+    }
+
+    private let settingsJSON = """
+        {"publicaccount":1,"starsign":1,"allownf":0,"analytics":1,"theme":2,
+         "promoemails":0,"otheremails":1,"recapemails":1,"newsignins":1}
+        """
+
+    func testReadsTheIOSAccountAnswer() throws {
+        // What /ios/account.php sends (tests/iosapp_test.php on the site).
+        let snap = try snapshot("""
+            {"ok":true,"api":1,"account":{"id":42,"username":"tester","email":"t@example.com",
+             "email_verified":true,"pending_email":null,"pfp":"/Content/Images/ProfilePics/lg/abc.jpeg",
+             "pfp_small":"/Content/Images/ProfilePics/sm/abc.jpeg","has_custom_pfp":true,
+             "created_at":"2024-01-02 03:04:05","birthday":"2000-01-02","star_sign":"Capricorn",
+             "connections":["discord","google"],"two_factor":true,"passkeys":2},
+             "has_birthday":true,"settings":\(settingsJSON),"csrf":"tok"}
+            """)
+        XCTAssertEqual(snap.username, "tester")
+        XCTAssertEqual(snap.email, "t@example.com")
+        XCTAssertEqual(snap.account.id, 42)
+        XCTAssertEqual(snap.account.connections, ["discord", "google"])
+        XCTAssertTrue(snap.account.twoFactor)
+        XCTAssertEqual(snap.account.passkeys, 2)
+        XCTAssertNil(snap.account.pendingEmail)
+        XCTAssertEqual(snap.pictureURL?.absoluteString, "https://empanadas.io/Content/Images/ProfilePics/lg/abc.jpeg")
+        XCTAssertTrue(snap.hasBirthday)
+        XCTAssertEqual(snap.settings.theme, 2)
+        XCTAssertEqual(snap.settings.allownf, 0)
+        XCTAssertEqual(snap.csrf, "tok")
+    }
+
+    func testAnAccountWithFieldsMissingStillLoads() throws {
+        let snap = try snapshot("""
+            {"ok":true,"account":{"username":"tester"},"settings":\(settingsJSON),"csrf":"tok"}
+            """)
+        XCTAssertEqual(snap.username, "tester")
+        XCTAssertEqual(snap.email, "")
+        XCTAssertNil(snap.pictureURL)
+        XCTAssertFalse(snap.account.twoFactor)
+        XCTAssertEqual(snap.account.connections, [])
+    }
+
+    func testReadsTheOlderGetDataAnswer() throws {
+        let snap = try snapshot("""
+            {"result":1,"username":"tester","email":"t@example.com","pfp":"https://cdn.example/x.png",
+             "has_birthday":false,"settings":\(settingsJSON),"csrf":"tok"}
+            """)
+        XCTAssertEqual(snap.username, "tester")
+        XCTAssertEqual(snap.pictureURL?.absoluteString, "https://cdn.example/x.png")
+        XCTAssertFalse(snap.hasBirthday)
+    }
+
+    func testIOSRepliesAndEverythingElse() {
+        XCTAssertEqual(AccountAPI.iosReply(Data(#"{"ok":false,"api":1,"reason":"no_session"}"#.utf8))?.reason, "no_session")
+        XCTAssertEqual(AccountAPI.iosReply(Data(#"{"ok":true,"api":1}"#.utf8))?.ok, true)
+        XCTAssertNil(AccountAPI.iosReply(Data("<html>404</html>".utf8)), "nginx's error page")
+        XCTAssertNil(AccountAPI.iosReply(Data("no_type".utf8)))
+        XCTAssertNil(AccountAPI.iosReply(Data(#"{"result":0}"#.utf8)), "not an /ios/ answer")
+    }
+
+    func testLoadErrorsSayWhatWentWrong() {
+        XCTAssertEqual(AccountError.unavailable("server_error").errorDescription,
+                       "Your account couldn't be loaded (server_error).")
+        XCTAssertEqual(AccountError.unavailable("").errorDescription, "Your account couldn't be loaded.")
     }
 
     func testSiteReasonsBecomePlainText() {

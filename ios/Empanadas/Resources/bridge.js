@@ -51,6 +51,9 @@
     // 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'warning' | 'error'
     haptic: function (style) { return call('haptic', { style: String(style || 'light') }); },
     openSettings: function () { return call('openSettings'); },
+    // Closes the full-screen game player (what the games' own close button
+    // should do in the app). Resolves false outside the player.
+    closeGame: function () { return call('closeGame'); },
     // 'spin' | 'flappy' | 'tower'
     openGame: function (game) { return call('openGame', { game: String(game) }); },
     // Opens the share sheet for an empanadas.io link.

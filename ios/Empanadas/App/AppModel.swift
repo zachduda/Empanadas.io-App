@@ -157,6 +157,11 @@ final class AppModel {
         }
     }
 
+    /// Leaves the full-screen game player, back to whichever tab opened it.
+    func closeGame() {
+        activeGame = nil
+    }
+
     /// The page the site would have loaded in its main window.
     private var mainPage: WebPage? {
         session == .signedIn ? homePage : signInPage
