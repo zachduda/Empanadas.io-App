@@ -68,6 +68,15 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             await WebEnvironment.clearCache()
             return (["ok": true], nil)
 
+        case "pageColor":
+            // Only ever a colour to paint around the page; anything that does
+            // not parse as an opaque one is ignored.
+            guard let text = args["color"] as? String, let color = CSSColor(text), !color.isTransparent else {
+                return (false, nil)
+            }
+            page.setPageColor(UIColor(red: color.red, green: color.green, blue: color.blue, alpha: 1))
+            return (true, nil)
+
         default:
             return (nil, "Unknown command")
         }
@@ -79,17 +88,26 @@ enum Haptics {
         UserDefaults.standard.object(forKey: Preferences.hapticsKey) as? Bool ?? true
     }
 
+    // Kept and prepared between taps rather than made for each one: Spin asks
+    // for a tap on every manual spin, many a second, and a prepared
+    // generator answers without the Taptic Engine's warm-up lag.
+    @MainActor private static let light = UIImpactFeedbackGenerator(style: .light)
+    @MainActor private static let medium = UIImpactFeedbackGenerator(style: .medium)
+    @MainActor private static let heavy = UIImpactFeedbackGenerator(style: .heavy)
+    @MainActor private static let selection = UISelectionFeedbackGenerator()
+    @MainActor private static let notification = UINotificationFeedbackGenerator()
+
     @MainActor
     static func play(_ style: String) {
         guard isEnabled else { return }
         switch style {
-        case "success": UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case "warning": UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        case "error": UINotificationFeedbackGenerator().notificationOccurred(.error)
-        case "selection": UISelectionFeedbackGenerator().selectionChanged()
-        case "heavy": UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        case "medium": UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        default: UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case "success": notification.notificationOccurred(.success); notification.prepare()
+        case "warning": notification.notificationOccurred(.warning); notification.prepare()
+        case "error": notification.notificationOccurred(.error); notification.prepare()
+        case "selection": selection.selectionChanged(); selection.prepare()
+        case "heavy": heavy.impactOccurred(); heavy.prepare()
+        case "medium": medium.impactOccurred(); medium.prepare()
+        default: light.impactOccurred(); light.prepare()
         }
     }
 }

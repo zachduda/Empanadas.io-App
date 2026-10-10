@@ -43,7 +43,94 @@
     }).observe(document, { childList: true });
   }
 
-  var deepLinkListeners = [];
+  // navigator.vibrate(), which WebKit on iOS does not have. The games already
+  // call it (a manual spin in Spin, a crash in Flappy, a slip or topple in
+  // Tower), so it is filled in here with the phone's haptics rather than
+  // changed in each game. Same contract as the Vibration API: a number or a
+  // pattern of on/off milliseconds, a new call cancels the pattern before
+  // it, and 0 or [] just cancels. Each "on" plays one tap, firmer the longer
+  // it asks for. The app's Haptics setting turns these off too.
+  var buzzTimers = [];
+  var MAX_PATTERN = 20;
+
+  function strength(ms) {
+    if (ms <= 10) return 'light';
+    if (ms <= 40) return 'medium';
+    return 'heavy';
+  }
+
+  function buzz(style) {
+    call('haptic', { style: style }).catch(function () { /* the buzz is optional */ });
+  }
+
+  function vibrate(pattern) {
+    buzzTimers.forEach(clearTimeout);
+    buzzTimers = [];
+    var steps = Array.isArray(pattern) ? pattern : [pattern];
+    var at = 0;
+    for (var i = 0; i < steps.length && i < MAX_PATTERN; i++) {
+      var ms = Math.min(Math.max(Number(steps[i]) || 0, 0), 10000);
+      if (i % 2 === 0 && ms > 0) {
+        if (at === 0) {
+          buzz(strength(ms));
+        } else {
+          buzzTimers.push(setTimeout(buzz, at, strength(ms)));
+        }
+      }
+      at += ms;
+    }
+    return true;
+  }
+
+  if (typeof navigator.vibrate !== 'function') {
+    try {
+      Object.defineProperty(Navigator.prototype, 'vibrate', {
+        value: vibrate, writable: true, configurable: true
+      });
+    } catch (err) {
+      navigator.vibrate = vibrate;
+    }
+  }
+
+  // The page's background colour, for the app to paint around the page (the
+  // safe areas, the overscroll) instead of a fixed colour. Sent whenever it
+  // changes: the stylesheets load without blocking, and core.js switches the
+  // theme once the account arrives.
+  var lastColor = null;
+
+  function backgroundOf(el) {
+    if (!el) return null;
+    var color = getComputedStyle(el).backgroundColor;
+    return (!color || color === 'transparent' || /^rgba\(.*,\s*0\)$/.test(color)) ? null : color;
+  }
+
+  function reportColor() {
+    var color = backgroundOf(document.body) || backgroundOf(document.documentElement);
+    if (!color || color === lastColor) return;
+    lastColor = color;
+    call('pageColor', { color: color }).catch(function () { /* not ours to worry about */ });
+  }
+
+  function watchColor() {
+    reportColor();
+    var observer = new MutationObserver(reportColor);
+    [document.documentElement, document.body].forEach(function (el) {
+      if (el) observer.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
+    });
+    // A theme change that fades the background in reports the colour it
+    // ends on, not one from halfway through.
+    if (document.body) document.body.addEventListener('transitionend', reportColor);
+    window.addEventListener('load', function () {
+      reportColor();
+      setTimeout(reportColor, 600);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', watchColor);
+  } else {
+    watchColor();
+  }
 
   var app = {
     platform: 'ios',
@@ -62,26 +149,8 @@
     // desktop app.
     ping: function () { return call('ping'); },
     // Empties the app's cache but keeps cookies and saves. Resolves { ok }.
-    clearCache: function () { return call('clearCache'); },
-    // empanadas-io:// links the app was opened with. Returns an unsubscribe.
-    onDeepLink: function (callback) {
-      deepLinkListeners.push(callback);
-      return function () {
-        var i = deepLinkListeners.indexOf(callback);
-        if (i >= 0) deepLinkListeners.splice(i, 1);
-      };
-    }
+    clearCache: function () { return call('clearCache'); }
   };
-
-  // Called by the app (WebPage.run) with a deep link that is not one it
-  // handles natively.
-  Object.defineProperty(app, '_deliverDeepLink', {
-    value: function (url) {
-      deepLinkListeners.slice().forEach(function (callback) {
-        try { callback(url); } catch (err) { /* one bad listener must not stop the rest */ }
-      });
-    }
-  });
 
   Object.freeze(app);
   Object.defineProperty(window, 'empanadasApp', { value: app, writable: false, configurable: false });

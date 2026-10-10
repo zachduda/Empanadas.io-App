@@ -4,6 +4,7 @@ import SwiftUI
 enum AppTab: Hashable {
     case home
     case games
+    case leaderboard
     case settings
 }
 
@@ -17,18 +18,29 @@ struct ShareItem: Identifiable {
     let url: URL
 }
 
-/// App-wide state: the session, which screen is showing, and the web pages
-/// that outlive a single screen. Everything a WebPage cannot decide by itself
-/// comes here.
+/// App-wide state: the session, which screen is showing, the native screens'
+/// data, and the web pages that outlive a single screen. Everything a WebPage
+/// cannot decide by itself comes here.
 @MainActor
 @Observable
 final class AppModel {
     private(set) var session: SessionState
     var selectedTab: AppTab = .home
-    var activeGame: Game?
+    var activeGame: Game? {
+        didSet {
+            if oldValue != nil && activeGame == nil { gameClosed() }
+        }
+    }
     var popup: WebPage?
     var shareItem: ShareItem?
+    /// A site page opened outside the tabs (see handOff).
+    var webSheet: WebLink?
     private(set) var isOnline = true
+
+    /// The native Home and Leaderboard tabs' data. Here rather than in the
+    /// views, so it outlives a tab switch and goes with the session.
+    let dashboard: DashboardModel
+    let leaderboard: LeaderboardModel
 
     /// The account's theme setting: 0 follows the device, 1 light, 2 dark.
     var theme: Int {
@@ -43,15 +55,12 @@ final class AppModel {
         }
     }
 
-    /// The dashboard, shown in the Home tab while signed in.
-    private(set) var homePage: WebPage?
     /// The login page, shown full screen while signed out.
     private(set) var signInPage: WebPage?
 
     @ObservationIgnored let account = AccountAPI()
     @ObservationIgnored private let browserSignIn = BrowserSignIn()
     @ObservationIgnored private var backgroundPages: [WebPage] = []
-    @ObservationIgnored private var pendingDeepLink: URL?
     @ObservationIgnored private var checkingSession = false
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
 
@@ -59,16 +68,13 @@ final class AppModel {
         let defaults = UserDefaults.standard
         session = defaults.bool(forKey: Preferences.signedInKey) ? .signedIn : .signedOut
         theme = defaults.integer(forKey: Preferences.themeKey)
+        dashboard = DashboardModel()
+        leaderboard = LeaderboardModel()
 
-        switch session {
-        case .signedIn: homePage = makeHomePage()
-        case .signedOut: signInPage = makeSignInPage()
+        if session == .signedOut {
+            signInPage = makeSignInPage()
         }
         monitorConnection()
-    }
-
-    private func makeHomePage() -> WebPage {
-        WebPage(url: SiteURLs.dashboard, options: .init(interceptsRoutes: true, ownRoute: .home), app: self)
     }
 
     private func makeSignInPage() -> WebPage {
@@ -77,9 +83,10 @@ final class AppModel {
 
     /// A page for a screen of its own (Settings' web rows, the game player).
     func makePage(_ url: URL, interceptsRoutes: Bool = false, ownRoute: NativeRoute? = nil,
-                  pullToRefresh: Bool = true) -> WebPage {
+                  pullToRefresh: Bool = true, loadsFromCacheOffline: Bool = false) -> WebPage {
         WebPage(url: url, options: .init(interceptsRoutes: interceptsRoutes, ownRoute: ownRoute,
-                                         pullToRefresh: pullToRefresh), app: self)
+                                         pullToRefresh: pullToRefresh,
+                                         loadsFromCacheOffline: loadsFromCacheOffline), app: self)
     }
 
     // MARK: - Session
@@ -110,7 +117,7 @@ final class AppModel {
 
         switch new {
         case .signedIn:
-            homePage = makeHomePage()
+            selectedTab = .home
             // Not released here: this may be running inside the sign-in
             // page's own delegate callback.
             let finished = signInPage
@@ -120,11 +127,13 @@ final class AppModel {
         case .signedOut:
             activeGame = nil
             popup = nil
+            webSheet = nil
             selectedTab = .home
-            let finished = homePage
-            Task { @MainActor in
-                if self.homePage === finished { self.homePage = nil }
-            }
+            // What was saved describes this account; the next one must not
+            // open on it.
+            dashboard.reset()
+            leaderboard.reset()
+            OfflineStore.clear()
             signInPage = makeSignInPage()
         }
     }
@@ -148,6 +157,9 @@ final class AppModel {
         case .home:
             activeGame = nil
             selectedTab = .home
+        case .leaderboard:
+            activeGame = nil
+            selectedTab = .leaderboard
         case .settings:
             activeGame = nil
             selectedTab = .settings
@@ -162,20 +174,34 @@ final class AppModel {
         activeGame = nil
     }
 
-    /// The page the site would have loaded in its main window.
-    private var mainPage: WebPage? {
-        session == .signedIn ? homePage : signInPage
+    /// A round just ended: its save reaches the site a moment after the
+    /// player closes, and the dashboard should show it.
+    private func gameClosed() {
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard session == .signedIn, isOnline else { return }
+            await dashboard.load(app: self)
+        }
     }
 
-    /// A popup sign-in reached a page that belongs in the app proper.
+    /// Opens a site page over the tabs, in a sheet of its own.
+    func openWeb(_ url: URL, title: String? = nil) {
+        webSheet = WebLink(url: url, title: title ?? "Empanadas.io")
+    }
+
+    /// A popup sign-in reached a page that belongs in the app proper: a
+    /// screen the app draws, or else the page itself in a sheet. Signed out,
+    /// it is the login page's to finish.
     func handOff(_ url: URL) {
-        if session == .signedIn, let route = NativeRoute.of(url) {
-            navigate(to: route)
-            if route == .home { homePage?.load(url) }
+        guard session == .signedIn else {
+            signInPage?.load(url)
             return
         }
-        if session == .signedIn { navigate(to: .home) }
-        mainPage?.load(url)
+        if let route = NativeRoute.of(url) {
+            navigate(to: route)
+        } else {
+            openWeb(url)
+        }
     }
 
     func presentPopup(_ page: WebPage) {
@@ -211,13 +237,6 @@ final class AppModel {
         shareItem = ShareItem(url: url)
     }
 
-    func pageDidLoad(_ page: WebPage) {
-        if page === homePage, let link = pendingDeepLink {
-            pendingDeepLink = nil
-            deliverToSite(link)
-        }
-    }
-
     // MARK: - Browser sign-in
 
     func startBrowserSignIn(_ url: URL, from page: WebPage) {
@@ -234,12 +253,13 @@ final class AppModel {
         popup = nil
 
         // Back to the page that started it (Settings' account page when
-        // linking a provider), or the main page if that is gone.
-        if let origin, origin === mainPage || origin.webView.window != nil {
+        // linking a provider), or a sheet of its own if that is gone.
+        if let origin, origin === signInPage || origin.webView.window != nil {
             origin.load(url)
+        } else if session == .signedIn {
+            openWeb(url, title: "Sign In")
         } else {
-            if session == .signedIn { navigate(to: .home) }
-            mainPage?.load(url)
+            signInPage?.load(url)
         }
     }
 
@@ -252,8 +272,6 @@ final class AppModel {
             finishBrowserSignIn(url)
         } else if let route = NativeRoute.of(deepLink: url) {
             navigate(to: route)
-        } else {
-            deliverToSite(url)
         }
     }
 
@@ -261,20 +279,6 @@ final class AppModel {
         let prefix = "io.empanadas.app.play."
         guard type.hasPrefix(prefix), let game = Game(rawValue: String(type.dropFirst(prefix.count))) else { return }
         navigate(to: .game(game))
-    }
-
-    /// Passes a link the app does not handle itself to the site, through
-    /// window.empanadasApp.onDeepLink - the iOS side of the desktop app's
-    /// 'deep-link' message.
-    private func deliverToSite(_ url: URL) {
-        guard session == .signedIn, let homePage, homePage.hasLoaded,
-              let encoded = try? JSONEncoder().encode(url.absoluteString),
-              let literal = String(data: encoded, encoding: .utf8) else {
-            pendingDeepLink = url
-            return
-        }
-        navigate(to: .home)
-        homePage.run("window.empanadasApp && window.empanadasApp._deliverDeepLink(\(literal));")
     }
 
     // MARK: - Connection
@@ -285,11 +289,10 @@ final class AppModel {
             Task { @MainActor in
                 guard let self, self.isOnline != online else { return }
                 self.isOnline = online
-                // Back online: retry whatever failed while it was not.
-                if online {
-                    for page in [self.homePage, self.signInPage] where page?.loadError != nil {
-                        page?.reload()
-                    }
+                // Back online: retry whatever failed while it was not. The
+                // native screens refresh themselves when they are showing.
+                if online, let page = self.signInPage, page.loadError != nil {
+                    page.reload()
                 }
             }
         }

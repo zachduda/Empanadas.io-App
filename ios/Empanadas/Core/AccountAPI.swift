@@ -173,7 +173,8 @@ final class AccountAPI {
         cookieStore = WKWebsiteDataStore.default().httpCookieStore
     }
 
-    /// The signed-in account, from /v2/ios/account.php.
+    /// The signed-in account, from /v2/ios/account.php. A good answer is also
+    /// kept for offline use (OfflineStore), without its csrf token.
     func snapshot() async throws -> AccountSnapshot {
         let (data, response) = try await send(URLRequest(url: SiteURLs.iosAccount))
         let reply = Self.iosReply(data)
@@ -182,20 +183,59 @@ final class AccountAPI {
         if response.statusCode == 404 && reply == nil {
             return try await legacySnapshot()
         }
+        let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
+        let snapshot = try Self.decode(AccountSnapshot.self, body)
+        OfflineStore.save(Self.withoutToken(body), as: .settings)
+        return snapshot
+    }
+
+    /// GET /v2/ios/dashboard.php: everything on the native dashboard.
+    func dashboard() async throws -> Dashboard {
+        try await iosGet(SiteURLs.iosDashboard, as: Dashboard.self, keep: .dashboard)
+    }
+
+    /// GET /v2/ios/leaderboard.php: the three boards.
+    func leaderboard() async throws -> Leaderboard {
+        try await iosGet(SiteURLs.iosLeaderboard, as: Leaderboard.self, keep: .leaderboard)
+    }
+
+    /// One /v2/ios/ endpoint, decoded, and kept in OfflineStore when good.
+    private func iosGet<T: Decodable>(_ url: URL, as type: T.Type, keep key: OfflineStore.Key) async throws -> T {
+        let (data, response) = try await send(URLRequest(url: url))
+        let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
+        let value = try Self.decode(T.self, body)
+        OfflineStore.save(body, as: key)
+        return value
+    }
+
+    /// The body of a successful /v2/ios/ answer, or the error it stands for.
+    /// A 404 that is not our JSON is a site without the endpoint deployed.
+    nonisolated static func iosBody(_ data: Data, reply: (ok: Bool, reason: String?)?, status: Int) throws -> Data {
         guard let reply else {
-            throw AccountError.unavailable("HTTP \(response.statusCode)")
+            throw AccountError.unavailable("HTTP \(status)")
         }
-        if reply.ok {
-            do {
-                return try JSONDecoder().decode(AccountSnapshot.self, from: data)
-            } catch {
-                throw AccountError.unavailable("unexpected reply")
-            }
-        }
+        if reply.ok { return data }
         switch reply.reason {
         case "no_session": throw AccountError.signedOut
-        default: throw AccountError.unavailable(reply.reason ?? "HTTP \(response.statusCode)")
+        default: throw AccountError.unavailable(reply.reason ?? "HTTP \(status)")
         }
+    }
+
+    private nonisolated static func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw AccountError.unavailable("unexpected reply")
+        }
+    }
+
+    /// The reply with its csrf token blanked: what goes to disk. A token
+    /// belongs to the session it was issued in, and a blank one makes
+    /// SettingsModel fetch a fresh one before it changes anything.
+    nonisolated static func withoutToken(_ data: Data) -> Data {
+        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return data }
+        if object["csrf"] != nil { object["csrf"] = "" }
+        return (try? JSONSerialization.data(withJSONObject: object)) ?? data
     }
 
     /// The answer every /v2/ios/ endpoint gives: {"ok": Bool, "reason": String?}.
@@ -216,7 +256,9 @@ final class AccountAPI {
         default: break
         }
         do {
-            return try JSONDecoder().decode(AccountSnapshot.self, from: data)
+            let snapshot = try JSONDecoder().decode(AccountSnapshot.self, from: data)
+            OfflineStore.save(Self.withoutToken(data), as: .settings)
+            return snapshot
         } catch {
             throw AccountError.unavailable("HTTP \(response.statusCode)")
         }

@@ -10,6 +10,20 @@ struct WebViewContainer: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
+/// What a web page is drawn on: the page's own background once it has said
+/// what that is (pageColor in Resources/bridge.js), the system background
+/// until then. Never a fixed colour, so nothing shows as a band of blue
+/// above, below or behind a page in either theme.
+struct PageBackdrop: View {
+    let page: WebPage?
+
+    var body: some View {
+        Color(uiColor: page?.pageColor ?? .systemBackground)
+            .ignoresSafeArea()
+            .animation(.easeOut(duration: 0.2), value: page?.pageColor)
+    }
+}
+
 /// A page inside a navigation stack, with the spinner and the offline screen.
 struct WebScreen: View {
     let page: WebPage
@@ -17,25 +31,41 @@ struct WebScreen: View {
 
     var body: some View {
         ZStack {
-            Color("Brand").ignoresSafeArea()
+            PageBackdrop(page: page)
             WebViewContainer(webView: page.webView)
             if page.loadError != nil {
                 ConnectionErrorView { page.reload() }
             } else if !page.hasLoaded {
                 ProgressView()
                     .controlSize(.large)
-                    .tint(.white)
             }
         }
         .navigationTitle(title ?? Self.displayTitle(page.title))
         .navigationBarTitleDisplayMode(.inline)
-        .brandedNavigationBar()
+        .glassNavigationBar()
     }
 
     /// "Empanadas.io | Manage Account" -> "Manage Account".
     static func displayTitle(_ title: String) -> String {
         let parts = title.components(separatedBy: " | ")
         return parts.count > 1 ? parts.dropFirst().joined(separator: " | ") : title
+    }
+}
+
+/// A site page a native screen opens on top of itself.
+struct WebLink: Identifiable, Hashable {
+    let url: URL
+    let title: String
+
+    var id: URL { url }
+
+    static let profile = WebLink(url: SiteURLs.profile, title: "Profile")
+    static let findFriends = WebLink(url: SiteURLs.findFriends, title: "Find Friends")
+    static let profilePicture = WebLink(url: SiteURLs.profilePicture, title: "Profile Picture")
+    static let verifyEmail = WebLink(url: SiteURLs.verifyEmail, title: "Verify Email")
+
+    static func player(_ id: String, name: String) -> WebLink {
+        WebLink(url: SiteURLs.playerProfile(id: id), title: name)
     }
 }
 
@@ -46,6 +76,9 @@ struct WebDestination: View {
     @Environment(AppModel.self) private var model
     let url: URL
     var title: String?
+    /// Links to the screens the app draws itself (a game, the dashboard, the
+    /// leaderboard) open those instead of loading in place.
+    var interceptsRoutes = false
 
     @State private var page: WebPage?
 
@@ -54,23 +87,26 @@ struct WebDestination: View {
             if let page {
                 WebScreen(page: page, title: title)
             } else {
-                Color("Brand").ignoresSafeArea()
+                PageBackdrop(page: nil)
             }
         }
         .onAppear {
-            if page == nil { page = model.makePage(url) }
+            if page == nil { page = model.makePage(url, interceptsRoutes: interceptsRoutes) }
         }
     }
 }
 
 struct ConnectionErrorView: View {
+    var title = "Can't Reach Empanadas.io"
+    var message = "Check your connection and try again."
+    var systemImage = "wifi.exclamationmark"
     let retry: () -> Void
 
     var body: some View {
         ContentUnavailableView {
-            Label("Can't Reach Empanadas.io", systemImage: "wifi.exclamationmark")
+            Label(title, systemImage: systemImage)
         } description: {
-            Text("Check your connection and try again.")
+            Text(message)
         } actions: {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
@@ -89,11 +125,20 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
-extension View {
-    /// The site's blue behind the navigation bar, as on the web pages below it.
-    func brandedNavigationBar() -> some View {
-        toolbarBackground(Color("Brand"), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+/// A site page the app opens on its own, outside any tab: what a sign-in
+/// popup hands back while signed in, when it is not a screen the app draws.
+struct WebSheetView: View {
+    @Environment(AppModel.self) private var model
+    let link: WebLink
+
+    var body: some View {
+        NavigationStack {
+            WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { model.webSheet = nil }
+                    }
+                }
+        }
     }
 }

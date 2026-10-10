@@ -6,15 +6,16 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            Color("Brand").ignoresSafeArea()
+            PageBackdrop(page: model.signInPage)
             if let page = model.signInPage {
                 WebViewContainer(webView: page.webView)
                 if page.loadError != nil {
-                    ConnectionErrorView { page.reload() }
+                    ConnectionErrorView(message: model.isOnline
+                                        ? "Check your connection and try again."
+                                        : "You're offline. Signing in needs a connection.") { page.reload() }
                 } else if !page.hasLoaded {
                     ProgressView()
                         .controlSize(.large)
-                        .tint(.white)
                 }
             }
         }

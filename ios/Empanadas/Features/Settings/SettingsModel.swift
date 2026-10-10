@@ -3,10 +3,16 @@ import Foundation
 /// State behind the native Settings screen: the account's settings as the site
 /// has them, and one change at a time going back to it. A control only ever
 /// shows a value the site accepted - a failed change is put back.
+///
+/// Opens with the copy AccountAPI saved last time (OfflineStore), so the
+/// screen has the account on it at once and offline. That copy has no csrf
+/// token; withFreshToken fetches one before anything is changed.
 @MainActor
 @Observable
 final class SettingsModel {
     private(set) var snapshot: AccountSnapshot?
+    /// When `snapshot` came from the site.
+    private(set) var updatedAt: Date?
     private(set) var isLoading = false
     private(set) var loadError: AccountError?
     /// The field being saved. Every control waits while one is: the site takes
@@ -15,11 +21,19 @@ final class SettingsModel {
     var saveError: String?
     var needsCaptcha = false
 
+    init() {
+        if let saved = OfflineStore.load(AccountSnapshot.self, .settings) {
+            snapshot = saved.value
+            updatedAt = saved.savedAt
+        }
+    }
+
     func load(app: AppModel) async {
         isLoading = true
         defer { isLoading = false }
         do {
             snapshot = try await app.account.snapshot()
+            updatedAt = Date()
             loadError = nil
             app.theme = snapshot?.settings.theme ?? app.theme
         } catch let error as AccountError {
@@ -76,11 +90,17 @@ final class SettingsModel {
     /// deleting the account never depends on the Settings screen having
     /// loaded.
     private func withFreshToken(_ app: AppModel, _ body: (String) async throws -> Void) async throws {
-        if snapshot == nil {
-            snapshot = try await app.account.snapshot()
+        // None yet, or only the saved copy, whose token was left blank.
+        if snapshot == nil || snapshot?.csrf.isEmpty == true {
+            let fresh = try await app.account.snapshot()
+            if snapshot == nil {
+                snapshot = fresh
+            } else {
+                snapshot?.csrf = fresh.csrf
+            }
             loadError = nil
         }
-        guard let csrf = snapshot?.csrf else { throw AccountError.unavailable("") }
+        guard let csrf = snapshot?.csrf, !csrf.isEmpty else { throw AccountError.unavailable("") }
         do {
             try await body(csrf)
         } catch AccountError.staleToken {

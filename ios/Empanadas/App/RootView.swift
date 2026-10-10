@@ -24,6 +24,8 @@ struct RootView: View {
                 .sheet(item: $model.popup) { PopupView(page: $0) }
             Color.clear
                 .sheet(item: $model.shareItem) { ShareSheet(items: [$0.url]) }
+            Color.clear
+                .sheet(item: $model.webSheet) { WebSheetView(link: $0) }
         }
     }
 }
@@ -41,6 +43,9 @@ struct MainTabView: View {
             GamesView()
                 .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
                 .tag(AppTab.games)
+            LeaderboardView()
+                .tabItem { Label("Leaderboard", systemImage: "trophy.fill") }
+                .tag(AppTab.leaderboard)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(AppTab.settings)

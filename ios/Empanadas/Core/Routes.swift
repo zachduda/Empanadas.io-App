@@ -57,29 +57,32 @@ enum Game: String, CaseIterable, Identifiable {
 }
 
 /// Site pages the app shows natively instead of following the link in place.
-/// This is what replaces the site's own navigation: a tap on the dashboard's
-/// "Settings" button opens the Settings tab, a tap on a game card opens the
-/// player.
+/// This is what replaces the site's own navigation: a tap on a link to the
+/// dashboard or the leaderboard opens that tab, one on the account page opens
+/// Settings, one on a game opens the player.
 enum NativeRoute: Equatable {
     case home
+    case leaderboard
     case settings
     case game(Game)
 
     static func of(_ url: URL) -> NativeRoute? {
         if let game = Game.of(url) { return .game(game) }
         if SiteURLs.isPath(url, in: SiteURLs.dashboardPaths) { return .home }
+        if SiteURLs.isPath(url, in: SiteURLs.leaderboardPaths) { return .leaderboard }
         if SiteURLs.isPath(url, in: SiteURLs.accountPaths) { return .settings }
         return nil
     }
 
-    /// empanadas-io://home, empanadas-io://settings and
-    /// empanadas-io://play/<game>. Any other link is passed to the site, as
-    /// the desktop app does.
+    /// empanadas-io://home, empanadas-io://leaderboard,
+    /// empanadas-io://settings and empanadas-io://play/<game>. Anything else
+    /// is ignored.
     static func of(deepLink url: URL) -> NativeRoute? {
         guard url.scheme?.lowercased() == AppConfig.urlScheme else { return nil }
         let path = url.path(percentEncoded: false).split(separator: "/").map(String.init)
         switch url.host(percentEncoded: false)?.lowercased() {
         case "home"? where path.isEmpty: return .home
+        case "leaderboard"? where path.isEmpty: return .leaderboard
         case "settings"? where path.isEmpty: return .settings
         case "play"? where path.count == 1: return Game(rawValue: path[0]).map { .game($0) }
         default: return nil
