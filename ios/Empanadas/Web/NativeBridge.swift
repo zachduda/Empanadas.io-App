@@ -51,6 +51,13 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             app.closeGame()
             return (true, nil)
 
+        case "ownCloseButton":
+            // Spin's own close button (data-app-close): the player leaves
+            // its native one off.
+            guard case .game? = page.ownRoute else { return (false, nil) }
+            page.ownsCloseButton()
+            return (true, nil)
+
         case "share":
             // Only the site's own pages: this is not a way to put arbitrary
             // links in front of the player with the app's name on them.

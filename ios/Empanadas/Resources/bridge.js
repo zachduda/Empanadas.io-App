@@ -126,10 +126,25 @@
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', watchColor);
-  } else {
+  // A game that draws its own close button for the app marks it
+  // data-app-close (Spin's, in spin.html). The game player then leaves its
+  // native one off: laid over the page, it sat on Spin's rank card, store
+  // and settings. Pages without one keep the native button.
+  function reportCloseButton() {
+    if (document.querySelector('[data-app-close]')) {
+      call('ownCloseButton').catch(function () { /* the native button stays */ });
+    }
+  }
+
+  function ready() {
     watchColor();
+    reportCloseButton();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ready);
+  } else {
+    ready();
   }
 
   var app = {
