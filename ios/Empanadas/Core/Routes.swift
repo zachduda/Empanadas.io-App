@@ -38,7 +38,8 @@ enum Game: String, CaseIterable, Identifiable {
     /// Flappy and Tower draw their own close button in the top bar. The
     /// player hides its native one for them, and their button closes the
     /// player instead of loading the homepage (WebPage's game exit rule).
-    /// Spin has none, so it keeps the native one.
+    /// Spin draws one only in the app and says so through the bridge
+    /// (WebPage.drawsOwnCloseButton), so the player knows it from the page.
     var hasOwnCloseButton: Bool {
         switch self {
         case .spin: false

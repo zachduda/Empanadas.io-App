@@ -204,7 +204,10 @@ final class DashboardTests: XCTestCase {
         XCTAssertNil(SiteURLs.resolve(""))
         XCTAssertNil(SiteURLs.resolve(nil))
         XCTAssertEqual(SiteURLs.playerProfile(id: "AB-12").absoluteString, "https://empanadas.io/v2/profile/ab-12")
-        XCTAssertEqual(SiteURLs.findFriends.absoluteString, "https://empanadas.io/v2/profile?search=1")
+        XCTAssertEqual(SiteURLs.findFriends().absoluteString, "https://empanadas.io/v2/profile?search=1")
+        XCTAssertEqual(SiteURLs.findFriends(id: "").absoluteString, "https://empanadas.io/v2/profile?search=1")
+        XCTAssertEqual(SiteURLs.findFriends(id: "AB-12").absoluteString, "https://empanadas.io/v2/profile/ab-12?search=1",
+                       "straight to the profile: the site's redirect from /v2/profile dropped ?search=1")
         XCTAssertEqual(SiteURLs.iosDashboard.path(), "/v2/ios/dashboard.php", "under /v2/, where the session cookie goes")
         XCTAssertEqual(SiteURLs.iosLeaderboard.path(), "/v2/ios/leaderboard.php")
     }

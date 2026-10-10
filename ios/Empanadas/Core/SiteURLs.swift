@@ -81,12 +81,16 @@ enum SiteURLs {
         page("/v2/profile/" + id.lowercased())
     }
 
-    /// The profile page with its player search open.
-    static let findFriends: URL = {
-        var components = URLComponents(url: SiteURLs.profile, resolvingAgainstBaseURL: false)!
+    /// The profile page with its player search open. Straight to the
+    /// player's own profile when their id is known: the site's /v2/profile
+    /// redirect to it dropped ?search=1, so Find Friends opened a plain
+    /// profile, the same as My Profile.
+    static func findFriends(id: String? = nil) -> URL {
+        let base = id.flatMap { $0.isEmpty ? nil : playerProfile(id: $0) } ?? profile
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "search", value: "1")]
         return components.url!
-    }()
+    }
 
     /// A picture path as the site gives it ("/Content/Images/..."), made
     /// absolute. Only https: never a plain-http or file URL.

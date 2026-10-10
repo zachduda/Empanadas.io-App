@@ -37,6 +37,14 @@ final class WebPage: NSObject, Identifiable {
     @ObservationIgnored private var lastRequestedURL: URL?
 
     private(set) var title = ""
+    /// Where the page is now, pushState included.
+    private(set) var url: URL?
+    /// The page it first arrived at, after any redirects.
+    @ObservationIgnored private var firstURL: URL?
+    /// The page drew its own way out of the game player (an element marked
+    /// data-app-close, reported by Resources/bridge.js), so the player
+    /// leaves its native close button off.
+    private(set) var drawsOwnCloseButton = false
     private(set) var isLoading = false
     private(set) var canGoBack = false
     private(set) var hasLoaded = false
@@ -111,6 +119,9 @@ final class WebPage: NSObject, Identifiable {
             webView.observe(\.title) { [weak self] webView, _ in
                 MainActor.assumeIsolated { self?.title = webView.title ?? "" }
             },
+            webView.observe(\.url) { [weak self] webView, _ in
+                MainActor.assumeIsolated { self?.url = webView.url }
+            },
             webView.observe(\.isLoading) { [weak self] webView, _ in
                 MainActor.assumeIsolated { self?.isLoading = webView.isLoading }
             },
@@ -184,6 +195,18 @@ final class WebPage: NSObject, Identifiable {
         ].contains(error.code)
     }
 
+    /// Still on the page it was opened with. A title the screen gave it only
+    /// fits that page: a profile opened as "pal" is someone else's profile
+    /// once a link on it is followed.
+    var isOnFirstPage: Bool {
+        guard let firstURL, let url else { return true }
+        return url.host() == firstURL.host() && SiteURLs.normalizedPath(url) == SiteURLs.normalizedPath(firstURL)
+    }
+
+    func ownsCloseButton() {
+        drawsOwnCloseButton = true
+    }
+
     func goBack() {
         if webView.canGoBack { webView.goBack() }
     }
@@ -249,6 +272,12 @@ final class WebPage: NSObject, Identifiable {
             }
             if SiteURLs.isPath(url, in: SiteURLs.logoutPaths) {
                 app.observe(.signedOut)
+                return .allow
+            }
+            // A link from a game to another page of the site: over the game.
+            if opensOverGame(url, options), action.navigationType == .linkActivated {
+                app.openOverGame(url)
+                return .cancel
             }
             return .allow
         }
@@ -266,6 +295,14 @@ final class WebPage: NSObject, Identifiable {
             app.openExternally(url)
         }
         return .cancel
+    }
+
+    /// A page of the site a game links to that is not a game (Spin's account
+    /// button and Report a Problem). Shown over the game rather than in its
+    /// place, where the player has no way back to it.
+    private func opensOverGame(_ url: URL, _ options: Options) -> Bool {
+        guard case .game? = options.ownRoute else { return false }
+        return Game.of(url) == nil && !SiteURLs.isGameExitURL(url) && !SiteURLs.isPath(url, in: SiteURLs.logoutPaths)
     }
 
     private func popupPolicy(_ url: URL) -> WKNavigationActionPolicy {
@@ -324,6 +361,12 @@ extension WebPage: WKNavigationDelegate {
         loadError = nil
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if firstURL == nil { firstURL = webView.url }
+        // A new document: it says again whether it has a close button.
+        drawsOwnCloseButton = false
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         hasLoaded = true
         loadError = nil
@@ -375,10 +418,13 @@ extension WebPage: WKUIDelegate {
             return page.webView
         }
 
-        // A target="_blank" link to the site: follow it here, or natively.
+        // A target="_blank" link to the site: follow it here, natively, or
+        // over the game.
         if fromSite && SiteURLs.isAppURL(url) {
             if let options, options.interceptsRoutes, let route = NativeRoute.of(url), route != options.ownRoute {
                 app.navigate(to: route)
+            } else if let options, opensOverGame(url, options) {
+                app.openOverGame(url)
             } else {
                 load(url)
             }

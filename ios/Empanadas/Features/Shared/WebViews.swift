@@ -40,7 +40,10 @@ struct WebScreen: View {
                     .controlSize(.large)
             }
         }
-        .navigationTitle(title ?? Self.displayTitle(page.title))
+        // The given title only while the page is the one it names; after
+        // that, the page's own. A popup is "Sign In" whichever provider page
+        // it is on.
+        .navigationTitle((page.isPopup || page.isOnFirstPage ? title : nil) ?? Self.displayTitle(page.title))
         .navigationBarTitleDisplayMode(.inline)
         .glassNavigationBar()
     }
@@ -55,12 +58,15 @@ struct WebScreen: View {
 /// A site page a native screen opens on top of itself.
 struct WebLink: Identifiable, Hashable {
     let url: URL
-    let title: String
+    /// Nil: the page's own title.
+    var title: String?
 
     var id: URL { url }
 
     static let profile = WebLink(url: SiteURLs.profile, title: "Profile")
-    static let findFriends = WebLink(url: SiteURLs.findFriends, title: "Find Friends")
+    static func findFriends(_ id: String?) -> WebLink {
+        WebLink(url: SiteURLs.findFriends(id: id), title: "Find Friends")
+    }
     static let profilePicture = WebLink(url: SiteURLs.profilePicture, title: "Profile Picture")
     static let verifyEmail = WebLink(url: SiteURLs.verifyEmail, title: "Verify Email")
 
@@ -126,9 +132,10 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 /// A site page the app opens on its own, outside any tab: what a sign-in
-/// popup hands back while signed in, when it is not a screen the app draws.
+/// popup hands back while signed in, when it is not a screen the app draws,
+/// and a page a game links to, over the game.
 struct WebSheetView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
     let link: WebLink
 
     var body: some View {
@@ -136,7 +143,7 @@ struct WebSheetView: View {
             WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { model.webSheet = nil }
+                        Button("Done") { dismiss() }
                     }
                 }
         }

@@ -28,6 +28,7 @@ final class AppModel {
     var selectedTab: AppTab = .home
     var activeGame: Game? {
         didSet {
+            if activeGame != oldValue { gameSheet = nil }
             if oldValue != nil && activeGame == nil { gameClosed() }
         }
     }
@@ -35,6 +36,9 @@ final class AppModel {
     var shareItem: ShareItem?
     /// A site page opened outside the tabs (see handOff).
     var webSheet: WebLink?
+    /// A site page a game linked to, in a sheet over the game player (which
+    /// is presented over everything else, so it needs a sheet of its own).
+    var gameSheet: WebLink?
     private(set) var isOnline = true
 
     /// The native Home and Leaderboard tabs' data. Here rather than in the
@@ -182,6 +186,13 @@ final class AppModel {
             guard session == .signedIn, isOnline else { return }
             await dashboard.load(app: self)
         }
+    }
+
+    /// Opens a site page a game linked to (Spin's account button, Report a
+    /// Problem) over the game, so closing it goes back to the game. Loaded in
+    /// the player, it replaced the game, with no way back but closing it.
+    func openOverGame(_ url: URL) {
+        gameSheet = WebLink(url: url)
     }
 
     /// Opens a site page over the tabs, in a sheet of its own.

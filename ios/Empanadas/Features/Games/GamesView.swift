@@ -90,6 +90,8 @@ struct GamePlayerView: View {
     @State private var page: WebPage?
 
     var body: some View {
+        @Bindable var model = model
+
         ZStack(alignment: .topLeading) {
             // The game's own background, out to the screen's edges: around the
             // camera housing and the home indicator too, never a band of blue.
@@ -113,14 +115,17 @@ struct GamePlayerView: View {
 
             // Flappy and Tower have their own close button, which closes the
             // player (see Game.hasOwnCloseButton); a second one here would sit
-            // across the screen from it. It still shows until the game is up,
-            // and whenever it failed to load, so there is always a way out.
+            // across the screen from it. Spin draws one only in the app, and
+            // says so (WebPage.drawsOwnCloseButton); a copy of Spin from
+            // before that keeps this one. It still shows until the game is
+            // up, and whenever it failed to load, so there is always a way out.
             if showsNativeClose {
                 closeButton
             }
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        .sheet(item: $model.gameSheet) { WebSheetView(link: $0) }
         .onAppear {
             if page == nil {
                 page = model.makePage(game.url, interceptsRoutes: true, ownRoute: .game(game), pullToRefresh: false,
@@ -135,8 +140,9 @@ struct GamePlayerView: View {
     }
 
     private var showsNativeClose: Bool {
-        guard game.hasOwnCloseButton, let page else { return true }
-        return !page.hasLoaded || page.loadError != nil
+        guard let page, page.loadError == nil else { return true }
+        if page.drawsOwnCloseButton { return false }
+        return !(game.hasOwnCloseButton && page.hasLoaded)
     }
 
     private var closeButton: some View {

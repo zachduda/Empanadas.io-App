@@ -4,7 +4,8 @@
 // app's web views. It needs nothing from iOS beyond a message handler, so it
 // runs here in a VM with a stand-in for WebKit: what it sends the app is what
 // these checks look at. Covers navigator.vibrate() (native haptics for the
-// games' existing vibration calls) and the page colour it reports.
+// games' existing vibration calls), the page colour it reports and whether
+// the page draws its own close button.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -50,6 +51,7 @@ function page(options) {
 			documentElement: element('rgba(0, 0, 0, 0)'),
 			body: element(opts.background),
 			createElement: () => ({ setAttribute() {} }),
+			querySelector: (selector) => (selector === '[data-app-close]' && opts.closeButton ? {} : null),
 			addEventListener() {}
 		},
 		getComputedStyle: (el) => ({ backgroundColor: el.background }),
@@ -156,6 +158,12 @@ check("reports the page's background, and nothing see-through", () => {
 		['rgb(47, 49, 63)']);
 	assert.deepStrictEqual(page({ background: 'rgba(0, 0, 0, 0)' }).sent.filter((m) => m.cmd === 'pageColor'), [],
 		'a transparent body and html say nothing');
+});
+
+check('says when the page draws its own close button, and only then', () => {
+	assert.deepStrictEqual(page({ closeButton: true }).sent.filter((m) => m.cmd === 'ownCloseButton').length, 1);
+	assert.deepStrictEqual(page().sent.filter((m) => m.cmd === 'ownCloseButton'), [],
+		'without one the native button stays');
 });
 
 check('window.empanadasApp is there, frozen, without the old deep link hook', () => {

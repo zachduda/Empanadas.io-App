@@ -71,7 +71,7 @@ struct HomeView: View {
     private func accountMenu(_ data: Dashboard?) -> some View {
         Menu {
             Button { destination = .profile } label: { Label("My Profile", systemImage: "person.crop.circle") }
-            Button { destination = .findFriends } label: { Label("Find Friends", systemImage: "magnifyingglass") }
+            Button { destination = .findFriends(data?.account.uuid) } label: { Label("Find Friends", systemImage: "magnifyingglass") }
             Button { model.navigate(to: .leaderboard) } label: { Label("Leaderboards", systemImage: "trophy") }
             Button { model.navigate(to: .settings) } label: { Label("Settings", systemImage: "gearshape") }
         } label: {
@@ -147,7 +147,7 @@ private struct DashboardContent: View {
 
             LazyVGrid(columns: cardColumns, spacing: 16) {
                 SpinChartCard(history: data.spinHistory)
-                FriendsCard(friends: data.friends, open: open)
+                FriendsCard(friends: data.friends, me: data.account.uuid, open: open)
                 ExperienceCard(xp: data.xp, open: open)
                 if data.pumpkinSeason {
                     PumpkinCard(pumpkins: data.pumpkins)
@@ -211,7 +211,7 @@ private struct HeroCard: View {
 
             HStack(spacing: 10) {
                 heroButton("My Profile", systemImage: "person.crop.circle") { open(.profile) }
-                heroButton("Find Friends", systemImage: "magnifyingglass") { open(.findFriends) }
+                heroButton("Find Friends", systemImage: "magnifyingglass") { open(.findFriends(account.uuid)) }
             }
         }
         .foregroundStyle(.white)
@@ -358,6 +358,8 @@ private struct GameStatsCard: View {
 
 private struct FriendsCard: View {
     let friends: Dashboard.Friends
+    /// The player's own profile id, for Find People.
+    let me: String
     let open: (WebLink) -> Void
 
     private var requestsWaiting: String {
@@ -387,7 +389,7 @@ private struct FriendsCard: View {
                 VStack(spacing: 10) {
                     Text("No friends here yet! 😭")
                         .foregroundStyle(.secondary)
-                    Button { open(.findFriends) } label: {
+                    Button { open(.findFriends(me)) } label: {
                         Label("Find People", systemImage: "magnifyingglass")
                     }
                     .buttonStyle(.borderedProminent)
