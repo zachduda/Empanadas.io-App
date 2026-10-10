@@ -243,7 +243,7 @@ struct SettingsView: View {
     }
 
     private var appSection: some View {
-        Section("App") {
+        Section {
             Toggle("Haptics", isOn: $haptics)
             Button {
                 Task {
@@ -257,6 +257,10 @@ struct SettingsView: View {
             }
             .foregroundStyle(.primary)
             LabeledContent("Version", value: "\(AppConfig.version) (\(AppConfig.build))")
+        } header: {
+            Text("App")
+        } footer: {
+            Text("Haptics include the games' vibration: a tap when you spin, and a buzz when you crash or your tower falls.")
         }
     }
 

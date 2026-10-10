@@ -18,6 +18,7 @@ App Review expects.
 | **Sign-in** | The login page (web). Google/GitHub/Discord go through the system browser (`ASWebAuthenticationSession`) using the site's existing browser sign-in flow. |
 | **Popups** | 2FA, captcha and other script-opened windows open in a sheet, limited to the site, the providers and the SSO hosts. |
 | **Quick actions** | Play Flappy / Spin / Tower from the Home Screen icon. |
+| **Haptics** | The games' own `navigator.vibrate()` calls (a manual spin, a Flappy crash, a Tower slip or topple) play native haptics: WebKit on iOS has no Vibration API, so `Resources/bridge.js` fills it in, and the Haptics switch in Settings turns it off. Pages can also call `window.empanadasApp.haptic(style)` directly. Tested by `test/iosbridge.test.js` (`npm test`). |
 | **Offline** | Home, Leaderboard and Settings keep their last good answer on the device (`Core/OfflineStore.swift`) and open with it at launch and without a connection, saying when it was saved. Settings can't be changed offline. Profile pictures are cached on disk. A game opened offline starts from the copy in WebKit's cache, so any game played online before works offline; the games keep their saves on the device and sync them when back online. Everything refreshes when the connection returns. |
 | **Deep links** | `empanadas-io://home`, `://leaderboard`, `://settings` and `://play/<game>` open native screens. `://auth?...` finishes a sign-in. Anything else is ignored. |
 

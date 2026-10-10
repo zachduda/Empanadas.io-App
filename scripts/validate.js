@@ -378,6 +378,17 @@ try {
 	failures.push('lib/offline.js test suite failed');
 }
 
+// --- iOS bridge -------------------------------------------------------
+// ios/Empanadas/Resources/bridge.js runs in every page of the iOS app;
+// navigator.vibrate() and the page colour it reports are tested in a VM.
+console.log('ios bridge');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'iosbridge.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('ios bridge.js test suite failed');
+}
+
 // --- updater logic ----------------------------------------------------
 console.log('updater logic');
 

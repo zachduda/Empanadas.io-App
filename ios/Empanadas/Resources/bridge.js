@@ -43,6 +43,55 @@
     }).observe(document, { childList: true });
   }
 
+  // navigator.vibrate(), which WebKit on iOS does not have. The games already
+  // call it (a manual spin in Spin, a crash in Flappy, a slip or topple in
+  // Tower), so it is filled in here with the phone's haptics rather than
+  // changed in each game. Same contract as the Vibration API: a number or a
+  // pattern of on/off milliseconds, a new call cancels the pattern before
+  // it, and 0 or [] just cancels. Each "on" plays one tap, firmer the longer
+  // it asks for. The app's Haptics setting turns these off too.
+  var buzzTimers = [];
+  var MAX_PATTERN = 20;
+
+  function strength(ms) {
+    if (ms <= 10) return 'light';
+    if (ms <= 40) return 'medium';
+    return 'heavy';
+  }
+
+  function buzz(style) {
+    call('haptic', { style: style }).catch(function () { /* the buzz is optional */ });
+  }
+
+  function vibrate(pattern) {
+    buzzTimers.forEach(clearTimeout);
+    buzzTimers = [];
+    var steps = Array.isArray(pattern) ? pattern : [pattern];
+    var at = 0;
+    for (var i = 0; i < steps.length && i < MAX_PATTERN; i++) {
+      var ms = Math.min(Math.max(Number(steps[i]) || 0, 0), 10000);
+      if (i % 2 === 0 && ms > 0) {
+        if (at === 0) {
+          buzz(strength(ms));
+        } else {
+          buzzTimers.push(setTimeout(buzz, at, strength(ms)));
+        }
+      }
+      at += ms;
+    }
+    return true;
+  }
+
+  if (typeof navigator.vibrate !== 'function') {
+    try {
+      Object.defineProperty(Navigator.prototype, 'vibrate', {
+        value: vibrate, writable: true, configurable: true
+      });
+    } catch (err) {
+      navigator.vibrate = vibrate;
+    }
+  }
+
   // The page's background colour, for the app to paint around the page (the
   // safe areas, the overscroll) instead of a fixed colour. Sent whenever it
   // changes: the stylesheets load without blocking, and core.js switches the
