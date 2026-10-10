@@ -4,8 +4,8 @@
 // app's web views. It needs nothing from iOS beyond a message handler, so it
 // runs here in a VM with a stand-in for WebKit: what it sends the app is what
 // these checks look at. Covers navigator.vibrate() (native haptics for the
-// games' existing vibration calls), the page colour it reports and whether
-// the page draws its own close button.
+// games' existing vibration calls), the page colour it reports (a gradient's
+// too) and whether the page draws its own close button.
 
 const assert = require('assert');
 const fs = require('fs');
@@ -29,15 +29,16 @@ function check(what, fn) {
 // A page with the bridge loaded. Timers do not run by themselves: `advance`
 // moves the clock and fires what is due, so patterns are checked exactly.
 function page(options) {
-	const opts = Object.assign({ host: 'empanadas.io', background: 'rgb(47, 49, 63)' }, options);
+	const opts = Object.assign({ host: 'empanadas.io', background: 'rgb(47, 49, 63)', image: 'none' }, options);
 	const sent = [];
 	let now = 0;
 	let nextId = 1;
 	const timers = new Map();
 
 	class Navigator {}
-	const element = (background) => ({
+	const element = (background, image) => ({
 		background,
+		image,
 		setAttribute() {},
 		appendChild() {},
 		addEventListener() {}
@@ -49,12 +50,12 @@ function page(options) {
 		document: {
 			readyState: 'complete',
 			documentElement: element('rgba(0, 0, 0, 0)'),
-			body: element(opts.background),
+			body: element(opts.background, opts.image),
 			createElement: () => ({ setAttribute() {} }),
 			querySelector: (selector) => (selector === '[data-app-close]' && opts.closeButton ? {} : null),
 			addEventListener() {}
 		},
-		getComputedStyle: (el) => ({ backgroundColor: el.background }),
+		getComputedStyle: (el) => ({ backgroundColor: el.background, backgroundImage: el.image || 'none' }),
 		MutationObserver: class { observe() {} disconnect() {} },
 		addEventListener() {},
 		setTimeout(fn, ms, ...args) {
@@ -158,6 +159,23 @@ check("reports the page's background, and nothing see-through", () => {
 		['rgb(47, 49, 63)']);
 	assert.deepStrictEqual(page({ background: 'rgba(0, 0, 0, 0)' }).sent.filter((m) => m.cmd === 'pageColor'), [],
 		'a transparent body and html say nothing');
+});
+
+check('a gradient with nothing under it reports the average of its stops', () => {
+	const colors = (options) => page(options).sent.filter((m) => m.cmd === 'pageColor').map((m) => m.args.color);
+	// login_v2.css, as getComputedStyle() writes it.
+	assert.deepStrictEqual(colors({
+		background: 'rgba(0, 0, 0, 0)',
+		image: 'linear-gradient(90deg, rgb(45, 40, 135) 0%, rgb(9, 9, 121) 35%, rgb(0, 62, 145) 100%)'
+	}), ['rgb(18, 37, 134)']);
+	assert.deepStrictEqual(colors({
+		background: 'rgba(0, 0, 0, 0)',
+		image: 'linear-gradient(rgba(255, 255, 255, 0), rgb(0, 0, 0))'
+	}), ['rgb(0, 0, 0)'], 'see-through stops say nothing');
+	assert.deepStrictEqual(colors({ image: 'linear-gradient(rgb(255, 255, 255), rgb(255, 255, 255))' }),
+		['rgb(47, 49, 63)'], 'a background colour comes first');
+	assert.deepStrictEqual(colors({ background: 'rgba(0, 0, 0, 0)', image: 'url("x.png")' }), [],
+		'a picture says nothing');
 });
 
 check('says when the page draws its own close button, and only then', () => {

@@ -223,6 +223,17 @@ final class DashboardTests: XCTestCase {
         XCTAssertNil(OfflineStore.load(.leaderboard))
     }
 
+    func testAnAnswerAskedForBeforeSignOutIsNotSaved() {
+        let before = OfflineStore.generation
+        OfflineStore.clear()
+        OfflineStore.save(Data(boardJSON.utf8), as: .leaderboard, generation: before)
+        XCTAssertNil(OfflineStore.load(.leaderboard), "the last account's, landing after the sign-out")
+
+        OfflineStore.save(Data(boardJSON.utf8), as: .leaderboard, generation: OfflineStore.generation)
+        XCTAssertNotNil(OfflineStore.load(.leaderboard))
+        OfflineStore.clear()
+    }
+
     func testWhichFailuresMeanNoConnection() {
         XCTAssertTrue(WebPage.isConnectionError(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)))
         XCTAssertTrue(WebPage.isConnectionError(NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)))
@@ -244,6 +255,18 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(CSSColor("#2F313F"), CSSColor(red: 47 / 255, green: 49 / 255, blue: 63 / 255))
         XCTAssertEqual(CSSColor("#fff"), CSSColor(red: 1, green: 1, blue: 1))
         XCTAssertEqual(try XCTUnwrap(CSSColor("rgb(300, -4, 12)")).red, 1, "clamped")
+    }
+
+    /// What the bars over a page are drawn as (pageBars): black text was
+    /// unreadable on the first three in light mode.
+    func testDarkPagesAndLightOnes() throws {
+        XCTAssertTrue(try XCTUnwrap(CSSColor("rgb(41, 41, 42)")).isDark, "the site's dark theme")
+        XCTAssertTrue(try XCTUnwrap(CSSColor("rgb(47, 49, 63)")).isDark, "Spin's dark theme")
+        XCTAssertTrue(try XCTUnwrap(CSSColor("rgb(18, 37, 134)")).isDark, "the sign-in pages' navy, as bridge.js averages it")
+        XCTAssertFalse(try XCTUnwrap(CSSColor("rgb(255, 255, 255)")).isDark, "the site's light theme")
+        XCTAssertFalse(try XCTUnwrap(CSSColor("#f2f2f7")).isDark)
+        XCTAssertEqual(CSSColor(red: 0, green: 0, blue: 0).luminance, 0, accuracy: 0.0001)
+        XCTAssertEqual(CSSColor(red: 1, green: 1, blue: 1).luminance, 1, accuracy: 0.0001)
     }
 
     func testAnythingElseIsNotAColour() {

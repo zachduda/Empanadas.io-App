@@ -81,7 +81,7 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             guard let text = args["color"] as? String, let color = CSSColor(text), !color.isTransparent else {
                 return (false, nil)
             }
-            page.setPageColor(UIColor(red: color.red, green: color.green, blue: color.blue, alpha: 1))
+            page.setPageColor(color)
             return (true, nil)
 
         default:

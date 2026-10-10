@@ -51,11 +51,18 @@ final class AppModel {
         didSet { UserDefaults.standard.set(theme, forKey: Preferences.themeKey) }
     }
 
-    var colorScheme: ColorScheme? {
+    /// What the window is drawn in: the theme, except on the sign-in page,
+    /// which is the whole screen and has colours of its own (navy). The
+    /// status bar and the spinner over it go with the page there, or they
+    /// were black on navy in light mode.
+    var interfaceStyle: UIUserInterfaceStyle {
+        if session == .signedOut, let scheme = signInPage?.pageScheme {
+            return scheme == .dark ? .dark : .light
+        }
         switch theme {
-        case 1: .light
-        case 2: .dark
-        default: nil
+        case 1: return .light
+        case 2: return .dark
+        default: return .unspecified
         }
     }
 
@@ -127,6 +134,7 @@ final class AppModel {
             let finished = signInPage
             Task { @MainActor in
                 if self.signInPage === finished { self.signInPage = nil }
+                await self.refreshTheme()
             }
         case .signedOut:
             activeGame = nil
@@ -152,6 +160,16 @@ final class AppModel {
     /// The site deleted the account: its session is gone with it.
     func accountDeleted() {
         setSession(.signedOut)
+    }
+
+    /// The account's theme, from the site. Settings brings it in whenever it
+    /// loads, but that may be days away, and the theme can be changed on the
+    /// website too: until then the app was light while every site page in
+    /// it was dark, or the other way round.
+    func refreshTheme() async {
+        guard session == .signedIn, isOnline else { return }
+        guard let snapshot = try? await account.snapshot(), session == .signedIn else { return }
+        if theme != snapshot.settings.theme { theme = snapshot.settings.theme }
     }
 
     // MARK: - Navigation

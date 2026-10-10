@@ -32,10 +32,14 @@ final class SettingsModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            snapshot = try await app.account.snapshot()
+            let fresh = try await app.account.snapshot()
+            // Signed out meanwhile: this screen is on its way out, and the
+            // theme is not the next account's.
+            guard app.session == .signedIn else { return }
+            snapshot = fresh
             updatedAt = Date()
             loadError = nil
-            app.theme = snapshot?.settings.theme ?? app.theme
+            app.theme = fresh.settings.theme
         } catch let error as AccountError {
             if error == .signedOut { app.observe(.unsure) }
             loadError = error

@@ -12,6 +12,9 @@ final class DashboardModel {
     private(set) var isLoading = false
     /// Why the last refresh failed; nil once one succeeds.
     private(set) var error: AccountError?
+    /// Bumped by reset(): an answer asked for before then is the last
+    /// account's, and is dropped.
+    @ObservationIgnored private var generation = 0
 
     init() {
         restore()
@@ -31,20 +34,26 @@ final class DashboardModel {
         isLoading = true
         defer { isLoading = false }
 
+        let generation = self.generation
         do {
-            data = try await app.account.dashboard()
+            let fresh = try await app.account.dashboard()
+            guard generation == self.generation else { return }
+            data = fresh
             updatedAt = Date()
             error = nil
         } catch let failure as AccountError {
+            guard generation == self.generation else { return }
             if failure == .signedOut { app.observe(.unsure) }
             error = failure
         } catch {
+            guard generation == self.generation else { return }
             self.error = .network
         }
     }
 
     /// Signed out: nothing of the last account may show for the next.
     func reset() {
+        generation += 1
         data = nil
         updatedAt = nil
         error = nil

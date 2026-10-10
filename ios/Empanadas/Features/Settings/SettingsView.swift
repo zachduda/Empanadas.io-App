@@ -122,16 +122,9 @@ struct SettingsView: View {
     private var accountHeader: some View {
         Section {
             HStack(spacing: 14) {
-                AsyncImage(url: settings.snapshot?.pictureURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Image(systemName: "person.crop.circle.fill")
-                        .resizable()
-                        .foregroundStyle(.secondary)
-                }
-                .frame(width: 56, height: 56)
-                .clipShape(Circle())
-                .accessibilityHidden(true)
+                // Through ImageStore, as everywhere else, so it is there
+                // offline too.
+                Avatar(url: settings.snapshot?.pictureURL, size: 56)
 
                 VStack(alignment: .leading, spacing: 2) {
                     if let account = settings.snapshot?.account {

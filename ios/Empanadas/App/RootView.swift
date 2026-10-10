@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var model = model
@@ -12,7 +13,12 @@ struct RootView: View {
             case .signedOut: SignInView()
             }
         }
-        .preferredColorScheme(model.colorScheme)
+        .background { WindowStyle(style: model.interfaceStyle) }
+        // Each time the app comes to the front: the theme may have been
+        // changed on the website meanwhile.
+        .task(id: scenePhase) {
+            if scenePhase == .active { await model.refreshTheme() }
+        }
         .fullScreenCover(item: $model.activeGame) { game in
             GamePlayerView(game: game)
                 .id(game)
@@ -26,6 +32,41 @@ struct RootView: View {
                 .sheet(item: $model.shareItem) { ShareSheet(items: [$0.url]) }
             Color.clear
                 .sheet(item: $model.webSheet) { WebSheetView(link: $0) }
+        }
+    }
+}
+
+/// Puts the app's light or dark on the window itself, so everything in it
+/// follows: the status bar, the sheets, the game player, the alerts. Rather
+/// than preferredColorScheme, which has been known not to give the window
+/// back to the device's setting when it goes back to nil (Dark, then Match
+/// Device).
+private struct WindowStyle: UIViewRepresentable {
+    let style: UIUserInterfaceStyle
+
+    func makeUIView(context: Context) -> StyleView {
+        let view = StyleView()
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: StyleView, context: Context) {
+        view.style = style
+    }
+
+    final class StyleView: UIView {
+        var style: UIUserInterfaceStyle = .unspecified {
+            didSet { apply() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            apply()
+        }
+
+        private func apply() {
+            guard let window, window.overrideUserInterfaceStyle != style else { return }
+            window.overrideUserInterfaceStyle = style
         }
     }
 }

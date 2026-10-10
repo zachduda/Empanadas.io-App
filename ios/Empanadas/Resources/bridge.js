@@ -98,10 +98,31 @@
   // theme once the account arrives.
   var lastColor = null;
 
+  // A gradient in place of a colour: the sign-in pages (login_v2.css) and
+  // the games draw one, with nothing under it. The average of its stops is
+  // near enough to paint the edges with, and to tell a dark page from a
+  // light one.
+  function gradientColor(image) {
+    if (!image || image.indexOf('gradient(') === -1) return null;
+    var stops = image.match(/rgba?\([^)]*\)/g) || [];
+    var sum = [0, 0, 0];
+    var count = 0;
+    stops.forEach(function (stop) {
+      var parts = stop.match(/[\d.]+/g) || [];
+      if (parts.length < 3 || (parts.length > 3 && Number(parts[3]) < 0.05)) return;
+      for (var i = 0; i < 3; i++) sum[i] += Number(parts[i]);
+      count++;
+    });
+    if (!count) return null;
+    return 'rgb(' + sum.map(function (total) { return Math.round(total / count); }).join(', ') + ')';
+  }
+
   function backgroundOf(el) {
     if (!el) return null;
-    var color = getComputedStyle(el).backgroundColor;
-    return (!color || color === 'transparent' || /^rgba\(.*,\s*0\)$/.test(color)) ? null : color;
+    var style = getComputedStyle(el);
+    var color = style.backgroundColor;
+    if (color && color !== 'transparent' && !/^rgba\(.*,\s*0\)$/.test(color)) return color;
+    return gradientColor(style.backgroundImage);
   }
 
   function reportColor() {
