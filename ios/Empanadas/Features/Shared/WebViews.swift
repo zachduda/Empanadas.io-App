@@ -24,6 +24,35 @@ struct PageBackdrop: View {
     }
 }
 
+extension View {
+    /// The bars around a site page. The page keeps its own colours whatever
+    /// the app's theme (the sign-in and email pages are navy, and the site
+    /// goes by the account's theme, not the device's), and that colour is
+    /// what shows behind the bars (PageBackdrop). Where the page is dark and
+    /// the app light, or the other way round, the bars take the page's light
+    /// or dark, and the navigation bar its colour: drawn in the app's, the
+    /// title, the buttons and the status bar were black on a dark page in
+    /// light mode, and white on a white one in dark mode. Where the two
+    /// agree, these are the system's bars, as on the native screens.
+    func pageBars(_ page: WebPage) -> some View {
+        modifier(PageBars(page: page))
+    }
+}
+
+private struct PageBars: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let page: WebPage
+
+    func body(content: Content) -> some View {
+        // Nil while the page agrees with the app, or has not said yet.
+        let scheme = page.pageScheme == colorScheme ? nil : page.pageScheme
+        return content
+            .toolbarBackground(Color(uiColor: page.pageColor ?? .systemBackground), for: .navigationBar)
+            .toolbarBackground(scheme == nil ? Visibility.automatic : .visible, for: .navigationBar, .tabBar)
+            .toolbarColorScheme(scheme, for: .navigationBar, .tabBar)
+    }
+}
+
 /// A page inside a navigation stack, with the spinner and the offline screen.
 struct WebScreen: View {
     let page: WebPage
@@ -45,7 +74,7 @@ struct WebScreen: View {
         // it is on.
         .navigationTitle((page.isPopup || page.isOnFirstPage ? title : nil) ?? Self.displayTitle(page.title))
         .navigationBarTitleDisplayMode(.inline)
-        .glassNavigationBar()
+        .pageBars(page)
     }
 
     /// "Empanadas.io | Manage Account" -> "Manage Account".

@@ -52,6 +52,10 @@ final class WebPage: NSObject, Identifiable {
     /// The page's background colour, as it reported it. What the space around
     /// the page is painted, rather than a fixed colour.
     private(set) var pageColor: UIColor?
+    /// Whether that colour is light or dark. The site draws its pages in the
+    /// account's theme, and some always in navy, whatever the app's own light
+    /// or dark: the bars over the page go by this (pageBars).
+    private(set) var pageScheme: ColorScheme?
     /// Showing the copy from WebKit's cache because there was no connection.
     private(set) var isOfflineCopy = false
     /// The cached copy was tried too, and there was none.
@@ -163,9 +167,11 @@ final class WebPage: NSObject, Identifiable {
 
     /// The page's background, from the bridge. Painted behind and around the
     /// page: the safe areas, the overscroll, the gap before it draws.
-    func setPageColor(_ color: UIColor) {
+    func setPageColor(_ css: CSSColor) {
+        let color = UIColor(red: css.red, green: css.green, blue: css.blue, alpha: 1)
         guard color != pageColor else { return }
         pageColor = color
+        pageScheme = css.isDark ? .dark : .light
         webView.backgroundColor = color
         webView.scrollView.backgroundColor = color
         webView.underPageBackgroundColor = color

@@ -176,6 +176,7 @@ final class AccountAPI {
     /// The signed-in account, from /v2/ios/account.php. A good answer is also
     /// kept for offline use (OfflineStore), without its csrf token.
     func snapshot() async throws -> AccountSnapshot {
+        let generation = OfflineStore.generation
         let (data, response) = try await send(URLRequest(url: SiteURLs.iosAccount))
         let reply = Self.iosReply(data)
 
@@ -185,7 +186,7 @@ final class AccountAPI {
         }
         let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
         let snapshot = try Self.decode(AccountSnapshot.self, body)
-        OfflineStore.save(Self.withoutToken(body), as: .settings)
+        OfflineStore.save(Self.withoutToken(body), as: .settings, generation: generation)
         return snapshot
     }
 
@@ -201,10 +202,11 @@ final class AccountAPI {
 
     /// One /v2/ios/ endpoint, decoded, and kept in OfflineStore when good.
     private func iosGet<T: Decodable>(_ url: URL, as type: T.Type, keep key: OfflineStore.Key) async throws -> T {
+        let generation = OfflineStore.generation
         let (data, response) = try await send(URLRequest(url: url))
         let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
         let value = try Self.decode(T.self, body)
-        OfflineStore.save(body, as: key)
+        OfflineStore.save(body, as: key, generation: generation)
         return value
     }
 
@@ -248,6 +250,7 @@ final class AccountAPI {
 
     /// GET /v2/getdata.php?type=app_settings, which /v2/ios/account.php replaced.
     private func legacySnapshot() async throws -> AccountSnapshot {
+        let generation = OfflineStore.generation
         let (data, response) = try await send(URLRequest(url: getDataURL("app_settings")))
         let text = plainText(data)
         switch text {
@@ -257,7 +260,7 @@ final class AccountAPI {
         }
         do {
             let snapshot = try JSONDecoder().decode(AccountSnapshot.self, from: data)
-            OfflineStore.save(Self.withoutToken(data), as: .settings)
+            OfflineStore.save(Self.withoutToken(data), as: .settings, generation: generation)
             return snapshot
         } catch {
             throw AccountError.unavailable("HTTP \(response.statusCode)")

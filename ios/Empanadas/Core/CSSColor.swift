@@ -52,6 +52,18 @@ struct CSSColor: Equatable {
     /// Fully or nearly see-through: says nothing about what the page looks like.
     var isTransparent: Bool { alpha < 0.05 }
 
+    /// WCAG relative luminance: 0 for black, 1 for white.
+    var luminance: Double {
+        func linear(_ channel: Double) -> Double {
+            channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    /// White text reads better on it than black: anything drawn over it
+    /// (a bar's title, the status bar) should be drawn as on a dark page.
+    var isDark: Bool { luminance < 0.179 }
+
     /// "50%" or a plain number out of `scale`, clamped to 0...1.
     private static func number(_ text: String, scale: Double) -> Double? {
         if text.hasSuffix("%") {

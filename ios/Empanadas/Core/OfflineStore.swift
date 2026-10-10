@@ -43,7 +43,13 @@ enum OfflineStore {
         "offline.savedAt." + key.rawValue
     }
 
-    static func save(_ data: Data, as key: Key) {
+    /// Bumped by clear(), at sign-out. A reply asked for before then is the
+    /// last account's, and is not saved for the next one.
+    private(set) static var generation = 0
+
+    /// `generation`: OfflineStore.generation when the reply was asked for.
+    static func save(_ data: Data, as key: Key, generation: Int? = nil) {
+        if let generation, generation != self.generation { return }
         do {
             try data.write(to: file(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             UserDefaults.standard.set(Date(), forKey: savedAtKey(key))
@@ -68,6 +74,7 @@ enum OfflineStore {
     }
 
     static func clear() {
+        generation += 1
         for key in Key.allCases {
             try? FileManager.default.removeItem(at: file(key))
             UserDefaults.standard.removeObject(forKey: savedAtKey(key))
