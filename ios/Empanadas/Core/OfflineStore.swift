@@ -49,21 +49,31 @@ enum OfflineStore {
     /// last account's, and is not saved for the next one.
     private(set) static var generation = 0
 
+    /// What is on disk, once read or written: SwiftUI makes a screen's @State
+    /// model (ProfileModel) again every time it rebuilds the screen, and each
+    /// one opens with the saved copy.
+    private static var memory: [Key: Entry] = [:]
+
     /// `generation`: OfflineStore.generation when the reply was asked for.
     static func save(_ data: Data, as key: Key, generation: Int? = nil) {
         if let generation, generation != self.generation { return }
+        let now = Date()
         do {
             try data.write(to: file(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-            UserDefaults.standard.set(Date(), forKey: savedAtKey(key))
+            UserDefaults.standard.set(now, forKey: savedAtKey(key))
+            memory[key] = Entry(data: data, savedAt: now)
         } catch {
             // Only a copy: the screen still has the live answer.
         }
     }
 
     static func load(_ key: Key) -> Entry? {
+        if let entry = memory[key] { return entry }
         guard let data = try? Data(contentsOf: file(key)) else { return nil }
         let savedAt = UserDefaults.standard.object(forKey: savedAtKey(key)) as? Date
-        return Entry(data: data, savedAt: savedAt)
+        let entry = Entry(data: data, savedAt: savedAt)
+        memory[key] = entry
+        return entry
     }
 
     /// Decodes a saved reply, or nil if there is none or it no longer decodes
@@ -77,6 +87,7 @@ enum OfflineStore {
 
     static func clear() {
         generation += 1
+        memory = [:]
         for key in Key.allCases {
             try? FileManager.default.removeItem(at: file(key))
             UserDefaults.standard.removeObject(forKey: savedAtKey(key))

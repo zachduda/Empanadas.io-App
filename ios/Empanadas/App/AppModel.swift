@@ -45,10 +45,13 @@ final class AppModel {
     var gameSheet: WebLink?
     private(set) var isOnline = true
 
-    /// The native Home and Leaderboard tabs' data. Here rather than in the
-    /// views, so it outlives a tab switch and goes with the session.
+    /// The native Home, Leaderboard and Settings tabs' data. Here rather than
+    /// in the views, so it outlives a tab switch and goes with the session,
+    /// and is made once: a model made as a view's @State is made again (and
+    /// reads its saved copy again) every time the view is rebuilt.
     let dashboard: DashboardModel
     let leaderboard: LeaderboardModel
+    let settings: SettingsModel
 
     /// The account's theme setting: 0 follows the device, 1 light, 2 dark.
     var theme: Int {
@@ -85,6 +88,7 @@ final class AppModel {
         theme = defaults.integer(forKey: Preferences.themeKey)
         dashboard = DashboardModel()
         leaderboard = LeaderboardModel()
+        settings = SettingsModel()
 
         if session == .signedOut {
             signInPage = makeSignInPage()
@@ -92,8 +96,8 @@ final class AppModel {
         monitorConnection()
     }
 
-    private func makeSignInPage() -> WebPage {
-        WebPage(url: SiteURLs.login, options: .init(interceptsRoutes: false), app: self)
+    private func makeSignInPage(_ url: URL = SiteURLs.login) -> WebPage {
+        WebPage(url: url, options: .init(interceptsRoutes: false), app: self)
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
@@ -111,7 +115,10 @@ final class AppModel {
         case .signedIn:
             setSession(.signedIn)
         case .signedOut:
-            setSession(.signedOut)
+            // A page is on its way to /v2/auth/logout.php. It may be torn
+            // down with the tabs before it gets there, so the sign-in page
+            // signs out too (twice is harmless).
+            setSession(.signedOut, signingOut: true)
         case .unsure:
             // The login page came up while signed in: ask the site rather
             // than throwing the player out on a guess.
@@ -125,7 +132,14 @@ final class AppModel {
         }
     }
 
-    private func setSession(_ new: SessionState) {
+    /// `signingOut`: the session may still be live on the site. The sign-in
+    /// page then starts at /v2/auth/logout.php, which goes on to the login
+    /// page once the site has signed the session out. Loaded at the same time
+    /// as the logout, the login page could get there first, find the session
+    /// still good and send the player on to the dashboard, which signed the
+    /// app straight back in. It also means a sign-out made offline happens
+    /// when the connection comes back, rather than not at all.
+    private func setSession(_ new: SessionState, signingOut: Bool = false) {
         guard new != session else { return }
         session = new
         UserDefaults.standard.set(new == .signedIn, forKey: Preferences.signedInKey)
@@ -151,16 +165,17 @@ final class AppModel {
             // open on it.
             dashboard.reset()
             leaderboard.reset()
+            settings.reset()
             OfflineStore.clear()
-            signInPage = makeSignInPage()
+            ImageStore.shared.clear()
+            signInPage = makeSignInPage(signingOut ? SiteURLs.logout : SiteURLs.login)
         }
     }
 
     /// Signs out the way the site's own button does: by loading
-    /// /v2/auth/logout.php, out of sight.
+    /// /v2/auth/logout.php, in the sign-in page (see setSession).
     func signOut() {
-        runInBackground(makePage(SiteURLs.logout, pullToRefresh: false))
-        setSession(.signedOut)
+        setSession(.signedOut, signingOut: true)
     }
 
     /// The site deleted the account: its session is gone with it.
@@ -219,7 +234,7 @@ final class AppModel {
     func friendsChanged() {
         Task {
             guard session == .signedIn, isOnline else { return }
-            await dashboard.load(app: self)
+            await dashboard.reload(app: self)
         }
     }
 
@@ -234,7 +249,7 @@ final class AppModel {
         Task {
             try? await Task.sleep(for: .seconds(2))
             guard session == .signedIn, isOnline else { return }
-            await dashboard.load(app: self)
+            await dashboard.reload(app: self)
         }
     }
 
