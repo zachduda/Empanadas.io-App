@@ -117,6 +117,20 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(SpinHistory.gained([], in: .month, now: now, calendar: newYork), 0)
     }
 
+    func testAWeekIsSevenDaysTodayIncluded() {
+        let points = SpinHistory.points([
+            .init(date: "2026-10-03", spins: 100),
+            .init(date: "2026-10-04", spins: 110),
+            .init(date: "2026-10-10", spins: 200),
+        ], calendar: newYork)
+        let now = day("2026-10-10")
+
+        // Oct 4 to Oct 10. It was eight days, Oct 3 included.
+        XCTAssertEqual(SpinHistory.points(points, in: .week, now: now, calendar: newYork).map(\.total), [110, 200])
+        // Earned since the end of Oct 3.
+        XCTAssertEqual(SpinHistory.gained(points, in: .week, now: now, calendar: newYork), 100)
+    }
+
     // MARK: - Leaderboard
 
     private let boardJSON = """

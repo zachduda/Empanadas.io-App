@@ -16,8 +16,10 @@ Still to do:
 
 - **Sign in with Apple** (section 6). The Apple provider in
   `v2/auth/flow.php` is commented out and needs its key on the server.
-- **Passkeys** (section 7). This needs the apple-app-site-association file,
-  which contains the Team ID.
+- **Passkeys** (section 7). The apple-app-site-association file is in the
+  site's repo (`html/.well-known/`, Team ID `MWBT4TC7JN`). Check that the
+  live site serves it as described there, then try a passkey sign-in on a
+  device.
 - **Phone-width check** (end of section 4).
 
 The sections below are kept as the record of what the app expects from the site.
@@ -196,18 +198,20 @@ requests, because `checkSession()` ties a session to its user agent.
 
 For passkeys created on empanadas.io to work in the app's web views, serve
 this at `https://empanadas.io/.well-known/apple-app-site-association`
-(`Content-Type: application/json`, no redirect). Replace `TEAMID` with the
-Apple Developer Team ID:
+(`Content-Type: application/json`, no redirect). `MWBT4TC7JN` is the Apple
+Developer Team ID, the same as `DEVELOPMENT_TEAM` in `project.yml`:
 
 ```json
 {
   "webcredentials": {
-    "apps": ["TEAMID.io.empanadas.app"]
+    "apps": ["MWBT4TC7JN.io.empanadas.app"]
   }
 }
 ```
 
 The app already has the matching `webcredentials:empanadas.io` entitlement.
+Passkeys are always for `empanadas.io` (`pkRpId()` in `v2/auth/passkey.php`),
+so no other domain needs one.
 
 ## 8. `/v2/ios/`: the app's own API
 

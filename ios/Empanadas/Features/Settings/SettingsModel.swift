@@ -20,6 +20,9 @@ final class SettingsModel {
     private(set) var savingField: String?
     var saveError: String?
     var needsCaptcha = false
+    /// Bumped by reset(), as DashboardModel's: an answer asked for before a
+    /// sign-out is the last account's, and is dropped.
+    @ObservationIgnored private var generation = 0
 
     init() {
         if let saved = OfflineStore.load(AccountSnapshot.self, .settings) {
@@ -29,23 +32,39 @@ final class SettingsModel {
     }
 
     func load(app: AppModel) async {
+        let generation = self.generation
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if generation == self.generation { isLoading = false }
+        }
         do {
             let fresh = try await app.account.snapshot()
-            // Signed out meanwhile: this screen is on its way out, and the
-            // theme is not the next account's.
-            guard app.session == .signedIn else { return }
+            // Signed out meanwhile: the theme is not the next account's.
+            guard generation == self.generation, app.session == .signedIn else { return }
             snapshot = fresh
             updatedAt = Date()
             loadError = nil
             app.theme = fresh.settings.theme
         } catch let error as AccountError {
+            guard generation == self.generation else { return }
             if error == .signedOut { app.observe(.unsure) }
             loadError = error
         } catch {
+            guard generation == self.generation else { return }
             loadError = .network
         }
+    }
+
+    /// Signed out: nothing of the last account may show for the next.
+    func reset() {
+        generation += 1
+        snapshot = nil
+        updatedAt = nil
+        isLoading = false
+        loadError = nil
+        savingField = nil
+        saveError = nil
+        needsCaptcha = false
     }
 
     func value(_ keyPath: KeyPath<AccountSettings, Int>) -> Int {

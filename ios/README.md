@@ -40,9 +40,9 @@ xcodegen generate
 open Empanadas.xcodeproj
 ```
 
-In Xcode, open Signing & Capabilities for the Empanadas target and choose your
-team (or set `DEVELOPMENT_TEAM` in `project.yml`). Then run on a simulator or
-a device. To run the unit tests, use ⌘U, or:
+The signing team is set in `project.yml` (`DEVELOPMENT_TEAM`): it has to be
+the one the site's apple-app-site-association names for passkeys to work.
+Then run on a simulator or a device. To run the unit tests, use ⌘U, or:
 
 ```sh
 xcodebuild test -project Empanadas.xcodeproj -scheme Empanadas \

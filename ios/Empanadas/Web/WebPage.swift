@@ -406,8 +406,11 @@ extension WebPage: WKUIDelegate {
             return nil
         }
 
-        // core.js signs out through a popup of /v2/auth/logout.php. Run it
-        // out of sight rather than flashing a sheet.
+        // A popup of /v2/auth/logout.php, as core.js used to sign out with.
+        // Run it out of sight rather than flashing a sheet. Today's core.js
+        // signs out with a request to account_edit.php instead
+        // (account_change=logout), which the app learns of when the page
+        // next lands on the login page, or a native screen is refused.
         if fromSite && SiteURLs.isPath(url, in: SiteURLs.logoutPaths) {
             let page = WebPage(popupWith: configuration, app: app)
             page.opener = self

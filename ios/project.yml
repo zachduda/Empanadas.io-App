@@ -20,9 +20,10 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     SWIFT_STRICT_CONCURRENCY: minimal
-    # Your Apple Developer Team ID, for signing. Leave empty to pick it in
-    # Xcode (Signing & Capabilities).
-    DEVELOPMENT_TEAM: ""
+    # The Apple Developer Team ID, for signing. The site's
+    # apple-app-site-association names the app by it (MWBT4TC7JN.io.empanadas.app),
+    # so passkeys only work in a build signed by this team.
+    DEVELOPMENT_TEAM: "MWBT4TC7JN"
     CODE_SIGN_STYLE: Automatic
 
 targets:

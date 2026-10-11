@@ -12,8 +12,9 @@ final class DashboardModel {
     private(set) var isLoading = false
     /// Why the last refresh failed; nil once one succeeds.
     private(set) var error: AccountError?
-    /// Bumped by reset(): an answer asked for before then is the last
-    /// account's, and is dropped.
+    /// Bumped by every request and by reset(): only the answer to the newest
+    /// request is shown, and none asked for before a sign-out (the last
+    /// account's).
     @ObservationIgnored private var generation = 0
 
     init() {
@@ -31,10 +32,25 @@ final class DashboardModel {
     func load(app: AppModel, maxAge: TimeInterval = 0) async {
         if error == nil, let updatedAt, Date().timeIntervalSince(updatedAt) < maxAge { return }
         guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+        await fetch(app: app)
+    }
 
+    /// After a change on the site (a friend added, a round saved): asks
+    /// again even while a request is under way. That one was sent before the
+    /// change, and its answer is dropped; skipped, as load() would, the
+    /// dashboard showed the state from before the change.
+    func reload(app: AppModel) async {
+        await fetch(app: app)
+    }
+
+    private func fetch(app: AppModel) async {
+        generation += 1
         let generation = self.generation
+        isLoading = true
+        defer {
+            if generation == self.generation { isLoading = false }
+        }
+
         do {
             let fresh = try await app.account.dashboard()
             guard generation == self.generation else { return }
@@ -54,6 +70,7 @@ final class DashboardModel {
     /// Signed out: nothing of the last account may show for the next.
     func reset() {
         generation += 1
+        isLoading = false
         data = nil
         updatedAt = nil
         error = nil

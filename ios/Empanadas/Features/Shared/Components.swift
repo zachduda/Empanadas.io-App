@@ -229,6 +229,7 @@ final class ImageStore {
     static let shared = ImageStore()
 
     private let memory = NSCache<NSURL, UIImage>()
+    private let disk: URLCache
     private let session: URLSession
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
 
@@ -236,10 +237,17 @@ final class ImageStore {
         let configuration = URLSessionConfiguration.default
         let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appending(path: "Pictures", directoryHint: .isDirectory)
-        configuration.urlCache = URLCache(memoryCapacity: 8 << 20, diskCapacity: 100 << 20, directory: directory)
+        disk = URLCache(memoryCapacity: 8 << 20, diskCapacity: 100 << 20, directory: directory)
+        configuration.urlCache = disk
         configuration.timeoutIntervalForRequest = 15
         session = URLSession(configuration: configuration)
         memory.countLimit = 300
+    }
+
+    /// At sign-out: the pictures were the last account's friends and rivals.
+    func clear() {
+        memory.removeAllObjects()
+        disk.removeAllCachedResponses()
     }
 
     func cached(_ url: URL) -> UIImage? {
@@ -275,16 +283,25 @@ struct RemoteImage<Placeholder: View>: View {
     let url: URL?
     let placeholder: Placeholder
 
-    @State private var image: UIImage?
+    /// The picture last loaded, with the URL it is for.
+    @State private var loaded: (url: URL, image: UIImage)?
 
     init(url: URL?, @ViewBuilder placeholder: () -> Placeholder) {
         self.url = url
         self.placeholder = placeholder()
     }
 
+    /// Only ever the picture for `url`. The one loaded for the URL before it
+    /// showed until the new one arrived: a moment of someone else's face.
+    @MainActor private var shown: UIImage? {
+        guard let url else { return nil }
+        if let loaded, loaded.url == url { return loaded.image }
+        return ImageStore.shared.cached(url)
+    }
+
     var body: some View {
         Group {
-            if let shown = image ?? url.flatMap({ ImageStore.shared.cached($0) }) {
+            if let shown {
                 Image(uiImage: shown)
                     .resizable()
                     .scaledToFill()
@@ -294,10 +311,12 @@ struct RemoteImage<Placeholder: View>: View {
         }
         .task(id: url) {
             guard let url else {
-                image = nil
+                loaded = nil
                 return
             }
-            image = await ImageStore.shared.image(for: url)
+            if let image = await ImageStore.shared.image(for: url) {
+                loaded = (url: url, image: image)
+            }
         }
     }
 }

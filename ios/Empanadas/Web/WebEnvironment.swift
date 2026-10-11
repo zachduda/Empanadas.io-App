@@ -9,6 +9,13 @@ enum WebEnvironment {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.applicationNameForUserAgent = AppConfig.userAgentSuffix
+        // Always the mobile site, iPad included. In its default (recommended)
+        // mode an iPad web view asks for desktop pages with a Mac user agent,
+        // chosen page by page and narrower in Split View, while userAgent()
+        // reads one from a web view that never loads anything. The session is
+        // tied to the user agent (checkSession() on the site), so the native
+        // requests must send exactly what the pages send.
+        configuration.defaultWebpagePreferences.preferredContentMode = .mobile
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.dataDetectorTypes = []

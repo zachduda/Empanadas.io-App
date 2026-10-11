@@ -5,7 +5,6 @@ import SwiftUI
 /// accounts, email and username changes) open the site's page for them.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @State private var settings = SettingsModel()
     @AppStorage(Preferences.hapticsKey) private var haptics = true
 
     @State private var confirmingSignOut = false
@@ -13,8 +12,11 @@ struct SettingsView: View {
     @State private var deletingAccount = false
     @State private var cacheCleared = false
 
+    /// The app's, so it is made once (see AppModel.settings).
+    private var settings: SettingsModel { model.settings }
+
     var body: some View {
-        @Bindable var settings = settings
+        @Bindable var settings = model.settings
 
         NavigationStack {
             Form {

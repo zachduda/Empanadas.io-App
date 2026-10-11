@@ -293,10 +293,11 @@ enum SpinHistory {
         return out
     }
 
-    /// The first day a range shows, or nil for all of it.
+    /// The first day a range shows, or nil for all of it. Today counts as
+    /// one of its days: 1W is today and the six before it.
     static func firstDay(of range: Range, now: Date, calendar: Calendar = .current) -> Date? {
         guard let days = range.days else { return nil }
-        return calendar.date(byAdding: .day, value: -days, to: calendar.startOfDay(for: now))
+        return calendar.date(byAdding: .day, value: 1 - days, to: calendar.startOfDay(for: now))
     }
 
     static func points(_ points: [SpinPoint], in range: Range, now: Date, calendar: Calendar = .current) -> [SpinPoint] {
