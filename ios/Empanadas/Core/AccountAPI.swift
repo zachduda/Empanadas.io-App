@@ -262,7 +262,9 @@ final class AccountAPI {
 
     /// One line, as the web's bio box sends it: newlines dropped.
     nonisolated static func bioLine(_ text: String) -> String {
-        text.components(separatedBy: .newlines)
+        // By Character: "\r\n" is one line break. components(separatedBy:
+        // .newlines) splits it into two scalars and left a double space.
+        text.split(whereSeparator: \.isNewline)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
     }
