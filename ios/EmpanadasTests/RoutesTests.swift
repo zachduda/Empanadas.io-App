@@ -23,7 +23,7 @@ final class RoutesTests: XCTestCase {
         XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/leaderboard")), .leaderboard)
         XCTAssertEqual(NativeRoute.of(url("https://empanadas.io/leaderboard.html")), .leaderboard)
         XCTAssertNil(NativeRoute.of(url("https://example.com/leaderboard")))
-        XCTAssertNil(NativeRoute.of(url("https://empanadas.io/v2/profile/abc")))
+        XCTAssertNil(NativeRoute.of(url("https://empanadas.io/v2/profile/abc")), "not a profile id (ProfileTests)")
         XCTAssertNil(NativeRoute.of(url("https://empanadas.io/v2/account_2fa")))
     }
 

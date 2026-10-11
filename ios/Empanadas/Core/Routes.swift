@@ -66,18 +66,44 @@ enum NativeRoute: Equatable {
     case leaderboard
     case settings
     case game(Game)
+    /// A player's profile, by id; nil for the player's own.
+    case profile(String?)
+    case findFriends
 
     static func of(_ url: URL) -> NativeRoute? {
         if let game = Game.of(url) { return .game(game) }
         if SiteURLs.isPath(url, in: SiteURLs.dashboardPaths) { return .home }
         if SiteURLs.isPath(url, in: SiteURLs.leaderboardPaths) { return .leaderboard }
         if SiteURLs.isPath(url, in: SiteURLs.accountPaths) { return .settings }
+        if let route = profileRoute(url) { return route }
         return nil
     }
 
+    /// /v2/profile (your own), /v2/profile/<id> and /v2/profile.php?id=<id>,
+    /// and any of them with ?search=1, which is Find Friends. An id that is
+    /// not one stays on the web, which says the player does not exist.
+    private static func profileRoute(_ url: URL) -> NativeRoute? {
+        guard SiteURLs.isAppURL(url) else { return nil }
+        let path = SiteURLs.normalizedPath(url)
+        let id: String?
+        if SiteURLs.profilePaths.contains(path) {
+            id = SiteURLs.queryValue("id", in: url).flatMap { $0.isEmpty ? nil : $0 }
+        } else if path.hasPrefix("/v2/profile/") {
+            let rest = String(path.dropFirst("/v2/profile/".count))
+            guard !rest.contains("/") else { return nil }
+            id = rest
+        } else {
+            return nil
+        }
+        if let id, !PlayerID.isValid(id) { return nil }
+        if SiteURLs.queryValue("search", in: url) == "1" { return .findFriends }
+        return .profile(id)
+    }
+
     /// empanadas-io://home, empanadas-io://leaderboard,
-    /// empanadas-io://settings and empanadas-io://play/<game>. Anything else
-    /// is ignored.
+    /// empanadas-io://settings, empanadas-io://play/<game>,
+    /// empanadas-io://profile, empanadas-io://profile/<id> and
+    /// empanadas-io://friends. Anything else is ignored.
     static func of(deepLink url: URL) -> NativeRoute? {
         guard url.scheme?.lowercased() == AppConfig.urlScheme else { return nil }
         let path = url.path(percentEncoded: false).split(separator: "/").map(String.init)
@@ -86,6 +112,9 @@ enum NativeRoute: Equatable {
         case "leaderboard"? where path.isEmpty: return .leaderboard
         case "settings"? where path.isEmpty: return .settings
         case "play"? where path.count == 1: return Game(rawValue: path[0]).map { .game($0) }
+        case "profile"? where path.isEmpty: return .profile(nil)
+        case "profile"? where path.count == 1 && PlayerID.isValid(path[0]): return .profile(path[0])
+        case "friends"? where path.isEmpty: return .findFriends
         default: return nil
         }
     }

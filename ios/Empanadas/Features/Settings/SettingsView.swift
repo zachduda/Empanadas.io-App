@@ -75,6 +75,7 @@ struct SettingsView: View {
             .disabled(settings.savingField != nil)
             .navigationTitle("Settings")
             .glassNavigationBar()
+            .profileDestinations()
             .task { await settings.load(app: model) }
             .refreshable { await settings.load(app: model) }
             .onChange(of: model.isOnline) { _, online in
@@ -153,9 +154,7 @@ struct SettingsView: View {
             }
             .padding(.vertical, 4)
 
-            NavigationLink("View Profile") {
-                WebDestination(url: SiteURLs.profile, title: "Profile")
-            }
+            NavigationLink("View Profile", value: ProfileRoute.player(id: nil, name: nil))
         }
     }
 

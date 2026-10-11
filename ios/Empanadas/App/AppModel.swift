@@ -26,6 +26,10 @@ struct ShareItem: Identifiable {
 final class AppModel {
     private(set) var session: SessionState
     var selectedTab: AppTab = .home
+    /// What is pushed on the Home tab: a profile, Find Friends, a site page.
+    /// Here so a profile link from anywhere (a site page, a deep link) can
+    /// open on it.
+    var homePath = NavigationPath()
     var activeGame: Game? {
         didSet {
             if activeGame != oldValue { gameSheet = nil }
@@ -141,6 +145,8 @@ final class AppModel {
             popup = nil
             webSheet = nil
             selectedTab = .home
+            homePath = NavigationPath()
+            account.forgetToken()
             // What was saved describes this account; the next one must not
             // open on it.
             dashboard.reset()
@@ -188,6 +194,28 @@ final class AppModel {
         case .game(let game):
             guard session == .signedIn else { return }
             activeGame = game
+        case .profile(let id):
+            show(.player(id: id, name: nil))
+        case .findFriends:
+            show(.findFriends)
+        }
+    }
+
+    /// A profile or Find Friends, on the Home tab, over whatever it was
+    /// showing.
+    private func show(_ route: ProfileRoute) {
+        guard session == .signedIn else { return }
+        activeGame = nil
+        selectedTab = .home
+        homePath.append(route)
+    }
+
+    /// A friend was added, accepted or let go: the dashboard's friends card
+    /// and counts should say so.
+    func friendsChanged() {
+        Task {
+            guard session == .signedIn, isOnline else { return }
+            await dashboard.load(app: self)
         }
     }
 

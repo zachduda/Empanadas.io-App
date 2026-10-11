@@ -186,6 +186,7 @@ final class AccountAPI {
         }
         let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
         let snapshot = try Self.decode(AccountSnapshot.self, body)
+        remember(snapshot.csrf)
         OfflineStore.save(Self.withoutToken(body), as: .settings, generation: generation)
         return snapshot
     }
@@ -198,6 +199,112 @@ final class AccountAPI {
     /// GET /v2/ios/leaderboard.php: the three boards.
     func leaderboard() async throws -> Leaderboard {
         try await iosGet(SiteURLs.iosLeaderboard, as: Leaderboard.self, keep: .leaderboard)
+    }
+
+    // MARK: - Profiles and friends
+
+    /// GET /v2/ios/profile.php: a player's profile, or with no id the
+    /// player's own, which is also kept for offline use (without its token).
+    func profile(id: String? = nil) async throws -> PlayerProfile {
+        let generation = OfflineStore.generation
+        let (data, response) = try await send(URLRequest(url: SiteURLs.iosProfile(id: id)))
+        let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
+        let profile = try Self.decode(PlayerProfile.self, body)
+        remember(profile.csrf)
+        if id == nil {
+            OfflineStore.save(Self.withoutToken(body), as: .profile, generation: generation)
+        }
+        return profile
+    }
+
+    /// GET /v2/ios/search.php: one page of players whose name has `query` in
+    /// it. `query` should already be PlayerSearch.term()'s.
+    func searchPlayers(_ query: String, page: Int = 0) async throws -> PlayerSearch {
+        let (data, response) = try await send(URLRequest(url: SiteURLs.iosSearch(query, page: page)))
+        let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
+        return try Self.decode(PlayerSearch.self, body)
+    }
+
+    /// Sends a friend request (account_change=add_friend).
+    func addFriend(_ playerID: String) async throws {
+        let uuid = try Self.uuidField(playerID)
+        try await withToken { csrf in
+            try await self.change("add_friend", [("uuid", uuid)], csrf: csrf)
+        }
+    }
+
+    /// Accepts or declines a request someone sent (account_change=pending_friend).
+    func answerFriendRequest(from playerID: String, accept: Bool) async throws {
+        let uuid = try Self.uuidField(playerID)
+        try await withToken { csrf in
+            try await self.change("pending_friend", [("uuid", uuid), ("r", accept ? "1" : "0")], csrf: csrf)
+        }
+    }
+
+    /// Unfriends a player, or takes back a request sent to them
+    /// (account_change=delete_friend removes whatever is between the two).
+    func removeFriend(_ playerID: String) async throws {
+        let uuid = try Self.uuidField(playerID)
+        try await withToken { csrf in
+            try await self.change("delete_friend", [("uuid", uuid), ("r", "0")], csrf: csrf)
+        }
+    }
+
+    /// Changes the player's status line (account_change=bio). The site keeps
+    /// it to 200 characters and one line, and only once the address is
+    /// verified.
+    func updateBio(_ text: String) async throws {
+        let line = Self.bioLine(text)
+        try await withToken { csrf in
+            try await self.change("bio", [("m", line)], csrf: csrf)
+        }
+    }
+
+    /// One line, as the web's bio box sends it: newlines dropped.
+    nonisolated static func bioLine(_ text: String) -> String {
+        text.components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The uuid field account_edit.php takes: 32 hex digits, no dashes.
+    private nonisolated static func uuidField(_ playerID: String) throws -> String {
+        guard let raw = PlayerID.raw(playerID) else { throw AccountError.server("That player couldn't be found.") }
+        return raw
+    }
+
+    // MARK: - The csrf token
+
+    /// The session's csrf token as the site last handed it out, with an
+    /// account or profile answer. One per session: forgotten at sign-out.
+    private var token: String?
+
+    private func remember(_ csrf: String) {
+        if !csrf.isEmpty { token = csrf }
+    }
+
+    func forgetToken() {
+        token = nil
+    }
+
+    /// Runs a change with the session's token: the one last seen, else a
+    /// fresh one from /v2/ios/account.php. The site clears its token after a
+    /// mismatch (when a web page issued a new one meanwhile), so on that the
+    /// change is tried once more with a fresh one.
+    private func withToken(_ body: (String) async throws -> Void) async throws {
+        let csrf: String
+        if let token, !token.isEmpty {
+            csrf = token
+        } else {
+            csrf = try await snapshot().csrf
+        }
+        do {
+            try await body(csrf)
+        } catch AccountError.staleToken {
+            token = nil
+            let fresh = try await snapshot().csrf
+            try await body(fresh)
+        }
     }
 
     /// One /v2/ios/ endpoint, decoded, and kept in OfflineStore when good.
@@ -298,9 +405,16 @@ final class AccountAPI {
         switch reason {
         case "no_session": throw AccountError.signedOut
         case "needs_captcha": throw AccountError.needsCaptcha
-        case "csrf": throw AccountError.staleToken
+        case _ where Self.isStaleToken(reason): throw AccountError.staleToken
         default: throw AccountError.server(Self.stripTags(reason))
         }
+    }
+
+    /// account_edit.php says "csrf" when the settings token is stale, and
+    /// CSRF_FAIL_MSG ("Your request has expired or was invalid. ...") for
+    /// the friend and bio changes.
+    nonisolated static func isStaleToken(_ reason: String) -> Bool {
+        reason == "csrf" || reason.hasPrefix("Your request has expired or was invalid")
     }
 
     /// Does the site still consider this session signed in? Nil when it could

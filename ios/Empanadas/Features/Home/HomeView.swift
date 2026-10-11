@@ -1,18 +1,18 @@
 import SwiftUI
 
 /// The dashboard, native: what the site's /v2/dashboard shows, read from
-/// /v2/ios/dashboard.php (DashboardModel). The parts that are still the web's
-/// (profiles, friend search, the profile picture) open as pages pushed on top.
+/// /v2/ios/dashboard.php (DashboardModel). Profiles and Find Friends are
+/// native screens pushed on top (ProfileRoute); the parts that are still the
+/// web's (the profile picture, verifying the address) are site pages.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var destination: WebLink?
-
     var body: some View {
+        @Bindable var model = model
         let dashboard = model.dashboard
 
-        NavigationStack {
+        NavigationStack(path: $model.homePath) {
             ScrollView {
                 VStack(spacing: 16) {
                     OfflineNotice(isOnline: model.isOnline,
@@ -22,7 +22,7 @@ struct HomeView: View {
                     }
 
                     if let data = dashboard.data {
-                        DashboardContent(data: data, open: { destination = $0 })
+                        DashboardContent(data: data, show: show, open: open)
                     } else if let error = dashboard.error, !dashboard.isLoading {
                         loadFailed(error)
                     } else {
@@ -44,9 +44,10 @@ struct HomeView: View {
                     accountMenu(dashboard.data)
                 }
             }
-            .navigationDestination(item: $destination) { link in
+            .navigationDestination(for: WebLink.self) { link in
                 WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
             }
+            .profileDestinations()
             .refreshable { await dashboard.load(app: model) }
             .task(id: scenePhase) { await keepFresh() }
             .onChange(of: model.isOnline) { _, online in
@@ -68,10 +69,20 @@ struct HomeView: View {
         }
     }
 
+    /// A native profile screen, pushed.
+    private func show(_ route: ProfileRoute) {
+        model.homePath.append(route)
+    }
+
+    /// A site page, pushed.
+    private func open(_ link: WebLink) {
+        model.homePath.append(link)
+    }
+
     private func accountMenu(_ data: Dashboard?) -> some View {
         Menu {
-            Button { destination = .profile } label: { Label("My Profile", systemImage: "person.crop.circle") }
-            Button { destination = .findFriends(data?.account.uuid) } label: { Label("Find Friends", systemImage: "magnifyingglass") }
+            Button { show(.player(id: nil, name: nil)) } label: { Label("My Profile", systemImage: "person.crop.circle") }
+            Button { show(.findFriends) } label: { Label("Find Friends", systemImage: "magnifyingglass") }
             Button { model.navigate(to: .leaderboard) } label: { Label("Leaderboards", systemImage: "trophy") }
             Button { model.navigate(to: .settings) } label: { Label("Settings", systemImage: "gearshape") }
         } label: {
@@ -105,6 +116,7 @@ struct HomeView: View {
 private struct DashboardContent: View {
     @Environment(AppModel.self) private var model
     let data: Dashboard
+    let show: (ProfileRoute) -> Void
     let open: (WebLink) -> Void
 
     private let tileColumns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
@@ -112,7 +124,7 @@ private struct DashboardContent: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            HeroCard(account: data.account, pictureURL: data.pictureURL, open: open)
+            HeroCard(account: data.account, pictureURL: data.pictureURL, show: show, open: open)
 
             nudge
 
@@ -124,7 +136,7 @@ private struct DashboardContent: View {
                          systemImage: Game.flappy.systemImage, tint: Palette.flappy)
                 StatTile(title: "Tower Best", value: data.tower.high,
                          systemImage: Game.tower.systemImage, tint: Palette.tower)
-                Button { open(.profile) } label: {
+                Button { show(.player(id: nil, name: nil)) } label: {
                     StatTile(title: "Friends Online", value: data.friends.online,
                              suffix: "/\(data.friends.total.formatted())",
                              systemImage: "person.2.fill", tint: Palette.friends)
@@ -147,8 +159,8 @@ private struct DashboardContent: View {
 
             LazyVGrid(columns: cardColumns, spacing: 16) {
                 SpinChartCard(history: data.spinHistory)
-                FriendsCard(friends: data.friends, me: data.account.uuid, open: open)
-                ExperienceCard(xp: data.xp, open: open)
+                FriendsCard(friends: data.friends, show: show)
+                ExperienceCard(xp: data.xp, show: show)
                 if data.pumpkinSeason {
                     PumpkinCard(pumpkins: data.pumpkins)
                 }
@@ -178,6 +190,7 @@ private struct DashboardContent: View {
 private struct HeroCard: View {
     let account: Dashboard.Account
     let pictureURL: URL?
+    let show: (ProfileRoute) -> Void
     let open: (WebLink) -> Void
 
     private var subtitle: String {
@@ -210,8 +223,8 @@ private struct HeroCard: View {
             }
 
             HStack(spacing: 10) {
-                heroButton("My Profile", systemImage: "person.crop.circle") { open(.profile) }
-                heroButton("Find Friends", systemImage: "magnifyingglass") { open(.findFriends(account.uuid)) }
+                heroButton("My Profile", systemImage: "person.crop.circle") { show(.player(id: nil, name: nil)) }
+                heroButton("Find Friends", systemImage: "magnifyingglass") { show(.findFriends) }
             }
         }
         .foregroundStyle(.white)
@@ -358,9 +371,7 @@ private struct GameStatsCard: View {
 
 private struct FriendsCard: View {
     let friends: Dashboard.Friends
-    /// The player's own profile id, for Find People.
-    let me: String
-    let open: (WebLink) -> Void
+    let show: (ProfileRoute) -> Void
 
     private var requestsWaiting: String {
         friends.pending == 1 ? " friend request waiting" : " friend requests waiting"
@@ -370,7 +381,7 @@ private struct FriendsCard: View {
         Card("Friends", systemImage: "person.2.fill", tint: Palette.friends,
              aside: "\(friends.online.formatted()) online") {
             if friends.pending > 0 {
-                Button { open(.profile) } label: {
+                Button { show(.player(id: nil, name: nil)) } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "person.badge.plus")
                         (Text(friends.pending.formatted()).bold() + Text(requestsWaiting))
@@ -389,7 +400,7 @@ private struct FriendsCard: View {
                 VStack(spacing: 10) {
                     Text("No friends here yet! 😭")
                         .foregroundStyle(.secondary)
-                    Button { open(.findFriends(me)) } label: {
+                    Button { show(.findFriends) } label: {
                         Label("Find People", systemImage: "magnifyingglass")
                     }
                     .buttonStyle(.borderedProminent)
@@ -400,7 +411,7 @@ private struct FriendsCard: View {
             } else {
                 VStack(spacing: 4) {
                     ForEach(friends.list) { friend in
-                        Button { open(.player(friend.uuid, name: friend.username)) } label: {
+                        Button { show(.player(id: friend.uuid, name: friend.username)) } label: {
                             FriendRow(friend: friend)
                         }
                         .buttonStyle(.plain)
@@ -409,7 +420,7 @@ private struct FriendsCard: View {
             }
 
             if friends.total > friends.list.count {
-                Button { open(.profile) } label: {
+                Button { show(.player(id: nil, name: nil)) } label: {
                     Text("See all \(friends.total.formatted()) friends").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -455,7 +466,7 @@ private struct FriendRow: View {
 
 private struct ExperienceCard: View {
     let xp: Dashboard.Experience
-    let open: (WebLink) -> Void
+    let show: (ProfileRoute) -> Void
 
     var body: some View {
         Card("Experience", systemImage: "star.fill", tint: Palette.experience, aside: "\(xp.total.formatted()) XP") {
@@ -481,7 +492,7 @@ private struct ExperienceCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
 
-            Button { open(.profile) } label: {
+            Button { show(.player(id: nil, name: nil)) } label: {
                 Text("View Breakdown").frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)

@@ -92,16 +92,8 @@ struct WebLink: Identifiable, Hashable {
 
     var id: URL { url }
 
-    static let profile = WebLink(url: SiteURLs.profile, title: "Profile")
-    static func findFriends(_ id: String?) -> WebLink {
-        WebLink(url: SiteURLs.findFriends(id: id), title: "Find Friends")
-    }
     static let profilePicture = WebLink(url: SiteURLs.profilePicture, title: "Profile Picture")
     static let verifyEmail = WebLink(url: SiteURLs.verifyEmail, title: "Verify Email")
-
-    static func player(_ id: String, name: String) -> WebLink {
-        WebLink(url: SiteURLs.playerProfile(id: id), title: name)
-    }
 }
 
 /// A web page pushed onto a navigation stack. The page is only created once
