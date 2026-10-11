@@ -35,9 +35,11 @@ let offlineStore = null;
 app.commandLine.appendSwitch('disable-webgl')
 app.commandLine.appendSwitch('disable-webgl2')
 
-// Electron 38+ no longer stops macOS adding its own "Enter Full Screen" to the
-// View menu, next to the togglefullscreen item buildAppMenu() already has.
-if (isMac) systemPreferences.setUserDefault('NSFullScreenMenuItemEverywhere', 'boolean', false);
+// buildAppMenu() leaves Full Screen to the item macOS adds to the View menu
+// itself. NSFullScreenMenuItemEverywhere = NO stops macOS adding it, and stays
+// in the app's preferences once set: older Electron releases set it on every
+// launch, and so did an earlier attempt at this fix.
+if (isMac) systemPreferences.removeUserDefault('NSFullScreenMenuItemEverywhere');
 
 let win;
 
@@ -643,10 +645,12 @@ function buildAppMenu() {
 		},
 		{
 			label: 'View',
+			// No togglefullscreen item: macOS adds its own Enter Full Screen
+			// here. macOS also gives the role item a hidden duplicate, which
+			// Electron 41+ removes only while it is hidden, but Electron's
+			// menu refresh un-hides it first, so it showed twice.
 			submenu: [
-				{ role: 'reload' },
-				{ type: 'separator' },
-				{ role: 'togglefullscreen' }
+				{ role: 'reload' }
 			]
 		},
 		{

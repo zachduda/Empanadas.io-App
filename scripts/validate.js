@@ -151,6 +151,17 @@ check('the window zoom is set where Electron reads it', () => {
 	assert((body.match(/zoomFactor:/g) || []).length === 1, 'zoomFactor is set more than once in createDefaultWindow()');
 });
 
+// Toggle Full Screen showed twice in the macOS View menu, and setting
+// NSFullScreenMenuItemEverywhere did not fix it. See buildAppMenu().
+check('the macOS View menu leaves Full Screen to macOS', () => {
+	assert(!/role:\s*'togglefullscreen'/.test(mainSrc),
+		'main.js has a togglefullscreen item again, which shows twice on macOS');
+	assert(!/setUserDefault\('NSFullScreenMenuItemEverywhere'/.test(mainSrc),
+		'main.js sets NSFullScreenMenuItemEverywhere, which stops macOS adding Enter Full Screen');
+	assert(/removeUserDefault\('NSFullScreenMenuItemEverywhere'\)/.test(mainSrc),
+		'main.js no longer clears the NSFullScreenMenuItemEverywhere left by older builds');
+});
+
 check('the splash asks the main process whether the site is up', () => {
 	// A fetch() from the file:// splash is dropped by CORS whenever the site
 	// sends its own origin in Access-Control-Allow-Origin.
