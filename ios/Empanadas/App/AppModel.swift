@@ -217,6 +217,17 @@ final class AppModel {
             show(.player(id: id, name: nil))
         case .findFriends:
             show(.findFriends)
+        case .feedback(let reason):
+            guard session == .signedIn else { return }
+            // In a sheet, which WebSheetView draws natively: over the game
+            // when one is up (Spin's Report a Problem), so closing it goes
+            // back to the game, and over the tabs otherwise.
+            let link = WebLink(url: SiteURLs.feedback(reason: reason), title: "Send Feedback")
+            if activeGame != nil {
+                gameSheet = link
+            } else {
+                webSheet = link
+            }
         }
     }
 

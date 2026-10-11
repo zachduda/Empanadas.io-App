@@ -371,3 +371,25 @@ profile page sends them, and `uuid` is the id without its dashes:
 `bio&m=<text>` (one line, 200 characters, verified address only). Those
 answer a stale token with the long CSRF_FAIL_MSG rather than `"csrf"`; the app
 knows both.
+
+### Send Feedback
+
+`GET /v2/ios/feedback.php` describes the feedback form (`iosFeedbackForm()` in
+`v2/_lib.php`): the subjects `v2/feedback.php` offers, under the codes
+`account_edit.php` takes (`feedbackSubjects()`), with what each asks for.
+The animated profile picture subject is listed only for supporters; it asks
+for a link (`"input": "link"`) and offers no reply.
+
+```json
+{ "ok": true, "api": 1,
+  "subjects": [ { "id": 1, "key": "general", "label": "General Feedback", "input": "message",
+                  "placeholder": "What's on your mind?", "reply": true, "message_required": true } ],
+  "default_subject": 1, "min_length": 6, "max_length": 2000,
+  "email": "me@example.com", "email_verified": true, "csrf": "..." }
+```
+
+The app sends the form as `feedback.js` does:
+`account_change=feedback&s=<id>&m=<message>&nr=1|0&sso=0` with the `csrf`
+token. A data download (`message_required: false`) may go without a message.
+Links to `/v2/feedback` (`?reason=<id>` picks the subject; not `?sso=`, which
+is zachduda.com's form) open the native form instead of the page.

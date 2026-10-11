@@ -262,9 +262,45 @@ final class AccountAPI {
 
     /// One line, as the web's bio box sends it: newlines dropped.
     nonisolated static func bioLine(_ text: String) -> String {
-        text.components(separatedBy: .newlines)
+        // By Character: "\r\n" is one line break. components(separatedBy:
+        // .newlines) splits it into two scalars and left a double space.
+        text.split(whereSeparator: \.isNewline)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
+    }
+
+    // MARK: - Feedback
+
+    /// GET /v2/ios/feedback.php: the Send Feedback form, with the session's
+    /// token. A site without the endpoint yet gets the web form's subjects
+    /// (FeedbackForm.builtIn) and a token from the account endpoint.
+    func feedbackForm() async throws -> FeedbackForm {
+        let (data, response) = try await send(URLRequest(url: SiteURLs.iosFeedback))
+        let reply = Self.iosReply(data)
+        if response.statusCode == 404 && reply == nil {
+            var form = FeedbackForm.builtIn
+            form.csrf = try await snapshot().csrf
+            return form
+        }
+        let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
+        let form = try Self.decode(FeedbackForm.self, body)
+        remember(form.csrf)
+        return form
+    }
+
+    /// Sends feedback (account_change=feedback), as the web form's
+    /// feedback.js does: the subject's code, the message, and whether a
+    /// reply is wanted.
+    func sendFeedback(subject: Int, message: String, wantsReply: Bool) async throws {
+        let message = FeedbackForm.cleaned(message)
+        try await withToken { csrf in
+            try await self.change("feedback", [
+                ("s", String(subject)),
+                ("m", message),
+                ("nr", wantsReply ? "1" : "0"),
+                ("sso", "0"),
+            ], csrf: csrf)
+        }
     }
 
     /// The uuid field account_edit.php takes: 32 hex digits, no dashes.
