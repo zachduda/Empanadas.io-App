@@ -52,6 +52,9 @@ enum SiteURLs {
     /// The homepage, which the games' own close buttons go back to.
     static let homePaths: Set<String> = ["/", "/index", "/index.html", "/index.php"]
     static let accountPaths: Set<String> = ["/v2/account", "/v2/account/index.php"]
+    /// The profile page without an id in its path: the player's own, or the
+    /// one named by ?id=.
+    static let profilePaths: Set<String> = ["/v2/profile", "/v2/profile.php"]
     static let loginPaths: Set<String> = ["/v2/login", "/v2/login.php"]
     static let logoutPaths: Set<String> = ["/v2/auth/logout", "/v2/auth/logout.php"]
 
@@ -71,6 +74,23 @@ enum SiteURLs {
     static let iosAccount = page("/v2/ios/account.php")
     static let iosDashboard = page("/v2/ios/dashboard.php")
     static let iosLeaderboard = page("/v2/ios/leaderboard.php")
+    static let iosSearch = page("/v2/ios/search.php")
+
+    /// The signed-in player's own profile, or another player's.
+    static func iosProfile(id: String? = nil) -> URL {
+        guard let id, !id.isEmpty else { return page("/v2/ios/profile.php") }
+        var components = URLComponents(url: page("/v2/ios/profile.php"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "id", value: id.lowercased())]
+        return components.url!
+    }
+
+    /// One page of a player search.
+    static func iosSearch(_ query: String, page number: Int = 0) -> URL {
+        var components = URLComponents(url: iosSearch, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "q", value: query)]
+        if number > 0 { components.queryItems?.append(URLQueryItem(name: "p", value: String(number))) }
+        return components.url!
+    }
 
     static func page(_ path: String) -> URL {
         site.appending(path: path)

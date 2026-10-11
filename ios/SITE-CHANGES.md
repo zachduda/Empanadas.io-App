@@ -8,7 +8,7 @@ under `html/` there.
 
 Done in zachduda/Empanadas-io#70: sections 1, 2, 3 and 5, the dashboard part
 of section 4, and the coffee links in section 6. Section 8, the `/v2/ios/` API,
-is in the site's `html/v2/ios/`. The app itself hides the navbar
+is in the site's `html/v2/ios/`, profiles and Find Friends included. The app itself hides the navbar
 (`Resources/bridge.js`), since `getNav()` lives in config.php, which is not in
 that repo.
 
@@ -305,3 +305,65 @@ without refreshing it, as `account.php` does.
 
 Both are kept on the device after every good answer, so the tabs open with
 the last copy at launch and while offline.
+
+### Profiles and Find Friends
+
+The native My Profile, player profiles and Find Friends read two more
+endpoints. Both check the session without refreshing it, as the others do.
+
+`GET /v2/ios/profile.php` is the signed-in player's own profile, and
+`GET /v2/ios/profile.php?id=<uuid>` anyone's (`iosProfile()` and
+`iosProfileFriend()` in `v2/_lib.php`). It applies `v2/profile.php`'s rules:
+a friends-only profile shows anyone but a friend its name, picture and badges
+and nothing else (`xp`, `stats` and `friends` are null); presence and the star
+sign are for friends; only your own friends list says who is online, and only
+your own lists requests (both ways). An unknown or deactivated player is
+`404 not_found`.
+
+```json
+{
+  "ok": true, "api": 1,
+  "profile": { "id": "ab12...", "username": "pal", "pfp": "/Content/...", "default_pfp": false,
+               "is_self": false, "admin": false, "supporter": true, "private": false,
+               "email_verified": null, "member_since": "2024-01-02 03:04:05", "days": 640,
+               "presence": { "state": "online", "label": "Online" }, "bio": "plain text",
+               "star_sign": { "name": "Leo", "symbol": "♌", "blurb": "..." } },
+  "relationship": { "state": "friends", "accepts_requests": true },
+  "xp": { "total": 733, "rank": "Grand Empanada", "icon": "🔥", "range": "500 - 1,000 XP",
+          "next": 1000, "next_rank": "Eldest Empanada", "progress": 46.6,
+          "breakdown": [ { "label": "Lifetime Spins", "xp": 429, "percent": 58 } ] },
+  "stats": { "spin": { "lifetime", "current", "ascends", "prestige" },
+             "flappy": { "high", "played", "recent" } | null,
+             "tower": { "high", "played", "recent", "best_streak", "perfects" } | null,
+             "peppers": { "current": 31, "lifetime": 35 }, "pumpkins": 0, "pumpkin_season": true },
+  "friends": { "total": 3, "pending": 1, "list": [
+               { "username": "emp", "id": "cd34...", "pfp": "/x.png", "default_pfp": false,
+                 "relation": "friends|incoming|outgoing", "state": "online", "label": "Online",
+                 "is_you": false } ] },
+  "csrf": "..."
+}
+```
+
+`relationship.state` is `self`, `friends`, `outgoing` (the viewer asked),
+`incoming` (the player asked) or `none`. `email_verified` is only given for
+your own profile; `bio` is the stored bio as plain text.
+
+`GET /v2/ios/search.php?q=<name>&p=<page>` is `usersearch.php`'s search (2 to
+16 characters, the same characters taken out; `400 invalid_search`
+otherwise), 20 a page, exact matches first, with where the searcher stands with
+each player:
+
+```json
+{ "ok": true, "api": 1, "query": "emp", "page": 0, "has_more": false,
+  "results": [ { "id": "cd34...", "username": "emp", "pfp": "/x.png", "default_pfp": false,
+                 "admin": false, "supporter": false, "vip": false, "private": false,
+                 "relation": "none", "accepts_requests": true } ] }
+```
+
+Changes go through `/v2/account_edit.php` with the `csrf` token, as the web's
+profile page sends them, and `uuid` is the id without its dashes:
+`account_change=add_friend&uuid=`, `pending_friend&uuid=&r=1` (accept) or `r=0`
+(decline), `delete_friend&uuid=&r=0` (unfriend, or take back a request), and
+`bio&m=<text>` (one line, 200 characters, verified address only). Those
+answer a stale token with the long CSRF_FAIL_MSG rather than `"csrf"`; the app
+knows both.

@@ -12,6 +12,8 @@ enum OfflineStore {
         case dashboard
         case leaderboard
         case settings
+        /// The player's own profile (My Profile), without its csrf token.
+        case profile
     }
 
     struct Entry {
