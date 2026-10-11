@@ -13,6 +13,15 @@ enum SessionState: Equatable {
     case signedOut
 }
 
+/// Where the welcome screen is with a sign-in.
+enum SignInProgress: Equatable {
+    case idle
+    /// Open in the system browser.
+    case inBrowser
+    /// Back from the browser: the app's own session is being signed in.
+    case finishing
+}
+
 struct ShareItem: Identifiable {
     let id = UUID()
     let url: URL
@@ -58,14 +67,11 @@ final class AppModel {
         didSet { UserDefaults.standard.set(theme, forKey: Preferences.themeKey) }
     }
 
-    /// What the window is drawn in: the theme, except on the sign-in page,
-    /// which is the whole screen and has colours of its own (navy). The
-    /// status bar and the spinner over it go with the page there, or they
-    /// were black on navy in light mode.
+    /// What the window is drawn in: the theme, except on the welcome screen,
+    /// which is the whole screen and navy, like the site's sign-in pages and
+    /// the launch screen. The status bar over it is white whatever the theme.
     var interfaceStyle: UIUserInterfaceStyle {
-        if session == .signedOut, let scheme = signInPage?.pageScheme {
-            return scheme == .dark ? .dark : .light
-        }
+        if session == .signedOut { return .dark }
         switch theme {
         case 1: return .light
         case 2: return .dark
@@ -73,11 +79,18 @@ final class AppModel {
         }
     }
 
-    /// The login page, shown full screen while signed out.
-    private(set) var signInPage: WebPage?
+    /// The welcome screen's sign-in, and why the last one did not finish.
+    private(set) var signInProgress: SignInProgress = .idle
+    var signInError: String?
 
     @ObservationIgnored let account = AccountAPI()
+    /// Signing in to the app: the whole of it, in the system browser.
+    @ObservationIgnored private let signInBrowser = BrowserSession()
+    @ObservationIgnored private var pendingSignIn: SignInRequest?
+    /// Connecting a provider from the account page.
     @ObservationIgnored private let browserSignIn = BrowserSignIn()
+    /// /v2/auth/logout.php, out of sight, until it has signed the site out.
+    @ObservationIgnored private var signOutPage: WebPage?
     @ObservationIgnored private var backgroundPages: [WebPage] = []
     @ObservationIgnored private var checkingSession = false
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
@@ -90,14 +103,12 @@ final class AppModel {
         leaderboard = LeaderboardModel()
         settings = SettingsModel()
 
-        if session == .signedOut {
-            signInPage = makeSignInPage()
+        // A sign-out the site never heard about (no connection, and the app
+        // was closed before there was one).
+        if session == .signedOut && defaults.bool(forKey: Preferences.signOutPendingKey) {
+            signOutOnSite()
         }
         monitorConnection()
-    }
-
-    private func makeSignInPage(_ url: URL = SiteURLs.login) -> WebPage {
-        WebPage(url: url, options: .init(interceptsRoutes: false), app: self)
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
@@ -116,8 +127,8 @@ final class AppModel {
             setSession(.signedIn)
         case .signedOut:
             // A page is on its way to /v2/auth/logout.php. It may be torn
-            // down with the tabs before it gets there, so the sign-in page
-            // signs out too (twice is harmless).
+            // down with the tabs before it gets there, so the app signs the
+            // site out itself too (twice is harmless).
             setSession(.signedOut, signingOut: true)
         case .unsure:
             // The login page came up while signed in: ask the site rather
@@ -132,13 +143,8 @@ final class AppModel {
         }
     }
 
-    /// `signingOut`: the session may still be live on the site. The sign-in
-    /// page then starts at /v2/auth/logout.php, which goes on to the login
-    /// page once the site has signed the session out. Loaded at the same time
-    /// as the logout, the login page could get there first, find the session
-    /// still good and send the player on to the dashboard, which signed the
-    /// app straight back in. It also means a sign-out made offline happens
-    /// when the connection comes back, rather than not at all.
+    /// `signingOut`: the session may still be live on the site, so the site
+    /// is signed out too (signOutOnSite).
     private func setSession(_ new: SessionState, signingOut: Bool = false) {
         guard new != session else { return }
         session = new
@@ -147,13 +153,10 @@ final class AppModel {
         switch new {
         case .signedIn:
             selectedTab = .home
-            // Not released here: this may be running inside the sign-in
-            // page's own delegate callback.
-            let finished = signInPage
-            Task { @MainActor in
-                if self.signInPage === finished { self.signInPage = nil }
-                await self.refreshTheme()
-            }
+            signInProgress = .idle
+            signInError = nil
+            pendingSignIn = nil
+            Task { await self.refreshTheme() }
         case .signedOut:
             activeGame = nil
             popup = nil
@@ -168,14 +171,35 @@ final class AppModel {
             settings.reset()
             OfflineStore.clear()
             ImageStore.shared.clear()
-            signInPage = makeSignInPage(signingOut ? SiteURLs.logout : SiteURLs.login)
+            if signingOut { signOutOnSite() }
         }
     }
 
     /// Signs out the way the site's own button does: by loading
-    /// /v2/auth/logout.php, in the sign-in page (see setSession).
+    /// /v2/auth/logout.php (see signOutOnSite).
     func signOut() {
         setSession(.signedOut, signingOut: true)
+    }
+
+    /// Signs the site out as well: /v2/auth/logout.php, in a page nobody sees.
+    /// That ends the session and clears what the site's scripts keep about
+    /// the account in the web views' storage. Kept until the page has gone
+    /// on to the login page (loginPageReached), and tried again when the
+    /// connection comes back, or at the next launch: a sign-out made offline
+    /// happens later rather than not at all.
+    private func signOutOnSite() {
+        UserDefaults.standard.set(true, forKey: Preferences.signOutPendingKey)
+        signOutPage = makePage(SiteURLs.logout, pullToRefresh: false)
+    }
+
+    private func signedOutOnSite() {
+        UserDefaults.standard.set(false, forKey: Preferences.signOutPendingKey)
+        // Not released here: this runs inside the page's own delegate
+        // callback.
+        let finished = signOutPage
+        Task { @MainActor in
+            if self.signOutPage === finished { self.signOutPage = nil }
+        }
     }
 
     /// The site deleted the account: its session is gone with it.
@@ -276,15 +300,14 @@ final class AppModel {
         webSheet = WebLink(url: url, title: title ?? "Empanadas.io")
     }
 
-    /// A popup sign-in reached a page that belongs in the app proper: a
-    /// screen the app draws, or else the page itself in a sheet. Signed out,
-    /// it is the login page's to finish.
+    /// A popup reached a page that belongs in the app proper: a screen the
+    /// app draws, or else the page itself in a sheet. The login page is
+    /// neither (loginPageReached).
     func handOff(_ url: URL) {
-        guard session == .signedIn else {
-            signInPage?.load(url)
-            return
-        }
-        if let route = NativeRoute.of(url) {
+        guard session == .signedIn else { return }
+        if SiteURLs.isPath(url, in: SiteURLs.loginPaths) {
+            observe(.unsure)
+        } else if let route = NativeRoute.of(url) {
             navigate(to: route)
         } else {
             openWeb(url)
@@ -324,7 +347,110 @@ final class AppModel {
         shareItem = ShareItem(url: url)
     }
 
-    // MARK: - Browser sign-in
+    // MARK: - Signing in
+
+    /// "Yup!" or "Nope." on the welcome screen. The whole sign-in happens in
+    /// the system browser, on the site's own pages (the username step or Pick
+    /// a Username, passkeys, Google/GitHub/Discord, 2FA), where Safari's
+    /// AutoFill and the player's saved passkeys work. None of that reaches a
+    /// web view of the app's. See SignInRequest.
+    func signIn(_ mode: SignInMode) {
+        guard session == .signedOut, signInProgress == .idle else { return }
+        guard isOnline else {
+            signInError = "You're offline. Signing in needs a connection."
+            return
+        }
+        let request = SignInRequest(mode: mode)
+        pendingSignIn = request
+        signInError = nil
+        signInProgress = .inBrowser
+        let opened = signInBrowser.open(request.url) { [weak self] link in
+            self?.browserClosed(on: link)
+        }
+        if !opened {
+            signInProgress = .idle
+            signInError = "The sign-in window couldn't open. Try again."
+        }
+    }
+
+    private func browserClosed(on link: URL?) {
+        if let link {
+            finishSignIn(link)
+        } else if signInProgress == .inBrowser {
+            // Closed. The request is kept: a sign-in can still finish in
+            // Safari (a provider's own app handing back to it), which opens
+            // the app with the link.
+            signInProgress = .idle
+        }
+    }
+
+    /// Back from the browser with empanadas-io://signin?code=. The code and
+    /// the request's verifier sign the app's own session in.
+    private func finishSignIn(_ link: URL) {
+        guard session == .signedOut, signInProgress != .finishing else { return }
+        guard let request = pendingSignIn, request.isFresh(), let code = SiteURLs.signInCode(link) else {
+            // Not a sign-in this app started, or one it gave up on.
+            if signInProgress == .inBrowser { signInProgress = .idle }
+            return
+        }
+        pendingSignIn = nil
+        signInProgress = .finishing
+        signInError = nil
+        // Still up when the link came the long way round, through Safari.
+        signInBrowser.cancel()
+        Task {
+            await waitForSignOutOnSite()
+            do {
+                try await account.redeemSignIn(code: code, verifier: request.verifier)
+            } catch {
+                signInProgress = .idle
+                signInError = (error as? LocalizedError)?.errorDescription ?? "Something went wrong. Try again!"
+                return
+            }
+            setSession(.signedIn)
+            // What the site's scripts keep about the account in the web
+            // views' storage (SiteURLs.signedInHandoff). It goes on to the
+            // dashboard, which confirms the session (SignInSignal).
+            runInBackground(makePage(SiteURLs.signedInHandoff, pullToRefresh: false))
+        }
+    }
+
+    /// A sign-out still on its way to the site would end the session this
+    /// sign-in is about to start. It gets a moment to land; one that cannot
+    /// (no connection) is dropped, since signing in replaces the session
+    /// anyway.
+    private func waitForSignOutOnSite() async {
+        for _ in 0..<50 {
+            guard let page = signOutPage, page.loadError == nil else { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if let page = signOutPage {
+            page.webView.stopLoading()
+            signedOutOnSite()
+        }
+    }
+
+    /// A page of the app's went for the login page, which never shows in the
+    /// app: signing in happens in the system browser (signIn).
+    func loginPageReached(from page: WebPage) {
+        if page === signOutPage {
+            // logout.php has signed the site out and is moving on.
+            signedOutOnSite()
+            return
+        }
+        switch session {
+        case .signedIn:
+            // The site sent a page there: the session may have ended. Ask,
+            // rather than throw the player out on a guess.
+            observe(.unsure)
+        case .signedOut:
+            // A link on a page opened from the welcome screen (the privacy
+            // policy, the terms): the welcome screen is the way in.
+            webSheet = nil
+        }
+    }
+
+    // MARK: - Connecting a provider
 
     func startBrowserSignIn(_ url: URL, from page: WebPage) {
         browserSignIn.origin = page.isPopup ? page.opener : page
@@ -339,14 +465,12 @@ final class AppModel {
         browserSignIn.finish()
         popup = nil
 
-        // Back to the page that started it (Settings' account page when
-        // linking a provider), or a sheet of its own if that is gone.
-        if let origin, origin === signInPage || origin.webView.window != nil {
+        // Back to the page that started it (the account page), or a sheet
+        // of its own if that is gone.
+        if let origin, origin.webView.window != nil {
             origin.load(url)
         } else if session == .signedIn {
-            openWeb(url, title: "Sign In")
-        } else {
-            signInPage?.load(url)
+            openWeb(url)
         }
     }
 
@@ -357,6 +481,8 @@ final class AppModel {
 
         if SiteURLs.isAuthDeepLink(url) {
             finishBrowserSignIn(url)
+        } else if SiteURLs.isSignInDeepLink(url) {
+            finishSignIn(url)
         } else if let route = NativeRoute.of(deepLink: url) {
             navigate(to: route)
         }
@@ -378,7 +504,7 @@ final class AppModel {
                 self.isOnline = online
                 // Back online: retry whatever failed while it was not. The
                 // native screens refresh themselves when they are showing.
-                if online, let page = self.signInPage, page.loadError != nil {
+                if online, let page = self.signOutPage, page.loadError != nil {
                     page.reload()
                 }
             }

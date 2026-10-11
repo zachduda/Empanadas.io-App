@@ -122,5 +122,7 @@ enum Haptics {
 enum Preferences {
     static let hapticsKey = "haptics"
     static let signedInKey = "signedIn"
+    /// Signed out in the app, but the site has not been told yet.
+    static let signOutPendingKey = "signOutPending"
     static let themeKey = "theme"
 }

@@ -10,7 +10,7 @@ struct RootView: View {
         Group {
             switch model.session {
             case .signedIn: MainTabView()
-            case .signedOut: SignInView()
+            case .signedOut: WelcomeView()
             }
         }
         .background { WindowStyle(style: model.interfaceStyle) }

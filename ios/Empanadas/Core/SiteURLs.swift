@@ -76,6 +76,8 @@ enum SiteURLs {
     static let iosLeaderboard = page("/v2/ios/leaderboard.php")
     static let iosSearch = page("/v2/ios/search.php")
     static let iosFeedback = page("/v2/ios/feedback.php")
+    /// Where a sign-in run in the browser is redeemed (SignInRequest).
+    static let iosSignIn = page("/v2/ios/signin.php")
     /// The feedback page in every shape the site links it (v2/dashboard.php's
     /// footer links a bare "feedback"). The app's Send Feedback screen
     /// stands in for it.
@@ -197,13 +199,14 @@ enum SiteURLs {
 
     // MARK: - Browser sign-in
 
-    // "Log in with Google/GitHub/Discord" happens in the system browser (an
+    // A Google/GitHub/Discord round trip a page of the app's starts (the
+    // account page's Connect) happens in the system browser (an
     // ASWebAuthenticationSession), not in a web view of the app's. The site
     // sends the app to /v2/auth/browser?t=<ticket> when it wants that; the
     // browser signs in and hands the result back with an empanadas-io://auth
-    // link, which authRedeemURL turns into the page that finishes the sign-in
-    // in the app. The site's half is described above appAuthIssue() in its
-    // v2/_lib.php.
+    // link, which authRedeemURL turns into the page that finishes it in the
+    // app. The site's half is described above appAuthIssue() in its
+    // v2/_lib.php. Signing in to the app is the section below.
 
     static func isBrowserSignInURL(_ url: URL) -> Bool {
         guard isAppURL(url), browserSignInPaths.contains(url.path(percentEncoded: false)) else {
@@ -239,6 +242,52 @@ enum SiteURLs {
         ]
         return components.url
     }
+
+    // MARK: - Signing in to the app
+
+    // The whole sign-in runs in the system browser (SignInRequest): the
+    // browser starts at /v2/auth/app.php with the request's PKCE challenge,
+    // and the site hands it back with empanadas-io://signin?code=<code>, which
+    // the app redeems at /v2/ios/signin.php. The site's half is described
+    // above APP_SIGNIN_TTL in its v2/_lib.php.
+
+    /// Where the browser starts: the site's username step, or Pick a Username.
+    static func appSignIn(challenge: String, mode: SignInMode) -> URL {
+        var components = URLComponents(url: page("/v2/auth/app.php"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "challenge", value: challenge),
+            URLQueryItem(name: "mode", value: mode.rawValue),
+        ]
+        return components.url!
+    }
+
+    /// Is this one of the empanadas-io://signin links a sign-in comes back
+    /// with? Those are the app's to handle, never passed on to a page.
+    static func isSignInDeepLink(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == AppConfig.urlScheme && url.host(percentEncoded: false)?.lowercased() == "signin"
+    }
+
+    /// The code a sign-in link carries, or nil if the link is not one.
+    /// Anything on the device can open an empanadas-io:// link, so it is
+    /// checked against the shape the site produces (appSigninDeepLink()).
+    static func signInCode(_ link: URL) -> String? {
+        guard isSignInDeepLink(link) else { return nil }
+        let path = link.path(percentEncoded: false)
+        guard path.isEmpty || path == "/" else { return nil }
+        let code = queryValue("code", in: link)
+        return isAuthToken(code) ? code : nil
+    }
+
+    /// Loaded in a web view once the app is signed in: /v2/auth/js.php,
+    /// which every sign-in on the site passes through, fills in what the
+    /// site's scripts keep in the web views' storage about the account (the
+    /// cache core.js reads before it asks the site anything). A sign-in made
+    /// in the browser left that in Safari's storage, not the app's.
+    static let signedInHandoff: URL = {
+        var components = URLComponents(url: page("/v2/auth/js.php"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "r", value: "/v2/dashboard")]
+        return components.url!
+    }()
 
     // Tickets and codes are random letters and digits; see appAuthToken() in
     // the site's v2/_lib.php.
