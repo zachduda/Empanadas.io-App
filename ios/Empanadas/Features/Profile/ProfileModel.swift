@@ -44,6 +44,8 @@ final class ProfileModel {
     private(set) var working: String?
     var actionError: String?
     var needsCaptcha = false
+    /// Bumped by every request: only the answer to the newest is shown.
+    @ObservationIgnored private var generation = 0
 
     init(id: String?) {
         self.id = id.flatMap { $0.isEmpty ? nil : $0 }
@@ -61,18 +63,32 @@ final class ProfileModel {
     func load(app: AppModel, maxAge: TimeInterval = 0) async {
         if error == nil, let updatedAt, Date().timeIntervalSince(updatedAt) < maxAge { return }
         guard !isLoading else { return }
+        await fetch(app: app)
+    }
+
+    /// Asks even while a request is under way, whose answer is then dropped.
+    /// After a change: a load the screen started as it opened (My Profile
+    /// opens with the saved copy, so its buttons work at once) was sent before
+    /// the change, and skipping the new one showed the request still waiting.
+    private func fetch(app: AppModel) async {
+        generation += 1
+        let generation = self.generation
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if generation == self.generation { isLoading = false }
+        }
         do {
             let fresh = try await app.account.profile(id: id)
-            guard app.session == .signedIn else { return }
+            guard generation == self.generation, app.session == .signedIn else { return }
             profile = fresh
             updatedAt = Date()
             error = nil
         } catch let failure as AccountError {
+            guard generation == self.generation else { return }
             if failure == .signedOut { app.observe(.unsure) }
             error = failure
         } catch {
+            guard generation == self.generation else { return }
             self.error = .network
         }
     }
@@ -115,7 +131,7 @@ final class ProfileModel {
             try await change()
             Haptics.play(haptic)
             app.friendsChanged()
-            await load(app: app)
+            await fetch(app: app)
             return true
         } catch {
             report(error, app: app)
