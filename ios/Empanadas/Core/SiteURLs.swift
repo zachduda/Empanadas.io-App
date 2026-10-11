@@ -75,6 +75,20 @@ enum SiteURLs {
     static let iosDashboard = page("/v2/ios/dashboard.php")
     static let iosLeaderboard = page("/v2/ios/leaderboard.php")
     static let iosSearch = page("/v2/ios/search.php")
+    static let iosFeedback = page("/v2/ios/feedback.php")
+    /// The feedback page in every shape the site links it (v2/dashboard.php's
+    /// footer links a bare "feedback"). The app's Send Feedback screen
+    /// stands in for it.
+    static let feedbackPaths: Set<String> = ["/v2/feedback", "/v2/feedback.php"]
+
+    /// The feedback page asking for one subject, as Spin's Report a Problem
+    /// links it (?reason=3). What NativeRoute reads back.
+    static func feedback(reason: Int?) -> URL {
+        guard let reason else { return feedback }
+        var components = URLComponents(url: feedback, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "reason", value: String(reason))]
+        return components.url!
+    }
 
     /// The signed-in player's own profile, or another player's.
     static func iosProfile(id: String? = nil) -> URL {

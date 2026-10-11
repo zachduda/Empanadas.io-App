@@ -155,18 +155,26 @@ struct ShareSheet: UIViewControllerRepresentable {
 /// A site page the app opens on its own, outside any tab: what a sign-in
 /// popup hands back while signed in, when it is not a screen the app draws,
 /// and a page a game links to, over the game.
+///
+/// The feedback page is drawn natively (FeedbackView), so a link to it from a
+/// game opens over the game like any other page, in the same sheet.
 struct WebSheetView: View {
     @Environment(\.dismiss) private var dismiss
     let link: WebLink
 
     var body: some View {
         NavigationStack {
-            WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
+            switch NativeRoute.of(link.url) {
+            case .feedback(let reason)?:
+                FeedbackView(reason: reason, inSheet: true)
+            default:
+                WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { dismiss() }
+                        }
                     }
-                }
+            }
         }
     }
 }

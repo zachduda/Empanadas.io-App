@@ -260,7 +260,7 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section("About") {
-            NavigationLink("Send Feedback") { WebDestination(url: SiteURLs.feedback, title: "Feedback") }
+            NavigationLink("Send Feedback") { FeedbackView() }
             NavigationLink("Privacy Policy") { WebDestination(url: SiteURLs.privacy, title: "Privacy Policy") }
             NavigationLink("Terms of Service") { WebDestination(url: SiteURLs.terms, title: "Terms") }
         }
