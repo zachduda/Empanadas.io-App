@@ -181,6 +181,10 @@ final class AppModel {
     // MARK: - Navigation
 
     func navigate(to route: NativeRoute) {
+        // A link followed in the web sheet (WebSheetView intercepts routes)
+        // goes to a screen under the sheet, or a game player that cannot be
+        // presented while the sheet is: the sheet goes, so the screen shows.
+        webSheet = nil
         switch route {
         case .home:
             activeGame = nil

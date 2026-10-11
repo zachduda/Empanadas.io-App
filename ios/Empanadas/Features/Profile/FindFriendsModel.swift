@@ -41,6 +41,15 @@ final class FindFriendsModel {
         generation += 1
         let generation = self.generation
         isSearching = true
+        // However this one ends (an answer, an error, or cancelled because
+        // the player typed on), it is no longer searching unless a newer
+        // search has taken over. Left set after a cancel, the spinner stayed
+        // for good when the player typed a letter and took it back: the
+        // search for what was left had already been made, so nothing ran to
+        // clear it, and loadMore() never ran again.
+        defer {
+            if generation == self.generation { isSearching = false }
+        }
         do {
             let found = try await app.account.searchPlayers(term)
             guard generation == self.generation else { return }
@@ -54,7 +63,6 @@ final class FindFriendsModel {
             guard generation == self.generation, !Task.isCancelled else { return }
             fail(error, app: app)
         }
-        isSearching = false
     }
 
     /// The next page, when the list has scrolled to its end.
