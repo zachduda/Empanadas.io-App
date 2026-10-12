@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App Store screenshot</title>
+<!--
+  One App Store screenshot: a caption on the brand's navy, over the screen in
+  a device frame. render.mjs opens it at the exact App Store size
+  (1320x2868 for iPhone 6.9", 2064x2752 for iPad 13") and passes:
+
+    device  iphone | ipad
+    img     the screen, at the device's full resolution
+    title   the headline; *a word* in it is drawn in gold, | breaks the line
+    sub     the line under it
+    tag     the small label above it, with icon (a name in icons.js) and tint
+    n       which screenshot this is, so the backdrop differs from one to the next
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="device.css">
+<script src="icons.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    position: relative; font-family: "Poppins", sans-serif; color: #fff; -webkit-font-smoothing: antialiased;
+    /* The launch screen's navy (Brand), into the app icon's blue */
+    background: linear-gradient(180deg, #16166e 0%, #1E1E91 30%, #2b3fd0 72%, #3756E9 100%);
+  }
+  .glow { position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.55; pointer-events: none; }
+  .sq { position: absolute; background: rgba(255, 255, 255, 0.06); }
+
+  .caption { position: absolute; left: 0; right: 0; text-align: center; padding: 0 90px; z-index: 2; }
+  .tag { display: inline-flex; align-items: center; gap: 0.5em; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 0.55em 1.1em 0.5em; border-radius: 99px; background: rgba(255, 255, 255, 0.12);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16); }
+  .tag .dot { width: 1.7em; height: 1.7em; border-radius: 0.5em; display: grid; place-items: center; }
+  .tag svg { width: 1em; height: 1em; fill: #fff; }
+  h1 { font-weight: 800; line-height: 1.04; letter-spacing: -0.02em; text-wrap: balance; }
+  h1 .gold { background: linear-gradient(180deg, #ffd978, #ffb43a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p { font-weight: 500; line-height: 1.32; color: rgba(255, 255, 255, 0.78); text-wrap: balance; margin: 0 auto; }
+  .device { position: absolute; left: 50%; transform: translateX(-50%); z-index: 1; }
+
+  .iphone-shot .caption { top: 150px; }
+  .iphone-shot .tag { font-size: 34px; }
+  .iphone-shot h1 { font-size: 128px; margin-top: 52px; }
+  .iphone-shot p { font-size: 50px; margin-top: 34px; max-width: 1060px; min-height: 2.64em; }
+  .ipad-shot .caption { top: 150px; }
+  .ipad-shot .tag { font-size: 38px; }
+  .ipad-shot h1 { font-size: 140px; margin-top: 48px; }
+  .ipad-shot p { font-size: 54px; margin-top: 30px; max-width: 1400px; min-height: 2.64em; }
+</style>
+</head>
+<body>
+<script>
+const q = new URLSearchParams(location.search);
+const device = q.get('device') || 'iphone';
+const n = +(q.get('n') || 1);
+const W = innerWidth, H = innerHeight;
+document.body.className = device + '-shot';
+
+// The backdrop: a glow in the screen's tint behind the device, and a few of
+// the floating squares from the sign-in pages (WelcomeView's backdrop).
+let seed = n * 7919 + 13;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const tint = q.get('tint') || '#3756E9';
+let html = `<div class="glow" style="width:${W * 1.1}px;height:${W * 1.1}px;left:${-W * 0.05}px;top:${H * 0.42}px;background:#5B7CFA;opacity:.45"></div>
+  <div class="glow" style="width:${W * 0.7}px;height:${W * 0.7}px;left:${rnd() > 0.5 ? -W * 0.3 : W * 0.6}px;top:${-W * 0.2}px;background:#5B7CFA;opacity:.35"></div>`;
+for (let i = 0; i < 9; i++) {
+  const s = W * (0.05 + rnd() * 0.09);
+  const x = rnd() * W - s / 2, y = rnd() * H;
+  html += `<div class="sq" style="width:${s}px;height:${s}px;left:${x}px;top:${y}px;border-radius:${s * 0.18}px;transform:rotate(${(rnd() - 0.5) * 70}deg)"></div>`;
+}
+
+// The caption
+const esc = t => t.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const title = esc(q.get('title') || '').replace(/\*(.+?)\*/g, '<span class="gold">$1</span>').replace(/\s*\|\s*/g, '<br>');
+const icon = q.get('icon');
+const tagIcon = icon && ICONS[icon]
+  ? `<span class="dot" style="background:${tint}"><svg viewBox="0 0 ${ICONS[icon][0]} ${ICONS[icon][1]}"><path d="${ICONS[icon][2]}"/></svg></span>` : '';
+html += `<div class="caption">
+  ${q.get('tag') ? `<div class="tag">${tagIcon}${esc(q.get('tag'))}</div>` : ''}
+  <h1>${title}</h1>
+  ${q.get('sub') ? `<p>${esc(q.get('sub'))}</p>` : ''}
+</div>`;
+
+document.body.insertAdjacentHTML('beforeend', html);
+
+// The device, as big as fits under the caption, once the caption is in its
+// font. The subtitle always takes two lines' room, so the device sits at the
+// same height in every shot. render.mjs waits for window.ready.
+window.ready = document.fonts.ready.then(() => {
+  const iphone = device === 'iphone';
+  const aspect = iphone ? 956 / 440 : 1376 / 1032;
+  const bezel = iphone ? 0.032 : 0.024;
+  const frameTop = Math.ceil(document.querySelector('.caption').getBoundingClientRect().bottom) + (iphone ? 80 : 70);
+  const frameBottom = iphone ? 120 : 110;
+  const w = Math.round((H - frameTop - frameBottom) / (aspect + 2 * bezel));
+  const buttons = iphone
+    ? `<i class="btn l" style="top:${w * 0.42}px;height:${w * 0.075}px"></i>
+       <i class="btn l" style="top:${w * 0.56}px;height:${w * 0.14}px"></i>
+       <i class="btn l" style="top:${w * 0.73}px;height:${w * 0.14}px"></i>
+       <i class="btn r" style="top:${w * 0.62}px;height:${w * 0.22}px"></i>
+       <i class="btn r" style="top:${w * 1.24}px;height:${w * 0.13}px"></i>`
+    : `<i class="btn r" style="top:${w * 0.07}px;height:${w * 0.06}px"></i>
+       <i class="btn r" style="top:${w * 0.15}px;height:${w * 0.06}px"></i>`;
+  document.body.insertAdjacentHTML('beforeend',
+    `<div class="device ${device}" style="--w:${w}px;top:${frameTop}px">${buttons}<img src="${q.get('img')}" alt=""><div class="island"></div></div>`);
+  return document.querySelector('.device img').decode();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+/*
+ * Device frames for the App Store art, drawn in CSS so nothing of Apple's
+ * (bezels, marketing images) is copied. Set --w on .device to the screen's
+ * width in px; everything else is worked out from it.
+ *
+ *   <div class="device iphone" style="--w: 880px"><img src="screen.png"></div>
+ */
+.device {
+  --k: calc(var(--w) / 440);              /* px per point of an iPhone 6.9" screen */
+  --bezel: calc(var(--w) * 0.032);
+  --radius: calc(var(--w) * 0.142);       /* the screen's corners */
+  position: relative;
+  width: calc(var(--w) + 2 * var(--bezel));
+  padding: var(--bezel);
+  border-radius: calc(var(--radius) + var(--bezel));
+  background: #0c0c0f;
+  /* the titanium band, then the shadow on whatever is behind */
+  box-shadow:
+    0 0 0 calc(var(--w) * 0.0045) #8e9198,
+    0 0 0 calc(var(--w) * 0.0085) #3a3c41,
+    0 0 0 calc(var(--w) * 0.0095) rgba(255, 255, 255, 0.25),
+    0 calc(var(--w) * 0.05) calc(var(--w) * 0.12) rgba(4, 6, 40, 0.55),
+    0 calc(var(--w) * 0.012) calc(var(--w) * 0.03) rgba(4, 6, 40, 0.35);
+}
+.device img {
+  display: block;
+  width: var(--w);
+  border-radius: var(--radius);
+}
+.device .island {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--bezel) + 11 * var(--k));
+  width: calc(126 * var(--k));
+  height: calc(37 * var(--k));
+  margin-left: calc(-63 * var(--k));
+  border-radius: calc(19 * var(--k));
+  background: #000;
+}
+.device .btn {
+  position: absolute;
+  width: calc(var(--w) * 0.012);
+  border-radius: calc(var(--w) * 0.006);
+  background: linear-gradient(90deg, #5d6066, #a4a7ad 50%, #5d6066);
+}
+.device .btn.l { left: calc(var(--w) * -0.018); }
+.device .btn.r { right: calc(var(--w) * -0.018); }
+
+/* iPad Pro 13": thinner bezels for its size, gentler corners, no island. */
+.device.ipad {
+  --k: calc(var(--w) / 1032);
+  --bezel: calc(var(--w) * 0.024);
+  --radius: calc(var(--w) * 0.03);
+}
+.device.ipad .island { display: none; }

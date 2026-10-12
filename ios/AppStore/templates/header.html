@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App Store header</title>
+<!--
+  The wide header: the app icon, name and the three games beside three
+  iPhones. 16:9, so it also fits an in-app event card (1920x1080) and the top
+  of a web page. render.mjs opens it at 1920x1080 (and at 2x) and passes the
+  iPhone screens as ?spin=, ?flappy= and ?tower=.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="device.css">
+<script src="icons.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; }
+  body {
+    position: relative; font-family: "Poppins", sans-serif; color: #fff; -webkit-font-smoothing: antialiased;
+    background: linear-gradient(115deg, #14146a 0%, #1E1E91 38%, #2b3fd0 75%, #3756E9 100%);
+  }
+  .glow { position: absolute; border-radius: 50%; filter: blur(140px); pointer-events: none; }
+  .sq { position: absolute; background: rgba(255, 255, 255, 0.06); }
+
+  .copy { position: absolute; left: 130px; top: 0; bottom: 0; width: 780px; display: flex; flex-direction: column; justify-content: center; z-index: 2; }
+  .icon { width: 168px; height: 168px; border-radius: 38px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(4, 6, 40, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.18); }
+  .icon img { width: 100%; height: 100%; display: block; }
+  h1 { font-size: 100px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; margin-top: 44px; }
+  h2 { font-size: 60px; font-weight: 700; line-height: 1.15; margin-top: 24px; letter-spacing: -0.01em; }
+  p { font-size: 38px; font-weight: 500; color: rgba(255, 255, 255, 0.78); margin-top: 12px; }
+  h2 .gold { background: linear-gradient(180deg, #ffd978, #ffb43a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .games { display: flex; gap: 18px; margin-top: 50px; }
+  .chip { display: flex; align-items: center; gap: 14px; font-size: 32px; font-weight: 600; padding: 12px 26px 12px 12px;
+    border-radius: 99px; background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16); }
+  .chip .dot { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; }
+  .chip svg { width: 28px; height: 28px; fill: #fff; }
+
+  .phones { position: absolute; right: 40px; top: 0; width: 900px; height: 1080px; z-index: 1; }
+  .phones .device { position: absolute; left: 50%; top: 50%; transform-origin: 50% 50%; }
+</style>
+</head>
+<body>
+<script>
+const q = new URLSearchParams(location.search);
+let seed = 4242;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+let html = `<div class="glow" style="width:1100px;height:1100px;left:900px;top:80px;background:#5B7CFA;opacity:.5"></div>
+  <div class="glow" style="width:700px;height:700px;left:-200px;top:-300px;background:#5B7CFA;opacity:.3"></div>`;
+for (let i = 0; i < 12; i++) {
+  const s = 60 + rnd() * 110;
+  html += `<div class="sq" style="width:${s}px;height:${s}px;left:${rnd() * 1920}px;top:${rnd() * 1080 - s / 2}px;border-radius:${s * 0.18}px;transform:rotate(${(rnd() - 0.5) * 70}deg)"></div>`;
+}
+
+const svg = name => `<svg viewBox="0 0 ${ICONS[name][0]} ${ICONS[name][1]}"><path d="${ICONS[name][2]}"/></svg>`;
+const chip = (title, icon, tint) => `<div class="chip"><span class="dot" style="background:${tint}">${svg(icon)}</span>${title}</div>`;
+html += `<div class="copy">
+  <div class="icon"><img src="../../Empanadas/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt=""></div>
+  <h1>Empanadas.io</h1>
+  <h2>Spin, flap and <span class="gold">stack.</span></h2>
+  <p>Three games, one empanada.</p>
+  <div class="games">${chip('Spin', 'spin', '#2E82EF')}${chip('Flappy', 'bird', '#17A673')}${chip('Tower', 'stack', '#E0891B')}</div>
+</div>`;
+
+// Three iPhones, the middle one in front. --w is the screen's width.
+const phone = (img, w, dx, dy, angle, z) => {
+  const h = w * (956 / 440 + 2 * 0.032), outer = w * (1 + 2 * 0.032);
+  return `<div class="device iphone" style="--w:${w}px;z-index:${z};margin-left:${-outer / 2 + dx}px;margin-top:${-h / 2 + dy}px;transform:rotate(${angle}deg)">
+    <img src="${img}" alt=""><div class="island"></div></div>`;
+};
+html += `<div class="phones">
+  ${phone(q.get('flappy'), 310, -245, 60, -9, 1)}
+  ${phone(q.get('tower'), 310, 245, 60, 9, 1)}
+  ${phone(q.get('spin'), 360, 0, 10, 0, 2)}
+</div>`;
+document.body.insertAdjacentHTML('beforeend', html);
+</script>
+</body>
+</html>

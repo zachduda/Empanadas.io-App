@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Native screens</title>
+<!--
+  The app's native screens, drawn in HTML for the App Store screenshots:
+  Home (HomeView.swift), Home scrolled to Spin Progress and Friends, and the
+  Leaderboard (LeaderboardView.swift), with demo data. Sizes, colours and
+  wording follow the SwiftUI code and Palette in Components.swift. Rendered by
+  render.mjs at 440x956 (iPhone 6.9") and 1032x1376 (iPad 13").
+
+  ?screen=home|friends|leaderboard  &device=phone|pad
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<script src="icons.js"></script>
+<style>
+  :root {
+    --bg: #F2F2F7;            /* systemGroupedBackground */
+    --card: #FFFFFF;          /* secondarySystemGroupedBackground */
+    --label: #000;
+    --secondary: rgba(60, 60, 67, 0.6);
+    --tertiary: rgba(60, 60, 67, 0.3);
+    --separator: rgba(60, 60, 67, 0.18);
+    --fill: rgba(120, 120, 128, 0.12);
+    --accent: #3756E9;
+    --brand: #1E1E91;
+    --spin: #2E82EF; --flappy: #17A673; --tower: #E0891B; --friends: #7952B3;
+    --peppers: #D9534F; --experience: #2DD67F; --chart: #4FB9FF; --pumpkin: #F08000;
+    --online: #2DD67F; --idle: #F0AD4E;
+    --gold: #F5B301; --silver: #A7B1BC; --bronze: #C8834B;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+    font-size: 17px; letter-spacing: -0.2px; color: var(--label);
+    -webkit-font-smoothing: antialiased; position: relative;
+  }
+  .ico { display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em; fill: currentColor; flex: none; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Status bar */
+  .status { position: absolute; left: 0; right: 0; top: 0; height: 62px; z-index: 30; display: flex; align-items: center;
+    justify-content: space-between; padding: 6px 34px 0 52px; font-weight: 600; font-size: 17px; letter-spacing: -0.3px; }
+  .status .right { display: flex; gap: 7px; align-items: center; }
+  .pad .status { height: 32px; padding: 0 22px 0 26px; font-size: 14px; }
+  .pad .status .date { font-weight: 600; margin-left: 6px; }
+
+  /* Navigation bar: the large title, then the inline one once scrolled */
+  .nav { position: absolute; left: 0; right: 0; top: 0; z-index: 20; }
+  .nav .bar { height: 106px; display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 16px 6px; }
+  .nav .glassbtn { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
+    background: rgba(255,255,255,0.72); box-shadow: 0 1px 6px rgba(0,0,0,0.08), inset 0 0 0 0.5px rgba(0,0,0,0.06);
+    backdrop-filter: blur(20px); }
+  .nav h1 { font-size: 34px; font-weight: 700; letter-spacing: 0.2px; padding: 2px 16px 10px; line-height: 41px; }
+  .nav.inline { background: linear-gradient(to bottom, rgba(242,242,247,0.96) 70%, rgba(242,242,247,0)); }
+  .nav.inline .bar { justify-content: center; align-items: flex-end; height: 106px; padding-bottom: 16px; position: relative; }
+  .nav.inline .bar .title { font-size: 17px; font-weight: 600; }
+  .nav.inline .bar .glassbtn { position: absolute; right: 16px; bottom: 6px; }
+  .pad .nav .bar { height: 32px; }
+  .pad .nav h1 { padding: 76px 24px 10px; }
+  .pad .nav .glassbtn { position: absolute; top: 41px; right: 24px; }
+
+  /* Tab bar: iOS 26's floating glass bar on iPhone, the tab strip on top on iPad */
+  .tabbar { position: absolute; z-index: 25; display: flex; align-items: center; }
+  .phone .tabbar { left: 21px; right: 21px; bottom: 22px; height: 62px; border-radius: 31px; padding: 4px;
+    background: rgba(250,250,252,0.86); backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.12), inset 0 0 0 0.5px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9); }
+  .phone .tab { flex: 1; height: 54px; border-radius: 27px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; font-size: 10px; font-weight: 600; color: #1c1c1e; letter-spacing: 0; }
+  .phone .tab .ico { font-size: 21px; }
+  .phone .tab.on { background: rgba(120,120,128,0.13); color: var(--accent); }
+  .pad .tabbar { top: 38px; left: 50%; transform: translateX(-50%); height: 50px; border-radius: 25px; padding: 4px; gap: 2px;
+    background: rgba(250,250,252,0.8); backdrop-filter: blur(24px);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.1), inset 0 0 0 0.5px rgba(0,0,0,0.08); }
+  .pad .tab { height: 42px; padding: 0 20px; border-radius: 21px; display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 600; color: #1c1c1e; }
+  .pad .tab .ico { font-size: 16px; }
+  .pad .tab.on { background: rgba(120,120,128,0.14); color: var(--accent); }
+  .homeind { position: absolute; z-index: 40; bottom: 8px; left: 50%; transform: translateX(-50%); width: 146px; height: 5px;
+    border-radius: 3px; background: #000; }
+  .pad .homeind { width: 320px; bottom: 7px; }
+
+  /* Content */
+  .scroll { position: absolute; left: 0; right: 0; top: 159px; padding: 0 16px; }
+  .pad .scroll { top: 166px; padding: 0 24px; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--card); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .card-h { display: flex; align-items: baseline; gap: 8px; font-size: 17px; font-weight: 600; }
+  .card-h .ico { margin-right: 4px; }
+  .card-h .aside { margin-left: auto; font-size: 15px; font-weight: 400; color: var(--secondary); }
+
+  .hero { border-radius: 24px; padding: 20px; color: #fff; display: flex; flex-direction: column; gap: 16px;
+    background: linear-gradient(135deg, var(--brand), #4A5BF0); }
+  .hero .top { display: flex; gap: 16px; align-items: center; }
+  .hero h2 { font-size: 22px; font-weight: 700; letter-spacing: 0; }
+  .hero p { font-size: 15px; opacity: 0.85; margin-top: 4px; line-height: 20px; }
+  .hero .btns { display: flex; gap: 10px; }
+  .hero .btn { font-size: 15px; font-weight: 600; padding: 9px 14px; border-radius: 99px; background: rgba(255,255,255,0.18);
+    display: flex; gap: 6px; align-items: center; }
+
+  .avatar { border-radius: 50%; display: grid; place-items: center; flex: none; overflow: hidden;
+    font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif; line-height: 1; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border-radius: 16px; padding: 12px; display: flex; gap: 12px; align-items: center; }
+  .tile .badge { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 17px; flex: none; }
+  .tile b { font-size: 17px; font-weight: 600; display: block; line-height: 21px; }
+  .tile b span { color: var(--secondary); font-weight: 600; }
+  .tile small { font-size: 12px; color: var(--secondary); display: block; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+  .rows { display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
+  .rows div { display: flex; justify-content: space-between; }
+  .rows span { color: var(--secondary); }
+  .rows b { font-weight: 600; }
+  .meter { height: 8px; border-radius: 4px; background: rgba(0,0,0,0.08); overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 4px; }
+  .foot { display: flex; justify-content: space-between; font-size: 12px; color: var(--secondary); }
+  .play { margin-left: auto; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+  .play .ico { font-size: 11px; }
+
+  .seg { display: flex; background: var(--fill); border-radius: 9px; padding: 2px; font-size: 13px; font-weight: 500; }
+  .seg div { flex: 1; text-align: center; padding: 6px 0; border-radius: 7px; }
+  .seg .on { background: #fff; font-weight: 600; box-shadow: 0 3px 8px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.04); }
+
+  .friend { display: flex; gap: 12px; align-items: center; padding: 4px 0; }
+  .friend .who { flex: 1; }
+  .friend .who b { display: block; font-size: 15px; font-weight: 600; }
+  .friend .who small { font-size: 12px; color: var(--secondary); }
+  .dot { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; }
+  .pending { display: flex; gap: 10px; align-items: center; font-size: 15px; color: var(--friends); padding: 12px;
+    border-radius: 12px; background: rgba(121,82,179,0.12); }
+  .bordered { text-align: center; font-size: 15px; font-weight: 500; color: var(--accent); background: var(--fill);
+    border-radius: 99px; padding: 8px; }
+
+  /* Leaderboard: an inset grouped list */
+  .lb .seg { margin: 0 0 14px; font-size: 14px; }
+  .lb .seg div { padding: 7px 0; }
+  .sechead { display: flex; justify-content: space-between; text-transform: uppercase; font-size: 13px; color: var(--secondary);
+    padding: 0 16px 7px; letter-spacing: 0; }
+  .list { background: var(--card); border-radius: 26px; overflow: hidden; }
+  .lrow { display: flex; gap: 12px; align-items: center; padding: 8px 16px; min-height: 64px; position: relative; }
+  .lrow + .lrow::before { content: ""; position: absolute; top: 0; left: 112px; right: 0; height: 0.5px; background: var(--separator); }
+  .lrow.you { background: rgba(46,130,239,0.14); }
+  .rank { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; font-weight: 800;
+    color: var(--secondary); font-variant-numeric: tabular-nums; flex: none; }
+  .rank.medal { color: #fff; }
+  .lrow .who { flex: 1; min-width: 0; }
+  .lrow .who b { font-size: 17px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+  .lrow .who small { font-size: 12px; color: var(--secondary); white-space: nowrap; }
+  .youtag { font-size: 11px; font-weight: 700; color: #fff; background: var(--spin); padding: 2px 6px; border-radius: 99px; }
+  .score { text-align: right; }
+  .score b { display: block; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .score small { font-size: 11px; color: var(--secondary); }
+  .lrow .chev { color: var(--tertiary); font-size: 13px; margin-left: 4px; }
+  .secfoot { font-size: 13px; color: var(--secondary); padding: 7px 16px 0; }
+
+  .chart { height: 220px; position: relative; }
+  .chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .sum { display: flex; justify-content: space-between; align-items: baseline; }
+  .sum b { font-size: 22px; font-weight: 700; display: block; font-variant-numeric: tabular-nums; }
+  .sum small { font-size: 12px; color: var(--secondary); }
+  .sum .gain { text-align: right; }
+  .sum .gain b { font-size: 17px; font-weight: 600; color: var(--flappy); }
+  .xp { display: flex; gap: 8px; font-size: 20px; font-weight: 600; align-items: center; }
+  .xp .e { font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+</style>
+</head>
+<body>
+<script>
+const q = new URLSearchParams(location.search);
+const screen = q.get('screen') || 'home';
+const device = q.get('device') || 'phone';
+document.body.className = device;
+
+const icon = (name, style = '') => {
+  const [w, h, d] = ICONS[name];
+  return `<svg class="ico" viewBox="0 0 ${w} ${h}" style="${style}"><path d="${d}"/></svg>`;
+};
+const fmt = n => n.toLocaleString('en-US');
+
+// Demo players. Pictures are emoji on a gradient, so no real person's photo
+// ends up on the App Store.
+const P = {
+  mateo:  ['🦊', '#FFB36B', '#FF6A3D'],
+  luna:   ['🐼', '#C9D6FF', '#8EA2FF'],
+  carla:  ['🐸', '#B8F28C', '#3FB56B'],
+  paco:   ['🐙', '#FFC2E2', '#FF6FB1'],
+  sofi:   ['🦄', '#E5CCFF', '#A46BFF'],
+  dougie: ['🐯', '#FFE08A', '#FFB020'],
+  ari:    ['🐨', '#D7E3EA', '#9AB0BE'],
+  nico:   ['🐵', '#F3D2B3', '#C88B5A'],
+  jules:  ['🐳', '#B5E8FF', '#3BA7F5'],
+  bea:    ['🐝', '#FFF1A8', '#F5C400'],
+  kiki:   ['🐧', '#DDE6FF', '#7C93C8'],
+};
+const avatar = (who, size, extra = '') => {
+  const [e, a, b] = P[who];
+  return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.56)}px;background:linear-gradient(145deg,${a},${b});${extra}">${e}</div>`;
+};
+
+const statusBar = () => device === 'phone'
+  ? `<div class="status"><span>9:41</span><span class="right">
+      <svg width="19" height="12" viewBox="0 0 19 12"><rect x="0" y="8" width="3.2" height="4" rx="1"/><rect x="5" y="5.5" width="3.2" height="6.5" rx="1"/><rect x="10" y="3" width="3.2" height="9" rx="1"/><rect x="15" y="0" width="3.2" height="12" rx="1"/></svg>
+      <svg width="17" height="12" viewBox="0 0 17 12"><path d="M8.5 2.3c2.4 0 4.6.9 6.3 2.5l1.2-1.2C14 1.6 11.4.6 8.5.6S3 1.6 1 3.6l1.2 1.2C3.9 3.2 6.1 2.3 8.5 2.3zm0 3.4c1.5 0 2.8.5 3.9 1.5l1.2-1.2c-1.4-1.3-3.2-2-5.1-2s-3.7.7-5.1 2l1.2 1.2c1.1-1 2.4-1.5 3.9-1.5zm0 3.4c.6 0 1.1.2 1.5.6L8.5 11.2 7 9.7c.4-.4.9-.6 1.5-.6z"/></svg>
+      <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="3.8" fill="none" stroke="#000" stroke-opacity=".38"/><rect x="2" y="2" width="21" height="9" rx="2.5"/><path d="M26 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill-opacity=".45"/></svg>
+    </span></div>`
+  : `<div class="status"><span>9:41<span class="date">Mon Oct 12</span></span><span class="right">
+      <svg width="17" height="12" viewBox="0 0 17 12"><path d="M8.5 2.3c2.4 0 4.6.9 6.3 2.5l1.2-1.2C14 1.6 11.4.6 8.5.6S3 1.6 1 3.6l1.2 1.2C3.9 3.2 6.1 2.3 8.5 2.3zm0 3.4c1.5 0 2.8.5 3.9 1.5l1.2-1.2c-1.4-1.3-3.2-2-5.1-2s-3.7.7-5.1 2l1.2 1.2c1.1-1 2.4-1.5 3.9-1.5zm0 3.4c.6 0 1.1.2 1.5.6L8.5 11.2 7 9.7c.4-.4.9-.6 1.5-.6z"/></svg>
+      <span style="font-size:13px">100%</span>
+      <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="3.8" fill="none" stroke="#000" stroke-opacity=".38"/><rect x="2" y="2" width="21" height="9" rx="2.5"/><path d="M26 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill-opacity=".45"/></svg>
+    </span></div>`;
+
+const tabs = active => {
+  const items = [['house', 'Home'], ['gamecontroller', 'Games'], ['trophy', 'Leaderboard'], ['gear', 'Settings']];
+  return `<div class="tabbar">${items.map(([i, t]) =>
+    `<div class="tab ${t === active ? 'on' : ''}">${icon(i)}<span>${t}</span></div>`).join('')}</div>`;
+};
+
+const nav = (title, { inline = false, avatarBtn = false } = {}) => `
+  <div class="nav ${inline ? 'inline' : ''}">
+    <div class="bar">${inline ? `<span class="title">${title}</span>` : ''}${avatarBtn ? `<div class="glassbtn">${avatar('mateo', 32)}</div>` : ''}</div>
+    ${inline ? '' : `<h1>${title}</h1>`}
+  </div>`;
+
+const tile = (title, value, ic, color, suffix = '', emoji = '') => `
+  <div class="tile"><div class="badge" style="background:linear-gradient(${color}, color-mix(in srgb, ${color} 82%, #000))">${emoji ? `<span style="font-family:'Apple Color Emoji','Noto Color Emoji'">${emoji}</span>` : icon(ic)}</div>
+    <div><b class="num">${fmt(value)}${suffix ? `<span>${suffix}</span>` : ''}</b><small>${title}</small></div></div>`;
+
+const gameCard = (title, ic, color, rows, pct, label, value) => `
+  <div class="card">
+    <div class="card-h" style="align-items:center"><span style="color:${color}">${icon(ic)}</span>${title}
+      <span class="play" style="color:${color}">Play ${icon('chevron')}</span></div>
+    <div class="rows">${rows.map(([k, v]) => `<div><span>${k}</span><b class="num">${fmt(v)}</b></div>`).join('')}</div>
+    <div class="meter"><i style="width:${pct}%;background:linear-gradient(${color}, color-mix(in srgb, ${color} 80%, #fff))"></i></div>
+    <div class="foot"><span>${label}</span><span class="num">${value}</span></div>
+  </div>`;
+
+const hero = () => `
+  <div class="hero">
+    <div class="top">${avatar('mateo', 72, 'box-shadow:0 0 0 2px rgba(255,255,255,0.7)')}
+      <div><h2>Hey mateo 👋</h2><p>You've been an Empanada for 412 days.</p></div></div>
+    <div class="btns"><div class="btn">${icon('person')} My Profile</div><div class="btn">${icon('search')} Find Friends</div></div>
+  </div>`;
+
+const tiles = () => `<div class="tiles">
+  ${tile('Peppers', 1113, 'flame', 'var(--peppers)')}
+  ${tile('Lifetime Spins', 83254, 'spin', 'var(--spin)')}
+  ${tile('Flappy Best', 189, 'bird', 'var(--flappy)')}
+  ${tile('Tower Best', 31, 'stack', 'var(--tower)')}
+  ${tile('Friends Online', 4, 'friends', 'var(--friends)', '/12')}
+  ${tile('Pumpkins', 27, '', 'var(--pumpkin)', '', '🎃')}
+</div>`;
+
+const gameCards = () => `<div class="cards">
+  ${gameCard('Spin', 'spin', 'var(--spin)', [['Manual spins', 83254], ['Prestige', 12], ['Ascensions', 2]], 12, 'Prestige 12 of 100', '12.0% to Ascension')}
+  ${gameCard('Flappy', 'bird', 'var(--flappy)', [['Highest score', 189], ['Most recent', 143], ['Rounds played', 212]], 76, 'Last round vs. your best', '76%')}
+  ${gameCard('Tower', 'stack', 'var(--tower)', [['Tallest tower', 31], ['Most recent', 24], ['Runs played', 97]], 77, 'Last tower vs. your best', '77%')}
+</div>`;
+
+// 30 days of lifetime spins, for the Spin Progress chart.
+function spinChart(W) {
+  const days = 30, end = 83254, gained = 4812;
+  let pts = [], total = end - gained, seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const daily = Array.from({ length: days }, (_, i) => 40 + rnd() * 260 + (i > 18 ? 140 : 0) + (i % 7 === 5 ? 120 : 0));
+  const k = gained / daily.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < days; i++) { total += daily[i] * k; pts.push(total); }
+  const H = 220, lo = Math.min(...pts) - 600, hi = Math.max(...pts) + 300;
+  const x = i => (i / (days - 1)) * (W - 70), y = v => H - 26 - ((v - lo) / (hi - lo)) * (H - 40);
+  const line = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const ticks = [80000, 81500, 83000].map(v => `<line x1="0" x2="${W - 70}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(60,60,67,.18)" stroke-dasharray="4 5"/>
+    <text x="${W - 62}" y="${y(v) + 4}" font-size="11" fill="rgba(60,60,67,.6)">${(v / 1000).toFixed(1).replace('.0', '')}K</text>`).join('');
+  const labels = ['Sep 13', 'Sep 20', 'Sep 27', 'Oct 4', 'Oct 11'].map((t, i) => `<text x="${x(i * 7)}" y="${H}" font-size="11" fill="rgba(60,60,67,.6)" text-anchor="${i ? 'middle' : 'start'}">${t}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FB9FF" stop-opacity=".38"/><stop offset="1" stop-color="#4FB9FF" stop-opacity=".02"/></linearGradient></defs>
+    ${ticks}
+    <path d="${line}L${x(days - 1)},${H - 26}L0,${H - 26}Z" fill="url(#fill)"/>
+    <path d="${line}" fill="none" stroke="#4FB9FF" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${labels}
+  </svg>`;
+}
+
+const chartCard = () => `
+  <div class="card">
+    <div class="card-h"><span style="color:var(--chart)">${icon('chart')}</span>Spin Progress</div>
+    <div class="sum"><div><b>83,254</b><small>Lifetime spins</small></div><div class="gain"><b>+4,812</b><small>This Month</small></div></div>
+    <div class="seg"><div class="on">Total</div><div>Per Day</div></div>
+    <div class="chart"></div>
+    <div class="seg"><div>1W</div><div class="on">1M</div><div>3M</div><div>1Y</div><div>All</div></div>
+  </div>`;
+
+const friendRow = (who, state, label) => `
+  <div class="friend"><div style="position:relative">${avatar(who, 38)}<span class="dot" style="background:${{ online: 'var(--online)', idle: 'var(--idle)' }[state] || 'rgba(142,142,147,.6)'}"></span></div>
+    <div class="who"><b>${who}</b><small>${label}</small></div><span style="color:var(--tertiary);font-size:12px">${icon('chevron')}</span></div>`;
+
+const friendsCard = () => `
+  <div class="card">
+    <div class="card-h"><span style="color:var(--friends)">${icon('friends')}</span>Friends<span class="aside">4 online</span></div>
+    <div class="pending">${icon('personplus')}<span><b>2</b> friend requests waiting</span><span style="margin-left:auto;font-size:11px">${icon('chevron')}</span></div>
+    <div>
+      ${friendRow('luna', 'online', 'Online')}
+      ${friendRow('carla', 'online', 'Online')}
+      ${friendRow('paco', 'online', 'Online')}
+      ${friendRow('sofi', 'idle', 'Idle')}
+      ${friendRow('dougie', 'online', 'Online')}
+      ${friendRow('ari', 'off', '3 hours ago')}
+    </div>
+    <div class="bordered">See all 12 friends</div>
+  </div>`;
+
+const xpCard = () => `
+  <div class="card">
+    <div class="card-h"><span style="color:var(--experience)">${icon('star')}</span>Experience<span class="aside">742 XP</span></div>
+    <div class="xp"><span class="e">🔥</span>Grand Empanada</div>
+    <div class="meter"><i style="width:48%;background:linear-gradient(#2DD67F,#5fe39c)"></i></div>
+    <div class="foot"><span>258 XP to Eldest Empanada</span><span>48%</span></div>
+    <div class="bordered">View Breakdown</div>
+  </div>`;
+
+function leaderboard() {
+  const rows = [
+    ['dougie', 412870, '6 ascensions · Prestige 44'],
+    ['luna', 288104, '4 ascensions · Prestige 71'],
+    ['jules', 251932, '3 ascensions · Prestige 38'],
+    ['carla', 190455, '2 ascensions · Prestige 90'],
+    ['bea', 143018, '2 ascensions · Prestige 7'],
+    ['paco', 120777, '1 ascension · Prestige 63'],
+    ['nico', 98410, '1 ascension · Prestige 12'],
+    ['mateo', 83254, '2 ascensions · Prestige 12', true],
+    ['sofi', 79902, 'Prestige 81'],
+    ['ari', null, 'Private profile'],
+    ['kiki', 51230, 'Prestige 40'],
+    ['jules', 47716, 'Prestige 29'],
+    ['bea', 40122, 'Prestige 18'],
+    ['carla', 36508, 'Prestige 9'],
+  ];
+  const medal = ['var(--gold)', 'var(--silver)', 'var(--bronze)'];
+  const names = { 6: 'nico.spins', 4: 'beatriz', 3: 'chefcarla', 11: 'julesy', 12: 'bea_bakes', 13: 'carlita' };
+  return `<div class="lb">
+    <div class="seg"><div class="on">Spin</div><div>Flappy</div><div>Tower</div></div>
+    <div class="sechead"><span>Most Manual Spins</span><span style="text-transform:none">Updated just now</span></div>
+    <div class="list">${rows.map(([who, score, detail, you], i) => `
+      <div class="lrow ${you ? 'you' : ''}">
+        <div class="rank ${i < 3 ? 'medal' : ''}" style="${i < 3 ? `background:linear-gradient(${medal[i]}, color-mix(in srgb, ${medal[i]} 78%, #000))` : ''}">${i + 1}</div>
+        ${avatar(who, 42)}
+        <div class="who"><b>${names[i] || who}${you ? '<span class="youtag">You</span>' : ''}</b><small>${detail}</small></div>
+        ${score === null ? `<span style="color:var(--secondary)">${icon('lock')}</span>` : `<div class="score"><b>${fmt(score)}</b><small>Spins</small></div>`}
+        <span class="chev">${icon('chevron')}</span>
+      </div>`).join('')}
+    </div>
+    <div class="secfoot">Private profiles keep their place, but not their scores.</div>
+  </div>`;
+}
+
+let html = statusBar();
+if (screen === 'home') {
+  html += nav('Home', { avatarBtn: true });
+  html += `<div class="scroll"><div class="stack">${hero()}${tiles()}${gameCards()}${device === 'pad'
+    ? `<div class="cards">${chartCard()}${friendsCard()}${xpCard()}</div>` : ''}</div></div>`;
+  html += tabs('Home');
+} else if (screen === 'friends') {
+  // Home, scrolled down past the game cards.
+  html += nav('Home', { inline: true, avatarBtn: true });
+  html += `<div class="scroll" style="top:${device === 'pad' ? 104 : 118}px"><div class="cards">${chartCard()}${friendsCard()}${xpCard()}</div></div>`;
+  html += tabs('Home');
+} else if (screen === 'leaderboard') {
+  html += nav('Leaderboards');
+  html += `<div class="scroll">${leaderboard()}</div>`;
+  html += tabs('Leaderboard');
+}
+html += '<div class="homeind"></div>';
+document.body.insertAdjacentHTML('beforeend', html);
+// The chart is drawn at the width its card ended up, so its labels aren't stretched.
+document.querySelectorAll('.chart').forEach(c => { c.innerHTML = spinChart(c.clientWidth); });
+</script>
+</body>
+</html>
