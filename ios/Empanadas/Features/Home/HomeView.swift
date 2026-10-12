@@ -33,6 +33,7 @@ struct HomeView: View {
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 24)
+                .readableWidth(ReadableWidth.wide)
                 .animation(.smooth, value: model.isOnline)
                 .animation(.smooth, value: dashboard.data == nil)
             }
@@ -119,16 +120,15 @@ private struct DashboardContent: View {
     let show: (ProfileRoute) -> Void
     let open: (WebLink) -> Void
 
-    private let tileColumns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
-    private let cardColumns = [GridItem(.adaptive(minimum: 320), spacing: 16, alignment: .top)]
-
     var body: some View {
         VStack(spacing: 16) {
             HeroCard(account: data.account, pictureURL: data.pictureURL, show: show, open: open)
 
             nudge
 
-            LazyVGrid(columns: tileColumns, spacing: 12) {
+            // Wide enough for "Lifetime Spins" and "Friends Online": on an
+            // iPad in portrait, six tiles in a row cut them short.
+            BalancedGrid(minItemWidth: 165, spacing: 12) {
                 StatTile(title: "Peppers", value: data.peppers, systemImage: "flame.fill", tint: Palette.peppers)
                 StatTile(title: "Lifetime Spins", value: data.spin.lifetime,
                          systemImage: Game.spin.systemImage, tint: Palette.spin)
@@ -148,7 +148,10 @@ private struct DashboardContent: View {
                 }
             }
 
-            LazyVGrid(columns: cardColumns, spacing: 16) {
+            // Side by side once there is room for all three. Room for two
+            // (Split View, a phone on its side) puts the third under them,
+            // the whole width.
+            BalancedGrid(minItemWidth: 250, fillsLastRow: true) {
                 ForEach(Game.allCases) { game in
                     GameStatsCard(game: game, data: data) {
                         Haptics.play("light")
@@ -157,7 +160,7 @@ private struct DashboardContent: View {
                 }
             }
 
-            LazyVGrid(columns: cardColumns, spacing: 16) {
+            MasonryColumns(minColumnWidth: 340) {
                 SpinChartCard(history: data.spinHistory)
                 FriendsCard(friends: data.friends, show: show)
                 ExperienceCard(xp: data.xp, show: show)

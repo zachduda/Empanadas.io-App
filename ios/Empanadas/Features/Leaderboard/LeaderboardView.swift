@@ -61,6 +61,7 @@ struct LeaderboardView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .readableListWidth()
             .navigationTitle("Leaderboards")
             .glassNavigationBar()
             .toolbar {

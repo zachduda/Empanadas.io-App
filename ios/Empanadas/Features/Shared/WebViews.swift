@@ -142,14 +142,24 @@ struct ConnectionErrorView: View {
     }
 }
 
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+/// The system share sheet, over whatever is in front, the game player
+/// included. On an iPad or a Mac it is a popover, which has to point
+/// somewhere: the middle of the window, without an arrow, since the page that
+/// asked has no button the app can see. Inside a SwiftUI sheet, as it was, it
+/// came up there as a large, mostly empty sheet, and not at all over a game.
+@MainActor
+enum ShareSheet {
+    static func present(_ items: [Any]) {
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        guard let presenter = Dialogs.frontmost() else { return }
+        if let popover = controller.popoverPresentationController {
+            let bounds = presenter.view.bounds
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(x: bounds.midX, y: bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        presenter.present(controller, animated: true)
     }
-
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// A site page the app opens on its own, outside any tab: what a sign-in

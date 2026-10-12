@@ -24,6 +24,7 @@ App Review expects.
 | **Quick actions** | Play Flappy / Spin / Tower from the Home Screen icon. |
 | **Haptics** | The games' own `navigator.vibrate()` calls (a manual spin, a Flappy crash, a Tower slip or topple) play native haptics: WebKit on iOS has no Vibration API, so `Resources/bridge.js` fills it in, and the Haptics switch in Settings turns it off. Pages can also call `window.empanadasApp.haptic(style)` directly. Tested by `test/iosbridge.test.js` (`npm test`). |
 | **Offline** | Home, Leaderboard and Settings keep their last good answer on the device (`Core/OfflineStore.swift`) and open with it at launch and without a connection, saying when it was saved. Settings can't be changed offline. Profile pictures are cached on disk. A game opened offline starts from the copy in WebKit's cache, so any game played online before works offline; the games keep their saves on the device and sync them when back online. Everything refreshes when the connection returns. |
+| **iPad and Mac** | One app for iPhone and iPad, which also runs on Apple silicon Macs as an iPad app, in a window that can be as wide as the display. On a wide window the native screens stop growing and centre: the dashboard and profiles at 1100 points, in two columns of cards that each go to the shorter column; lists, forms, search and the games at 720 (`ReadableWidth` in `Features/Shared/Components.swift`). The stat tiles and game cards fill their rows evenly rather than leaving holes (`BalancedGrid`). The share sheet is a popover there, and Settings' questions point at the button that asked. Narrower than that, as in Split View, they are the phone's screens. |
 | **Deep links** | `empanadas-io://home`, `://leaderboard`, `://settings`, `://play/<game>`, `://profile`, `://profile/<id>`, `://friends` and `://feedback` (`?reason=<subject>`) open native screens. `://signin?code=` finishes a sign-in the app started, and `://auth?...` connecting a provider, each only while one is under way. Anything else is ignored. |
 
 The navigation rules (`Core/SiteURLs.swift`) port `lib/urls.js` one-for-one,
@@ -51,7 +52,22 @@ xcodebuild test -project Empanadas.xcodeproj -scheme Empanadas \
   -destination 'platform=iOS Simulator,name=iPhone 16' CODE_SIGNING_ALLOWED=NO
 ```
 
-The `iOS` GitHub Actions workflow does the same on every change under `ios/`.
+The `iOS` GitHub Actions workflow does the same on every change under `ios/`,
+on an iPhone simulator and again on the largest iPad one.
+
+Both runs also draw the native screens with a made-up account
+(`EmpanadasTests/ScreenshotTests.swift`): the iPhone's own screen, and on the
+iPad its screen both ways round, Split View and a 1600-point Mac window. They
+are uploaded as the run's **screenshots** artifact, for checking a layout
+change at every size without a device. To draw them locally, give the test a
+folder (it signs the simulator's copy of the app in as the made-up account,
+so it is skipped otherwise):
+
+```sh
+TEST_RUNNER_SCREENSHOTS_DIR=/tmp/screenshots xcodebuild test -project Empanadas.xcodeproj \
+  -scheme Empanadas -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' \
+  -only-testing:EmpanadasTests/ScreenshotTests CODE_SIGNING_ALLOWED=NO
+```
 
 ## Before it works end to end
 

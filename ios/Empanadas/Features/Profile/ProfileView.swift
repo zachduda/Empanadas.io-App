@@ -43,6 +43,7 @@ struct ProfileView: View {
             }
             .padding(.horizontal)
             .padding(.bottom, 24)
+            .readableWidth(ReadableWidth.wide)
             .animation(.smooth, value: profile.profile)
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -179,8 +180,6 @@ private struct ProfileContent: View {
     let editBio: () -> Void
     let remove: (Removal) -> Void
 
-    private let columns = [GridItem(.adaptive(minimum: 320), spacing: 16, alignment: .top)]
-
     var body: some View {
         VStack(spacing: 16) {
             ProfileHero(data: data, editBio: editBio)
@@ -189,7 +188,7 @@ private struct ProfileContent: View {
                 RelationshipCard(data: data, profile: profile, remove: remove)
             }
 
-            LazyVGrid(columns: columns, spacing: 16) {
+            MasonryColumns(minColumnWidth: 340) {
                 if let friends = data.friends {
                     ProfileFriendsCard(data: data, friends: friends, profile: profile, remove: remove)
                 }

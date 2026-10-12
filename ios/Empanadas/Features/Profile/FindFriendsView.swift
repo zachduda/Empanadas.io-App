@@ -17,6 +17,7 @@ struct FindFriendsView: View {
             }
             .padding(.horizontal)
             .padding(.bottom, 24)
+            .readableWidth(ReadableWidth.narrow)
         }
         .scrollDismissesKeyboard(.immediately)
         .background(Color(uiColor: .systemGroupedBackground))

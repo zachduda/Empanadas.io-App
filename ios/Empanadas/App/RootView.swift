@@ -24,12 +24,10 @@ struct RootView: View {
                 .id(game)
         }
         .background {
-            // Separate hosts, so a popup and a share sheet never fight over
-            // the same presentation.
+            // Separate hosts, so a popup and a page never fight over the same
+            // presentation.
             Color.clear
                 .sheet(item: $model.popup) { PopupView(page: $0) }
-            Color.clear
-                .sheet(item: $model.shareItem) { ShareSheet(items: [$0.url]) }
             Color.clear
                 .sheet(item: $model.webSheet) { WebSheetView(link: $0) }
         }
