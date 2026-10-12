@@ -109,6 +109,8 @@ final class AppModel {
             signOutOnSite()
         }
         monitorConnection()
+        // Before the first request needs it, and outside any Swift task.
+        WebEnvironment.readUserAgent()
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
