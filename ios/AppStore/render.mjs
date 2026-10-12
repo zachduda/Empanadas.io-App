@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Draws the App Store screenshots and header in ios/AppStore/. See README.md.
+// Draws the App Store screenshots and creative assets in ios/AppStore/. See
+// README.md.
 //
 //   node ios/AppStore/render.mjs [--site ../Empanadas-io/html] [--compose-only]
 //
@@ -10,7 +11,9 @@
 //     zachduda/Empanadas-io's html/), played to a good moment with demo
 //     numbers. Home, Friends and Leaderboard are templates/native.html.
 //  2. The App Store images: each screen in a device frame under its caption
-//     (templates/shot.html), and the wide header (templates/header.html).
+//     (templates/shot.html), and the creative assets: the product page header,
+//     the search results image, the universal asset that can be both, and the
+//     in-app event card (templates/creative.html).
 //
 // --compose-only skips step 1 and uses whatever is in screens/, so a capture
 // from the Simulator can take the place of any screen: save it under the
@@ -47,6 +50,18 @@ const SHOTS = [
 		title: 'Climb the|*leaderboards*', sub: 'See where you stand in Spin, Flappy and Tower.' },
 	{ name: '06-friends', screen: 'friends', tag: 'Friends', icon: 'friends', tint: '#7952B3', iphoneOnly: true,
 		title: 'Play with|your *friends*', sub: "See who's online and how far your spins have come." },
+];
+
+// The creative assets, at Apple's sizes (creative assets specifications in the
+// App Store Connect help). Each kind is laid out at size / scale, then
+// rendered at scale. The header's size is exact; search results takes 1920x1280
+// to 3840x2560, and the event card 1920x1080 to 3840x2160.
+const CREATIVE = [
+	{ kind: 'header', out: 'product-page-header-3840x1646.png', size: [3840, 1646], scale: 2 },
+	{ kind: 'search', out: 'search-results-3840x2560.png', size: [3840, 2560], scale: 2 },
+	{ kind: 'universal', out: 'universal-5244x2950.png', size: [5244, 2950], scale: 2 },
+	{ kind: 'event', out: 'event-card-3840x2160.png', size: [3840, 2160], scale: 2 },
+	{ kind: 'event', out: 'event-card-1920x1080.png', size: [1920, 1080], scale: 1 },
 ];
 
 // The sizes App Store Connect asks for: iPhone 6.9" and iPad 13". The screen
@@ -88,12 +103,12 @@ try {
 		}
 	}
 
-	fs.mkdirSync(path.join(HERE, 'header'), { recursive: true });
+	fs.mkdirSync(path.join(HERE, 'creative'), { recursive: true });
 	const phones = { spin: screenFile('iphone', 'spin'), flappy: screenFile('iphone', 'flappy'), tower: screenFile('iphone', 'tower') };
-	for (const scale of [1, 2]) {
-		const out = path.join(HERE, 'header', scale === 1 ? 'header-1920x1080.png' : 'header-3840x2160.png');
-		console.log(`compose ${path.relative(HERE, out)}`);
-		await render('header.html', phones, [1920, 1080], scale, out);
+	for (const { kind, out, size: [width, height], scale } of CREATIVE) {
+		const file = path.join(HERE, 'creative', out);
+		console.log(`compose ${path.relative(HERE, file)}`);
+		await render('creative.html', { kind, ...phones }, [width / scale, height / scale], scale, file);
 	}
 } finally {
 	await browser.close();

@@ -1,14 +1,14 @@
 # App Store art
 
-The screenshots and header for the iOS app's App Store listing, and the
-script that draws them. The images are committed, so you can upload them as
+The screenshots and creative assets (product page header, search results)
+for the iOS app's App Store listing, and the script that draws them. The images are committed, so you can upload them as
 they are. Run the script again after changing a caption, a screen or the app.
 
 | Folder | What | Size |
 |---|---|---|
 | `iphone-6.9/` | iPhone screenshots, 6.9" display | 1320 × 2868 |
 | `ipad-13/` | iPad screenshots, 13" display | 2064 × 2752 |
-| `header/` | Wide header, 16:9 | 1920 × 1080 and 3840 × 2160 |
+| `creative/` | Product page header, search results, universal asset, in-app event card | see below |
 | `screens/` | The bare screens the screenshots are made from | device resolution |
 
 App Store Connect scales the 6.9" and 13" sets down for smaller devices, so
@@ -32,13 +32,46 @@ three games.
 
 The captions are in `SHOTS` at the top of `render.mjs`.
 
-## The header
+## Creative assets
 
-The app icon, name and the three games beside three iPhones. At 16:9 it
-works as an in-app event card (1920 × 1080), a promotional image for App
-Store featuring, or the top of a web page or README. Apple puts its own text
-over the bottom of event cards, so keep anything important out of the bottom
-third if you use it there.
+New in iOS 27 and iPadOS 27: a header across the top of the product page, and
+an image in search results in place of the first screenshots. Both are
+optional. Upload them under Product Page Information > Header and Search
+Results on the version page, or in Asset Library, where they can be approved
+ahead of a release. Sizes are Apple's
+[creative assets specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications):
+
+| File | Placement | Apple's size |
+|---|---|---|
+| `product-page-header-3840x1646.png` | Product page header | 21:9, exactly 3840 × 1646 |
+| `search-results-3840x2560.png` | Search results | 3:2, 1920 × 1280 up to 3840 × 2560 |
+| `universal-5244x2950.png` | Either, or both | 16:9, exactly 5244 × 2950, PNG only |
+| `event-card-3840x2160.png`, `event-card-1920x1080.png` | In-app event card | 16:9, 1920 × 1080 up to 3840 × 2160 |
+
+Use either the header and search results pair, or the universal asset for
+both: with a universal asset, App Store Connect offers "Use header asset in
+search results". None of them has an alpha channel, which Apple doesn't allow.
+
+- **Header and universal:** "Spin, flap and stack." beside the three games on
+  iPhones. No app name or icon: the product page shows both right there, and
+  a name ending in .io could read as a web address, which Apple asks assets
+  not to show.
+- **Search results:** the three games side by side, each named. Apple's advice
+  for this placement is to make the app's purpose obvious and show the
+  gameplay.
+- **Event card:** the icon and name, for when the card turns up away from the
+  product page. Only needed if you run an in-app event, which also takes a
+  9:16 image for its details page (not made here).
+
+Apple's templates
+([best practices and templates](https://developer.apple.com/app-store/asset-best-practices/))
+mark the exact safe areas. These are worked out from the crops instead: the
+universal asset is cut to 21:9 for the header and to 3:2 for search, an
+upright iPhone trims a further 8% or so off each side of the header, and the
+back and share buttons sit over its top corners. Everything that matters
+stays inside what all of those leave. Before submitting, check them in App
+Store Connect's Preview, which shows each device and orientation. To see the
+boxes used, open `templates/creative.html?kind=universal&guides=1`.
 
 ## Where the screens come from
 
@@ -96,7 +129,7 @@ it draw them offline.
 |---|---|
 | `render.mjs` | Captures the screens, then composes everything |
 | `templates/shot.html` | One screenshot: caption, backdrop and device |
-| `templates/header.html` | The header |
+| `templates/creative.html` | The creative assets and event card |
 | `templates/native.html` | The native screens |
 | `templates/device.css` | The iPhone and iPad frames, drawn in CSS |
 | `templates/icons.js` | Icons ([Font Awesome Free](https://fontawesome.com), CC BY 4.0) |

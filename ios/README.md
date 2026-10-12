@@ -75,8 +75,9 @@ nobody can sign in.
 - Replace the app icon if you want a dedicated one. The current one is
   `icon.png` from the desktop app, scaled up.
 - Add screenshots, a description, a support URL and a privacy policy URL in
-  App Store Connect. The screenshots (iPhone 6.9" and iPad 13") and a wide
-  header are in [AppStore/](AppStore/README.md).
+  App Store Connect. The screenshots (iPhone 6.9" and iPad 13") and the
+  iOS 27 creative assets (product page header, search results) are in
+  [AppStore/](AppStore/README.md).
 - Licensing: the repo is GPL-3.0, and App Store terms are widely considered
   incompatible with the GPL for code the publisher doesn't own outright. As
   the copyright holder you can publish your own code. Be careful with outside
