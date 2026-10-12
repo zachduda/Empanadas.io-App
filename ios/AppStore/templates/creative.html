@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App Store creative asset</title>
+<!--
+  The App Store's creative assets (iOS 27 and later) and the in-app event card,
+  from one design: "Spin, flap and stack." beside, or above, the three games
+  on iPhones. render.mjs opens it at the size the kind is laid out at, and
+  renders at 2x where Apple wants more pixels:
+
+    kind=header     product page header, 21:9   1920x823   -> 3840x1646
+    kind=search     search results, 3:2         1920x1280  -> 3840x2560
+    kind=universal  both of those, 16:9         2622x1475  -> 5244x2950
+    kind=event      in-app event card, 16:9     1920x1080  -> 1920x1080, 3840x2160
+
+  and passes the iPhone screens as ?spin=, ?flappy= and ?tower=. ?guides=1
+  draws the safe area and, for the universal asset, the two crops.
+
+  Apple's templates carry the exact safe areas; these are worked out from the
+  crops instead. The universal asset is cut to 21:9 for the header (losing top
+  and bottom) and to 3:2 for search (losing the sides), and an iPhone held
+  upright trims a further 8% or so off each side of the header. The back and
+  share buttons sit over the header's top corners. So everything that matters
+  stays inside the box all of those leave, and the backdrop runs to the edges.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="device.css">
+<script src="icons.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { overflow: hidden; }
+  body {
+    position: relative; font-family: "Poppins", sans-serif; color: #fff; -webkit-font-smoothing: antialiased;
+    background: linear-gradient(115deg, #14146a 0%, #1E1E91 38%, #2b3fd0 75%, #3756E9 100%);
+  }
+  .glow { position: absolute; border-radius: 50%; pointer-events: none; }
+  .sq { position: absolute; background: rgba(255, 255, 255, 0.06); }
+
+  /* Everything that matters is drawn on a stage 1000 units tall, scaled to fit the safe box. */
+  .stage { position: absolute; transform-origin: 0 0; z-index: 1; }
+  .copy { position: absolute; display: flex; flex-direction: column; z-index: 2; }
+  .icon { width: 156px; height: 156px; filter: drop-shadow(0 22px 40px rgba(4, 6, 40, 0.45)); }
+  .icon img { width: 100%; height: 100%; display: block; }
+  h1 { font-size: 93px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; margin-top: 40px; }
+  h2 { font-weight: 700; line-height: 1.08; letter-spacing: -0.015em; }
+  h2 .gold { background: linear-gradient(180deg, #ffd978, #ffb43a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p { font-weight: 500; color: rgba(255, 255, 255, 0.8); }
+  .games { display: flex; gap: 18px; }
+  .chip { display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 600; padding: 11px 26px 11px 11px;
+    border-radius: 99px; background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16); }
+  .chip .dot { width: 50px; height: 50px; border-radius: 15px; display: grid; place-items: center; }
+  .chip svg { width: 26px; height: 26px; fill: #fff; }
+  .device { position: absolute; transform-origin: 50% 50%; }
+
+  .guide { position: absolute; z-index: 50; pointer-events: none; }
+</style>
+</head>
+<body>
+<script>
+const q = new URLSearchParams(location.search);
+const kind = q.get('kind') || 'event';
+
+// The page's size, and the safe box inside it, in CSS px.
+const KINDS = {
+  event:     { size: [1920, 1080], box: [120, 60, 1700, 960], layout: 'side', name: true },
+  header:    { size: [1920, 823], box: [250, 80, 1420, 660], layout: 'side' },
+  universal: { size: [2622, 1475], box: [330, 250, 1962, 975], layout: 'side' },
+  search:    { size: [1920, 1280], box: [150, 110, 1620, 1060], layout: 'row' },
+};
+const spec = KINDS[kind];
+const [W, H] = spec.size;
+const [bx, by, bw, bh] = spec.box;
+document.documentElement.style.width = document.body.style.width = W + 'px';
+document.documentElement.style.height = document.body.style.height = H + 'px';
+
+// The backdrop, to every edge: two soft glows and the sign-in pages' squares.
+let seed = 4242;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const k = Math.max(W, H) / 1920;
+let html = `<div class="glow" style="width:${1100 * k}px;height:${1100 * k}px;left:${W * 0.47}px;top:${H * 0.07}px;background:#5B7CFA;opacity:.5;filter:blur(${140 * k}px)"></div>
+  <div class="glow" style="width:${700 * k}px;height:${700 * k}px;left:${-200 * k}px;top:${-300 * k}px;background:#5B7CFA;opacity:.3;filter:blur(${140 * k}px)"></div>`;
+for (let i = 0; i < 14; i++) {
+  const s = (60 + rnd() * 110) * k;
+  html += `<div class="sq" style="width:${s}px;height:${s}px;left:${rnd() * W}px;top:${rnd() * H - s / 2}px;border-radius:${s * 0.18}px;transform:rotate(${(rnd() - 0.5) * 70}deg)"></div>`;
+}
+
+// The app icon's shape: a superellipse, the continuous corner iOS draws,
+// rather than a rounded rectangle.
+const squircle = (() => {
+  const pts = [];
+  for (let i = 0; i < 144; i++) {
+    const t = (i / 144) * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
+    const x = Math.sign(c) * Math.abs(c) ** (2 / 5), y = Math.sign(s) * Math.abs(s) ** (2 / 5);
+    pts.push(`${(50 + 50 * x).toFixed(2)}% ${(50 + 50 * y).toFixed(2)}%`);
+  }
+  return `polygon(${pts.join(',')})`;
+})();
+
+const svg = name => `<svg viewBox="0 0 ${ICONS[name][0]} ${ICONS[name][1]}"><path d="${ICONS[name][2]}"/></svg>`;
+const chip = (title, icon, tint) => `<div class="chip"><span class="dot" style="background:${tint}">${svg(icon)}</span>${title}</div>`;
+const chips = `<div class="games">${chip('Spin', 'spin', '#2E82EF')}${chip('Flappy', 'bird', '#17A673')}${chip('Tower', 'stack', '#E0891B')}</div>`;
+const phone = (img, w, cx, cy, angle, z) => {
+  const h = w * (956 / 440 + 2 * 0.032), outer = w * (1 + 2 * 0.032);
+  return `<div class="device iphone" style="--w:${w}px;z-index:${z};left:${cx - outer / 2}px;top:${cy - h / 2}px;transform:rotate(${angle}deg)">
+    <img src="${img}" alt=""><div class="island"></div></div>`;
+};
+
+// The stage: 1000 units tall, as wide as the safe box allows.
+const unit = bh / 1000, SW = bw / unit;
+let stage = '';
+if (spec.layout === 'side') {
+  // The words on the left; the three games fanned out on the right, Spin in front.
+  stage += `<div class="copy" style="left:0;top:0;bottom:0;width:820px;justify-content:center">
+    ${spec.name ? `<div class="icon"><img src="../../Empanadas/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="" style="clip-path:${squircle}"></div>
+      <h1>Empanadas.io</h1>` : ''}
+    <h2 style="font-size:${spec.name ? 56 : 104}px;margin-top:${spec.name ? 22 : 0}px">Spin, flap${spec.name ? ' ' : '<br>'}and <span class="gold">stack.</span></h2>
+    <p style="font-size:${spec.name ? 35 : 44}px;margin-top:${spec.name ? 10 : 22}px">Three games, one empanada.</p>
+    <div style="margin-top:${spec.name ? 44 : 52}px">${chips}</div>
+  </div>`;
+  // Centred in the room the words leave (they end about 700 units in).
+  const cx = (700 + SW) / 2;
+  stage += phone(q.get('flappy'), 330, cx - 260, 540, -9, 1);
+  stage += phone(q.get('tower'), 330, cx + 260, 540, 9, 1);
+  stage += phone(q.get('spin'), 380, cx, 500, 0, 2);
+} else {
+  // Search results: say what it is, then show it. The headline, and the
+  // three games side by side, each named.
+  stage += `<div class="copy" style="left:0;right:0;top:0;align-items:center;text-align:center">
+    <h2 style="font-size:96px">Spin, flap and <span class="gold">stack.</span></h2>
+  </div>`;
+  const games = [['flappy', 'Flappy', 'bird', '#17A673'], ['spin', 'Spin', 'spin', '#2E82EF'], ['tower', 'Tower', 'stack', '#E0891B']];
+  games.forEach(([key, title, icon, tint], i) => {
+    const cx = SW / 2 + (i - 1) * 470;
+    stage += phone(q.get(key), 330, cx, 545, 0, 1);
+    stage += `<div class="copy" style="left:${cx - 200}px;width:400px;top:925px;align-items:center">${chip(title, icon, tint)}</div>`;
+  });
+}
+html += `<div class="stage" style="left:${bx}px;top:${by}px;width:${SW}px;height:1000px;transform:scale(${unit})">${stage}</div>`;
+
+if (q.get('guides')) {
+  html += `<div class="guide" style="left:${bx}px;top:${by}px;width:${bw}px;height:${bh}px;outline:3px dashed #ff4f8b"></div>`;
+  if (kind === 'universal') {
+    const band = W * 9 / 21, win = H * 3 / 2;
+    html += `<div class="guide" style="left:0;top:${(H - band) / 2}px;width:${W}px;height:${band}px;outline:3px solid #4fd6ff"></div>
+      <div class="guide" style="left:${(W - win) / 2}px;top:0;width:${win}px;height:${H}px;outline:3px solid #ffc24a"></div>`;
+  }
+}
+document.body.insertAdjacentHTML('beforeend', html);
+window.ready = document.fonts.ready.then(() => Promise.all([...document.images].map(img => img.decode())));
+</script>
+</body>
+</html>
