@@ -56,8 +56,8 @@ final class ScreenshotTests: XCTestCase {
 
     func testDrawsTheScreensAtEachSize() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let screen = scene.screen.bounds.size
-        let portrait = CGSize(width: min(screen.width, screen.height), height: max(screen.width, screen.height))
+        let bounds = scene.screen.bounds.size
+        let portrait = CGSize(width: min(bounds.width, bounds.height), height: max(bounds.width, bounds.height))
         let landscape = CGSize(width: portrait.height, height: portrait.width)
 
         let device: String

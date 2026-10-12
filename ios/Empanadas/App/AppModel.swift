@@ -92,8 +92,8 @@ final class AppModel {
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
 
     /// `account`: the screenshot tests give it one that answers for the site.
-    init(account: AccountAPI = AccountAPI()) {
-        self.account = account
+    init(account: AccountAPI? = nil) {
+        self.account = account ?? AccountAPI()
         let defaults = UserDefaults.standard
         session = defaults.bool(forKey: Preferences.signedInKey) ? .signedIn : .signedOut
         theme = defaults.integer(forKey: Preferences.themeKey)
