@@ -13,7 +13,7 @@ final class GameCenterTests: XCTestCase {
     }
 
     func testTheScoresAreTheOnesTheSiteRanksBy() throws {
-        let dashboard = try JSONDecoder().decode(Dashboard.self, Data("""
+        let dashboard = try JSONDecoder().decode(Dashboard.self, from: Data("""
             {"account":{"username":"tester"},
              "spin":{"lifetime":280000,"prestige":3,"ascends":1,"spins":50000},
              "flappy":{"high":40,"recent":10,"played":9},
