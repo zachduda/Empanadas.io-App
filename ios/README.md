@@ -18,12 +18,12 @@ App Review expects.
 | **Games** | Native list. Each game opens in a full-screen web player. Flappy and Tower use their own close button, which closes the player. Spin draws one only in the app (`data-app-close` in `spin.html`, reported through `bridge.js`); until a game says it has one, or if it fails to load, the player shows a native one. Leaving a game for the homepage or the dashboard closes the player, and a game's links to other site pages (Spin's account button, Report a Problem) open in a sheet over it. The games draw edge to edge (`viewport-fit=cover`) and keep their controls out of the camera housing and the home indicator. |
 | **Leaderboard** | Native, from `/v2/ios/leaderboard.php`: Spin, Flappy and Tower, with medals for the top three and the player's own row marked. Refreshes while showing, at the pace the site's cache rebuilds. Rows open the player's native profile. |
 | **Settings** | The account (picture, name, address) and native controls for theme, privacy and email preferences, read from `/v2/ios/account.php`. The theme is the account's, so it is also read whenever the app comes to the front, and applied to the whole window. Also has sign out, delete account (a native modal: type DELETE), haptics, clear cache, the version and Send Feedback. Email/username, connections, passkeys, 2FA and the profile picture open the site's own pages. |
-| **Sign-in** | The login page (web), drawn in its own colours: the status bar over it goes with the page rather than the theme. Google/GitHub/Discord go through the system browser (`ASWebAuthenticationSession`) using the site's existing browser sign-in flow. |
-| **Popups** | 2FA, captcha and other script-opened windows open in a sheet, limited to the site, the providers and the SSO hosts. |
+| **Sign-in** | Native welcome screen (`Features/SignIn/WelcomeView.swift`), on the launch screen's navy: the login page's "Got an account?", with **Yup! Log In** and **Nope. Create One**. Either opens the whole sign-in in the system browser (`ASWebAuthenticationSession`, sharing Safari's cookies), on the site's own pages: the username step or Pick a Username, passkeys, Google/GitHub/Discord and 2FA, with Safari's AutoFill and the player's iCloud Keychain passkeys. A browser already signed in to Empanadas.io asks "Continue as …?" instead. The site hands the sign-in back with `empanadas-io://signin?code=`, and the app redeems the code at `/v2/ios/signin.php` with the PKCE verifier only it holds (`Auth/AppSignIn.swift`). The login page never shows in a web view of the app's: a page that goes there is stopped, and the app asks the site whether the session ended (`loginPageReached` in `App/AppModel.swift`). Sign Out loads `/v2/auth/logout.php` out of sight, and again later if it could not reach the site. |
+| **Popups** | Captcha and other script-opened windows of the signed-in pages open in a sheet, limited to the site, the providers and the SSO hosts. Connect Google/GitHub/Discord on the account page goes through the system browser too, using the site's provider hand-off (`/v2/auth/browser.php`, `empanadas-io://auth`). |
 | **Quick actions** | Play Flappy / Spin / Tower from the Home Screen icon. |
 | **Haptics** | The games' own `navigator.vibrate()` calls (a manual spin, a Flappy crash, a Tower slip or topple) play native haptics: WebKit on iOS has no Vibration API, so `Resources/bridge.js` fills it in, and the Haptics switch in Settings turns it off. Pages can also call `window.empanadasApp.haptic(style)` directly. Tested by `test/iosbridge.test.js` (`npm test`). |
 | **Offline** | Home, Leaderboard and Settings keep their last good answer on the device (`Core/OfflineStore.swift`) and open with it at launch and without a connection, saying when it was saved. Settings can't be changed offline. Profile pictures are cached on disk. A game opened offline starts from the copy in WebKit's cache, so any game played online before works offline; the games keep their saves on the device and sync them when back online. Everything refreshes when the connection returns. |
-| **Deep links** | `empanadas-io://home`, `://leaderboard`, `://settings`, `://play/<game>`, `://profile`, `://profile/<id>`, `://friends` and `://feedback` (`?reason=<subject>`) open native screens. `://auth?...` finishes a sign-in. Anything else is ignored. |
+| **Deep links** | `empanadas-io://home`, `://leaderboard`, `://settings`, `://play/<game>`, `://profile`, `://profile/<id>`, `://friends` and `://feedback` (`?reason=<subject>`) open native screens. `://signin?code=` finishes a sign-in the app started, and `://auth?...` connecting a provider, each only while one is under way. Anything else is ignored. |
 
 The navigation rules (`Core/SiteURLs.swift`) port `lib/urls.js` one-for-one,
 and the tests port `test/urls.test.js`. If you change a rule on one side,
@@ -60,6 +60,11 @@ app's own JSON API (`account.php`, `dashboard.php`, `leaderboard.php`,
 `profile.php` and `search.php`). They take effect once deployed: until they
 are live, the screens that read them say they couldn't load (HTTP 404).
 [SITE-CHANGES.md](SITE-CHANGES.md) lists what is still open.
+
+Signing in needs the site's `html/v2/auth/app.php` and `html/v2/ios/signin.php`
+(SITE-CHANGES.md §9). **Deploy those before shipping a build of the app with the
+welcome screen**: against a site without them, the browser opens on a 404 and
+nobody can sign in.
 
 ## Before submitting to the App Store
 

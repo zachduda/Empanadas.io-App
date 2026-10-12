@@ -117,4 +117,52 @@ final class SiteURLsTests: XCTestCase {
         XCTAssertFalse(SiteURLs.isAuthDeepLink(url("empanadas-io://play")))
         XCTAssertNil(SiteURLs.authRedeemURL(url("https://auth/?service=google&t=\(ticket)&c=\(code)")), "another scheme")
     }
+
+    // MARK: - Signing in to the app
+
+    // Shaped like the site's appSigninIssue(): 64 hex digits.
+    private let signInCode = String(repeating: "0f9a", count: 16)
+
+    func testTheAppSignInStartsOnTheSite() {
+        let login = SiteURLs.appSignIn(challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", mode: .login)
+        XCTAssertEqual(login.absoluteString,
+                       "https://empanadas.io/v2/auth/app.php?challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&mode=login")
+        XCTAssertEqual(SiteURLs.queryValue("mode", in: SiteURLs.appSignIn(challenge: "x", mode: .create)), "create")
+    }
+
+    func testASignInComingBackFromTheBrowserCarriesItsCode() {
+        let link = url("empanadas-io://signin?code=\(signInCode)")
+        XCTAssertTrue(SiteURLs.isSignInDeepLink(link))
+        XCTAssertEqual(SiteURLs.signInCode(link), signInCode)
+        XCTAssertEqual(SiteURLs.signInCode(url("empanadas-io://signin/?code=\(signInCode)")), signInCode, "with a trailing slash")
+        XCTAssertEqual(SiteURLs.signInCode(url("EMPANADAS-IO://SIGNIN?code=\(signInCode)")), signInCode, "scheme and host in any case")
+        XCTAssertNil(NativeRoute.of(deepLink: link), "never a screen")
+        XCTAssertFalse(SiteURLs.isAuthDeepLink(link), "nor a provider's")
+    }
+
+    func testAMalformedSignInLinkIsRefused() {
+        XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin")), "no code")
+        XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin?code=abc")), "a short code")
+        XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin?code=\(signInCode)%26x%3D1")), "a code carrying more query")
+        XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin/elsewhere?code=\(signInCode)")), "a path")
+        XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://auth?code=\(signInCode)")), "another kind of link")
+        XCTAssertNil(SiteURLs.signInCode(url("https://signin/?code=\(signInCode)")), "another scheme")
+        XCTAssertFalse(SiteURLs.isSignInDeepLink(url("empanadas-io://play/spin")))
+    }
+
+    func testTheWebViewsLearnOfTheSignInOnTheSitesHandOffPage() {
+        let handoff = SiteURLs.signedInHandoff
+        XCTAssertTrue(SiteURLs.isAppURL(handoff))
+        XCTAssertEqual(handoff.path(), "/v2/auth/js.php")
+        XCTAssertEqual(SiteURLs.queryValue("r", in: handoff), "/v2/dashboard")
+        XCTAssertNil(NativeRoute.of(handoff), "a page, not a screen")
+    }
+
+    func testTheLoginPageInEveryShape() {
+        XCTAssertTrue(SiteURLs.isPath(url("https://empanadas.io/v2/login?s=1"), in: SiteURLs.loginPaths))
+        XCTAssertTrue(SiteURLs.isPath(url("https://empanadas.io/v2/login.php?redirect=%2Fv2%2Faccount"), in: SiteURLs.loginPaths))
+        XCTAssertTrue(SiteURLs.isPath(url("https://empanadas.io/v2/login/"), in: SiteURLs.loginPaths))
+        XCTAssertFalse(SiteURLs.isPath(url("https://empanadas.io/v2/auth/app.php"), in: SiteURLs.loginPaths))
+        XCTAssertFalse(SiteURLs.isPath(url("https://example.com/v2/login"), in: SiteURLs.loginPaths))
+    }
 }

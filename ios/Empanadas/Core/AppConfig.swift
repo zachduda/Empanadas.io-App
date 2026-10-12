@@ -26,4 +26,9 @@ enum AppConfig {
     /// How long a browser sign-in may take before a returning
     /// empanadas-io://auth link is ignored. Matches APP_AUTH_TTL on the site.
     static let browserSignInTTL: TimeInterval = 10 * 60
+
+    /// How long signing in to the app (the whole of it, in the browser) may
+    /// take before a returning empanadas-io://signin link is ignored. Matches
+    /// APP_SIGNIN_TTL on the site.
+    static let signInTTL: TimeInterval = 15 * 60
 }

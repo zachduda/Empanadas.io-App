@@ -264,6 +264,14 @@ final class WebPage: NSObject, Identifiable {
         }
 
         if SiteURLs.isAppURL(url) {
+            // The login page never shows in the app, whatever sent a page
+            // there (a link, a redirect, a session that ended): signing in
+            // happens in the system browser, where AutoFill and the player's
+            // passkeys work.
+            if SiteURLs.isPath(url, in: SiteURLs.loginPaths) {
+                app.loginPageReached(from: self)
+                return .cancel
+            }
             if options.interceptsRoutes, action.navigationType == .linkActivated,
                let route = NativeRoute.of(url), route != options.ownRoute {
                 app.navigate(to: route)
@@ -358,6 +366,12 @@ extension WebPage: WKNavigationDelegate {
         if let response = navigationResponse.response as? HTTPURLResponse, let url = response.url,
            let signal = SignInSignal.of(responseURL: url, statusCode: response.statusCode,
                                         isMainFrame: navigationResponse.isForMainFrame) {
+            if signal == .unsure {
+                // The login page, all the same (mainPolicy stops the request
+                // before it gets here): never drawn.
+                app?.loginPageReached(from: self)
+                return .cancel
+            }
             app?.observe(signal)
         }
         return .allow

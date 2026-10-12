@@ -154,6 +154,25 @@ enum AccountError: LocalizedError, Equatable {
     }
 }
 
+/// Why /v2/ios/signin.php would not sign the app in.
+struct SignInError: LocalizedError, Equatable {
+    /// The site's reason: "expired" (the code was used, too old, or not for
+    /// this request), "deactivated" (the account was deleted meanwhile), or
+    /// the HTTP status of an answer that was not the site's JSON.
+    let reason: String
+
+    var errorDescription: String? {
+        switch reason {
+        case "expired": "That sign-in took too long or was already used. Try again."
+        case "deactivated": "That account was deleted. Contact us if you'd like it back."
+        case "unavailable": "Accounts are switched off right now. Try again later."
+        case "rate_limited": "That's a lot of tries. Wait a minute and try again."
+        // The detail, so a report says what went wrong.
+        default: "Something went wrong on our end (\(reason)). Try again!"
+        }
+    }
+}
+
 /// Native requests to the site, carrying the web views' cookies and user
 /// agent so the site sees the same session.
 @MainActor
@@ -451,6 +470,27 @@ final class AccountAPI {
     /// the friend and bio changes.
     nonisolated static func isStaleToken(_ reason: String) -> Bool {
         reason == "csrf" || reason.hasPrefix("Your request has expired or was invalid")
+    }
+
+    // MARK: - Signing in
+
+    /// POST /v2/ios/signin.php: signs this session (the web views' cookies)
+    /// in with the code a sign-in in the browser came back with, and the
+    /// verifier of the request it was for (SignInRequest). The site sets the
+    /// signed-in session's cookies, which send() copies into WebKit's store.
+    func redeemSignIn(code: String, verifier: String) async throws {
+        var request = URLRequest(url: SiteURLs.iosSignIn)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.formBody([("code", code), ("verifier", verifier)])
+
+        let (data, response) = try await send(request)
+        if response.statusCode == 429 { throw SignInError(reason: "rate_limited") }
+        guard let reply = Self.iosReply(data) else {
+            throw SignInError(reason: "HTTP \(response.statusCode)")
+        }
+        guard reply.ok else { throw SignInError(reason: reply.reason ?? "HTTP \(response.statusCode)") }
+        token = nil
     }
 
     /// Does the site still consider this session signed in? Nil when it could

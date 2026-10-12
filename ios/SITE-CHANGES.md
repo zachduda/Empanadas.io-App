@@ -10,16 +10,21 @@ Done in zachduda/Empanadas-io#70: sections 1, 2, 3 and 5, the dashboard part
 of section 4, and the coffee links in section 6. Section 8, the `/v2/ios/` API,
 is in the site's `html/v2/ios/`, profiles and Find Friends included. The app itself hides the navbar
 (`Resources/bridge.js`), since `getNav()` lives in config.php, which is not in
-that repo.
+that repo. Section 9, the whole sign-in in the system browser, is the site's
+`html/v2/auth/app.php` and `html/v2/ios/signin.php`.
 
 Still to do:
 
+- **Deploy section 9 before shipping the welcome screen.** An app with it
+  cannot sign in against a site without `/v2/auth/app.php`.
 - **Sign in with Apple** (section 6). The Apple provider in
   `v2/auth/flow.php` is commented out and needs its key on the server.
-- **Passkeys** (section 7). The apple-app-site-association file is in the
-  site's repo (`html/.well-known/`, Team ID `MWBT4TC7JN`). Check that the
-  live site serves it as described there, then try a passkey sign-in on a
-  device.
+- **Passkeys** (section 7). Signing in with one no longer depends on this:
+  it happens in the system browser (section 9). Adding a passkey from the
+  account page still happens in the app's web view, which needs the
+  apple-app-site-association file. It is in the site's repo
+  (`html/.well-known/`, Team ID `MWBT4TC7JN`): check that the live site serves
+  it as described there, then try adding one on a device.
 - **Phone-width check** (end of section 4).
 
 The sections below are kept as the record of what the app expects from the site.
@@ -61,6 +66,9 @@ if (!function_exists('iosAppVersion')) {
 ```
 
 ## 2. Send sign-ins out to the browser
+
+Since section 9 the app signs in entirely in the system browser, so this is
+only used by the account page's Connect buttons now.
 
 Google refuses OAuth inside a WKWebView. The app already handles the
 desktop app's browser sign-in (`/v2/auth/browser.php?t=` →
@@ -196,7 +204,9 @@ requests, because `checkSession()` ties a session to its user agent.
 
 ## 7. Passkeys in the app
 
-For passkeys created on empanadas.io to work in the app's web views, serve
+Signing in with a passkey happens in the system browser (section 9), which
+needs nothing from the app. For passkeys to work in the app's web views (the
+account page's "add a passkey"), serve
 this at `https://empanadas.io/.well-known/apple-app-site-association`
 (`Content-Type: application/json`, no redirect). `MWBT4TC7JN` is the Apple
 Developer Team ID, the same as `DEVELOPMENT_TEAM` in `project.yml`:
@@ -393,3 +403,47 @@ The app sends the form as `feedback.js` does:
 token. A data download (`message_required: false`) may go without a message.
 Links to `/v2/feedback` (`?reason=<id>` picks the subject; not `?sso=`, which
 is zachduda.com's form) open the native form instead of the page.
+
+## 9. The whole sign-in in the system browser
+
+The app no longer shows the login page in a web view, where neither Safari's
+AutoFill nor the passkeys in the player's iCloud Keychain reach. Signed out,
+it shows a native "Got an account?" screen, and either answer opens the sign-in
+in an `ASWebAuthenticationSession`. The site's half is described above
+`APP_SIGNIN_TTL` in `v2/_lib.php`; in short:
+
+1. The app makes a PKCE pair (RFC 7636, S256) and opens
+   `https://empanadas.io/v2/auth/app.php?challenge=<challenge>&mode=login|create`.
+2. `app.php` notes the challenge in the browser's session (`app_signin`, for
+   `APP_SIGNIN_TTL`, 15 minutes) and sends it to `/v2/login?s=1` (the username
+   step) or `/v2/login?create=1` (Pick a Username). A browser already signed in
+   is asked "Continue as …?" instead, with "Use Another Account" (or "Create a
+   New Account") signing it out through `logout.php` and starting over. The
+   code is only minted on that tap, behind the CSRF token.
+3. The sign-in runs as on the website. While `app_signin` is waiting,
+   `login.php` finishes on `app.php` rather than the dashboard, keeps
+   `app_signin` through Switch Accounts, and leaves the site's navigation out;
+   `login.js`' `startOauth()` opens the providers in the tab rather than a
+   popup (that browser has one tab); and `js.php`, which every sign-in passes
+   through (new accounts included), goes back to `app.php` with no roundabout.
+4. `app.php` stores a one-time code (`app_signin_codes`,
+   `database/app_signin.sql`: SHA-256 of the code, the challenge, the account,
+   five minutes) and sends the browser to `empanadas-io://signin?code=<code>`.
+5. The app posts the code and the verifier to `/v2/ios/signin.php` with its
+   web views' cookies and user agent, as the other `/v2/ios/` requests do:
+
+   ```
+   POST /v2/ios/signin.php   code=<code>&verifier=<verifier>
+   { "ok": true, "api": 1, "account": { "username": "tester" } }
+   ```
+
+   That signs the app's session in as a passkey sign-in does (2FA was asked
+   in the browser). Errors: `400 expired` (unknown, used or expired code, or a
+   verifier that does not match: the code is spent either way), `403
+   deactivated`, `405 wrong_method`, `503 unavailable`.
+6. The app then loads `/v2/auth/js.php?r=/v2/dashboard` out of sight, so the
+   site's scripts find the account cache in the web views' storage.
+
+The site's `tests/appsignin_e2e.php` runs all of this against a database, and
+`tests/iosapp_test.php` the helpers, with RFC 7636's own example (as the app's
+`AppSignInTests` does).
