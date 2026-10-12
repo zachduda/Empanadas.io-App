@@ -11,10 +11,11 @@ enum WebEnvironment {
         configuration.applicationNameForUserAgent = AppConfig.userAgentSuffix
         // Always the mobile site, iPad included. In its default (recommended)
         // mode an iPad web view asks for desktop pages with a Mac user agent,
-        // chosen page by page and narrower in Split View, while userAgent()
-        // reads one from a web view that never loads anything. The session is
-        // tied to the user agent (checkSession() on the site), so the native
-        // requests must send exactly what the pages send.
+        // chosen page by page and narrower in Split View, while
+        // readUserAgent() reads one from a web view that never loads
+        // anything. The session is tied to the user agent (checkSession() on
+        // the site), so the native requests must send exactly what the pages
+        // send.
         configuration.defaultWebpagePreferences.preferredContentMode = .mobile
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
@@ -41,21 +42,32 @@ enum WebEnvironment {
         return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
     }()
 
-    private static var cachedUserAgent: String?
-    private static var userAgentProbe: WKWebView?
+    /// The one read of the user agent, shared by every request that asks
+    /// for it, including those that ask while it is still on its way.
+    private static var userAgentRead: Task<String, Never>?
+
+    /// Reads the user agent from a web view of its own, once. Called at
+    /// launch (AppModel.init), outside any Swift task: a web view made
+    /// inside one may set off the system's "unsafeForcedSync called from
+    /// Swift Concurrent context" log. The first requests start together;
+    /// each reading it for itself would make a web view of its own.
+    @discardableResult
+    static func readUserAgent() -> Task<String, Never> {
+        if let userAgentRead { return userAgentRead }
+        let probe = WKWebView(frame: .zero, configuration: makeConfiguration())
+        let read = Task {
+            let agent = (try? await probe.evaluateJavaScript("navigator.userAgent")) as? String
+            return agent ?? "Mozilla/5.0 (iPhone; CPU iPhone OS like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 \(AppConfig.userAgentSuffix)"
+        }
+        userAgentRead = read
+        return read
+    }
 
     /// The user agent the web views send. Native requests to the site must
     /// send the same one: checkSession() on the site ties a session to the
     /// user agent it was started with.
     static func userAgent() async -> String {
-        if let cachedUserAgent { return cachedUserAgent }
-        let probe = WKWebView(frame: .zero, configuration: makeConfiguration())
-        userAgentProbe = probe
-        defer { userAgentProbe = nil }
-        let agent = (try? await probe.evaluateJavaScript("navigator.userAgent")) as? String
-        let result = agent ?? "Mozilla/5.0 (iPhone; CPU iPhone OS like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 \(AppConfig.userAgentSuffix)"
-        cachedUserAgent = result
-        return result
+        await readUserAgent().value
     }
 
     /// Empties the caches but keeps cookies and local storage, so the player
