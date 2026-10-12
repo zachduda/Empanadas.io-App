@@ -57,6 +57,7 @@ final class DashboardModel {
             data = fresh
             updatedAt = Date()
             error = nil
+            app.gameCenter.report(fresh)
         } catch let failure as AccountError {
             guard generation == self.generation else { return }
             if failure == .signedOut { app.observe(.unsure) }

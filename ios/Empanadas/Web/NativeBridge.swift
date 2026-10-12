@@ -125,4 +125,6 @@ enum Preferences {
     /// Signed out in the app, but the site has not been told yet.
     static let signOutPendingKey = "signOutPending"
     static let themeKey = "theme"
+    /// Settings' "Post Scores to Game Center" (GameCenter.postsScores).
+    static let gameCenterScoresKey = "gameCenterScores"
 }

@@ -16,7 +16,8 @@ App Review expects.
 | **Find Friends** | Native search as you type, from `/v2/ios/search.php`, with exact matches first and more as you scroll. Each result says where you stand (friends, request sent, wants to be your friend, private, not taking requests) and has Add or Accept on it. |
 | **Send Feedback** | Native form (`Features/Feedback/`), from `/v2/ios/feedback.php`: the site's feedback subjects (an animated profile picture request too, for supporters, which asks for a link to the .gif), the message with the site's length limits, and "I'd like a reply" with the address it goes to. Sent through `/v2/account_edit.php` as the web form sends it. Opened from Settings, and in a sheet from any link to `/v2/feedback` in a site page (over the game for Spin's Report a Problem, with its subject picked) or a deep link. Against a site without the endpoint yet it falls back to the web form's subjects. |
 | **Games** | Native list. Each game opens in a full-screen web player. Flappy and Tower use their own close button, which closes the player. Spin draws one only in the app (`data-app-close` in `spin.html`, reported through `bridge.js`); until a game says it has one, or if it fails to load, the player shows a native one. Leaving a game for the homepage or the dashboard closes the player, and a game's links to other site pages (Spin's account button, Report a Problem) open in a sheet over it. The games draw edge to edge (`viewport-fit=cover`) and keep their controls out of the camera housing and the home indicator. |
-| **Leaderboard** | Native, from `/v2/ios/leaderboard.php`: Spin, Flappy and Tower, with medals for the top three and the player's own row marked. Refreshes while showing, at the pace the site's cache rebuilds. Rows open the player's native profile. |
+| **Leaderboard** | Native, from `/v2/ios/leaderboard.php`: Spin, Flappy and Tower, with medals for the top three and the player's own row marked. Refreshes while showing, at the pace the site's cache rebuilds. Rows open the player's native profile. The **Game Center** button opens the same board in Game Center. |
+| **Game Center** | Three Game Center leaderboards, ranked as the site's are: lifetime spins, best Flappy round, tallest Tower (`Core/GameCenter.swift`). The scores are the site's, not the games': every fresh dashboard posts whichever changed since the last post, so a best set on the website or the desktop app gets there too. Signs in to Game Center once the player has signed in to the app; a player not signed in to Game Center is offered GameKit's sign-in from Settings or the Leaderboard tab, never unasked. Settings shows the Game Center name and has **Post Scores to Game Center** to stop posting. |
 | **Settings** | The account (picture, name, address) and native controls for theme, privacy and email preferences, read from `/v2/ios/account.php`. The theme is the account's, so it is also read whenever the app comes to the front, and applied to the whole window. Also has sign out, delete account (a native modal: type DELETE), haptics, clear cache, the version and Send Feedback. Email/username, connections, passkeys, 2FA and the profile picture open the site's own pages. |
 | **Sign-in** | Native welcome screen (`Features/SignIn/WelcomeView.swift`), on the launch screen's navy: the login page's "Got an account?", with **Yup! Log In** and **Nope. Create One**. Either opens the whole sign-in in the system browser (`ASWebAuthenticationSession`, sharing Safari's cookies), on the site's own pages: the username step or Pick a Username, passkeys, Google/GitHub/Discord and 2FA, with Safari's AutoFill and the player's iCloud Keychain passkeys. A browser already signed in to Empanadas.io asks "Continue as …?" instead. The site hands the sign-in back with `empanadas-io://signin?code=`, and the app redeems the code at `/v2/ios/signin.php` with the PKCE verifier only it holds (`Auth/AppSignIn.swift`). The login page never shows in a web view of the app's: a page that goes there is stopped, and the app asks the site whether the session ended (`loginPageReached` in `App/AppModel.swift`). Sign Out loads `/v2/auth/logout.php` out of sight, and again later if it could not reach the site. |
 | **Popups** | Captcha and other script-opened windows of the signed-in pages open in a sheet, limited to the site, the providers and the SSO hosts. Connect Google/GitHub/Discord on the account page goes through the system browser too, using the site's provider hand-off (`/v2/auth/browser.php`, `empanadas-io://auth`). |
@@ -68,6 +69,7 @@ nobody can sign in.
 
 ## Before submitting to the App Store
 
+- Set up Game Center (below).
 - Turn on Sign in with Apple (SITE-CHANGES.md §6). The coffee links are
   already gone in the app.
 - Check `Resources/PrivacyInfo.xcprivacy` against the privacy policy, and fill
@@ -82,6 +84,31 @@ nobody can sign in.
   contributions to `ios/` (for example, require a CLA, or license `ios/`
   separately).
 
+## Game Center
+
+The app has the Game Center entitlement (`Resources/Empanadas.entitlements`),
+so automatic signing turns the capability on for the App ID. The leaderboards
+themselves live in App Store Connect: in the app's Game Center settings, add
+three **Classic** leaderboards with these IDs (`gameCenterLeaderboardID` in
+`Core/GameCenter.swift`; an ID can never be changed or reused once made):
+
+| Leaderboard ID | Name | Score format | Submission | Sort | Suffix |
+|---|---|---|---|---|---|
+| `io.empanadas.app.leaderboard.spin` | Most Manual Spins | Integer | Best Score | High to Low | spins |
+| `io.empanadas.app.leaderboard.flappy` | Best Flappy Scores | Integer | Best Score | High to Low | points |
+| `io.empanadas.app.leaderboard.tower` | Tallest Towers | Integer | Best Score | High to Low | floors |
+
+Spin's score is the lifetime total, which only grows, so Best Score always
+shows the latest. Then, on the version's page, tick **Game Center** and add
+the three leaderboards to it: a leaderboard goes live with the first version
+that includes it. Until they exist, posting fails quietly (and is tried again
+with the next dashboard) and the Game Center button has no board to show;
+nothing else in the app depends on them.
+
+To try it before release, run a development build on a device signed in to
+Game Center (it posts to Game Center's sandbox, not the live boards), play a
+round, and the score shows on the board once the dashboard has refreshed.
+
 ## Next steps
 
 - **Offline play without a first visit.** Games start offline from WebKit's
@@ -91,6 +118,7 @@ nobody can sign in.
   blocks script injection on every other domain, so it needs testing on a
   device against the sign-in popups before it ships. Bundling the three games
   is the other route.
-- **Game Center.** Leaderboards and achievements, fed by the games through
-  `window.empanadasApp`. This needs leaderboard IDs in App Store Connect.
+- **Game Center achievements.** The leaderboards are done (see "Game Center"
+  above); achievements could follow the same way, from the dashboard's
+  numbers.
 - **Push notifications** for friend requests and messages.

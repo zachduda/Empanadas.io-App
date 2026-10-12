@@ -61,6 +61,8 @@ final class AppModel {
     let dashboard: DashboardModel
     let leaderboard: LeaderboardModel
     let settings: SettingsModel
+    /// Game Center's leaderboards, fed by the dashboard.
+    let gameCenter: GameCenter
 
     /// The account's theme setting: 0 follows the device, 1 light, 2 dark.
     var theme: Int {
@@ -102,6 +104,7 @@ final class AppModel {
         dashboard = DashboardModel()
         leaderboard = LeaderboardModel()
         settings = SettingsModel()
+        gameCenter = GameCenter()
 
         // A sign-out the site never heard about (no connection, and the app
         // was closed before there was one).
@@ -111,6 +114,7 @@ final class AppModel {
         monitorConnection()
         // Before the first request needs it, and outside any Swift task.
         WebEnvironment.readUserAgent()
+        if session == .signedIn { gameCenter.start() }
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
@@ -158,6 +162,7 @@ final class AppModel {
             signInProgress = .idle
             signInError = nil
             pendingSignIn = nil
+            gameCenter.start()
             Task { await self.refreshTheme() }
         case .signedOut:
             activeGame = nil
@@ -171,6 +176,7 @@ final class AppModel {
             dashboard.reset()
             leaderboard.reset()
             settings.reset()
+            gameCenter.reset()
             OfflineStore.clear()
             ImageStore.shared.clear()
             if signingOut { signOutOnSite() }

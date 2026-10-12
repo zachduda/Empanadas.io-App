@@ -3,9 +3,9 @@
 <!--
 	Privacy manifest, required for App Store submission.
 
-	The app itself stores two things in UserDefaults (whether the player is
-	signed in, and the haptics/theme preferences): reason CA92.1, data only
-	this app reads.
+	The app itself stores a few things in UserDefaults (whether the player is
+	signed in, the haptics/theme/Game Center preferences, and the scores last
+	sent to Game Center): reason CA92.1, data only this app reads.
 
 	The collected data types below are what the site collects through the app
 	for an account (see empanadas.io/privacy.html). Check them against the
