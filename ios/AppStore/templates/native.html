@@ -42,9 +42,10 @@
   .ico { display: inline-block; width: 1em; height: 1em; vertical-align: -0.125em; fill: currentColor; flex: none; }
   .num { font-variant-numeric: tabular-nums; }
 
-  /* Status bar */
-  .status { position: absolute; left: 0; right: 0; top: 0; height: 62px; z-index: 30; display: flex; align-items: center;
-    justify-content: space-between; padding: 6px 34px 0 52px; font-weight: 600; font-size: 17px; letter-spacing: -0.3px; }
+  /* Status bar, on the Dynamic Island's centre line (11pt down, 37pt tall), the
+     time centred in the room to its left and the icons in the room to its right */
+  .status { position: absolute; left: 0; right: 0; top: 0; height: 59px; z-index: 30; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 40px 0 59px; font-weight: 600; font-size: 17px; letter-spacing: -0.3px; }
   .status .right { display: flex; gap: 7px; align-items: center; }
   .pad .status { height: 32px; padding: 0 22px 0 26px; font-size: 14px; }
   .pad .status .date { font-weight: 600; margin-left: 6px; }
@@ -54,7 +55,7 @@
   .nav .bar { height: 106px; display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 16px 6px; }
   .nav .glassbtn { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
     background: rgba(255,255,255,0.72); box-shadow: 0 1px 6px rgba(0,0,0,0.08), inset 0 0 0 0.5px rgba(0,0,0,0.06);
-    backdrop-filter: blur(20px); }
+    backdrop-filter: blur(10px); }
   .nav h1 { font-size: 34px; font-weight: 700; letter-spacing: 0.2px; padding: 2px 16px 10px; line-height: 41px; }
   .nav.inline { background: linear-gradient(to bottom, rgba(242,242,247,0.96) 70%, rgba(242,242,247,0)); }
   .nav.inline .bar { justify-content: center; align-items: flex-end; height: 106px; padding-bottom: 16px; position: relative; }
@@ -64,17 +65,19 @@
   .pad .nav h1 { padding: 76px 24px 10px; }
   .pad .nav .glassbtn { position: absolute; top: 41px; right: 24px; }
 
-  /* Tab bar: iOS 26's floating glass bar on iPhone, the tab strip on top on iPad */
+  /* Tab bar: iOS 26's floating glass bar on iPhone, the tab strip on top on iPad.
+     Headless Chromium skips a backdrop blur much past 10px and leaves what's
+     behind sharp, so the glass keeps to 10px. */
   .tabbar { position: absolute; z-index: 25; display: flex; align-items: center; }
   .phone .tabbar { left: 21px; right: 21px; bottom: 22px; height: 62px; border-radius: 31px; padding: 4px;
-    background: rgba(250,250,252,0.86); backdrop-filter: blur(24px) saturate(1.6);
+    background: rgba(250,250,252,0.72); backdrop-filter: blur(10px) saturate(1.6);
     box-shadow: 0 8px 30px rgba(0,0,0,0.12), inset 0 0 0 0.5px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9); }
   .phone .tab { flex: 1; height: 54px; border-radius: 27px; display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 3px; font-size: 10px; font-weight: 600; color: #1c1c1e; letter-spacing: 0; }
   .phone .tab .ico { font-size: 21px; }
   .phone .tab.on { background: rgba(120,120,128,0.13); color: var(--accent); }
   .pad .tabbar { top: 38px; left: 50%; transform: translateX(-50%); height: 50px; border-radius: 25px; padding: 4px; gap: 2px;
-    background: rgba(250,250,252,0.8); backdrop-filter: blur(24px);
+    background: rgba(250,250,252,0.72); backdrop-filter: blur(10px) saturate(1.6);
     box-shadow: 0 6px 24px rgba(0,0,0,0.1), inset 0 0 0 0.5px rgba(0,0,0,0.08); }
   .pad .tab { height: 42px; padding: 0 20px; border-radius: 21px; display: flex; align-items: center; gap: 8px;
     font-size: 15px; font-weight: 600; color: #1c1c1e; }
