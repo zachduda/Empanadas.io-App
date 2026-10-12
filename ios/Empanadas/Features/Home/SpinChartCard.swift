@@ -153,7 +153,9 @@ struct SpinChartCard: View {
         .chartYScale(domain: .automatic(includesZero: mode == .daily))
         .chartXSelection(value: $selectedDate)
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+            // Aligned: the first and last dates stay inside the plot, where
+            // centred under their days they were cut off at its edges.
+            AxisMarks(preset: .aligned, values: .automatic(desiredCount: 4)) { _ in
                 AxisGridLine()
                 AxisValueLabel(format: dayFormat)
             }

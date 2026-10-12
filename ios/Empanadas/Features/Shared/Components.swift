@@ -113,6 +113,9 @@ private struct ReadableListWidth: ViewModifier {
 struct BalancedGrid: Layout {
     var minItemWidth: CGFloat
     var spacing: CGFloat = 16
+    /// A last row with fewer items than the others shares out the whole
+    /// width, rather than leaving a hole at its end.
+    var fillsLastRow = false
 
     private struct Grid {
         let columns: Int
@@ -131,34 +134,43 @@ struct BalancedGrid: Layout {
         return Grid(columns: columns, itemWidth: itemWidth)
     }
 
+    /// The rows, as the range of items in each and how wide each item is.
+    private func rows(count: Int, width: CGFloat, _ grid: Grid) -> [(items: Range<Int>, itemWidth: CGFloat)] {
+        stride(from: 0, to: count, by: grid.columns).map { start in
+            let items = start..<min(start + grid.columns, count)
+            guard fillsLastRow, items.count < grid.columns else { return (items, grid.itemWidth) }
+            let itemWidth = max(0, (width - spacing * CGFloat(items.count - 1)) / CGFloat(items.count))
+            return (items, itemWidth)
+        }
+    }
+
     /// Each row's height: its tallest item's.
-    private func rowHeights(_ subviews: Subviews, _ grid: Grid) -> [CGFloat] {
-        stride(from: 0, to: subviews.count, by: grid.columns).map { start in
-            subviews[start..<min(start + grid.columns, subviews.count)]
-                .map { $0.sizeThatFits(ProposedViewSize(width: grid.itemWidth, height: nil)).height }
+    private func rowHeights(_ subviews: Subviews, _ rows: [(items: Range<Int>, itemWidth: CGFloat)]) -> [CGFloat] {
+        rows.map { row in
+            subviews[row.items]
+                .map { $0.sizeThatFits(ProposedViewSize(width: row.itemWidth, height: nil)).height }
                 .max() ?? 0
         }
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let grid = grid(width: proposal.width, count: subviews.count)
-        let heights = rowHeights(subviews, grid)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
             ?? grid.itemWidth * CGFloat(grid.columns) + spacing * CGFloat(grid.columns - 1)
+        let heights = rowHeights(subviews, rows(count: subviews.count, width: width, grid))
         return CGSize(width: width, height: heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1)))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let grid = grid(width: bounds.width, count: subviews.count)
-        let heights = rowHeights(subviews, grid)
+        let rows = rows(count: subviews.count, width: bounds.width, grid)
+        let heights = rowHeights(subviews, rows)
         var y = bounds.minY
-        for (row, height) in heights.enumerated() {
-            for column in 0..<grid.columns {
-                let index = row * grid.columns + column
-                guard index < subviews.count else { break }
-                let x = bounds.minX + CGFloat(column) * (grid.itemWidth + spacing)
+        for (row, height) in zip(rows, heights) {
+            for (column, index) in row.items.enumerated() {
+                let x = bounds.minX + CGFloat(column) * (row.itemWidth + spacing)
                 subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading,
-                                      proposal: ProposedViewSize(width: grid.itemWidth, height: height))
+                                      proposal: ProposedViewSize(width: row.itemWidth, height: height))
             }
             y += height + spacing
         }
