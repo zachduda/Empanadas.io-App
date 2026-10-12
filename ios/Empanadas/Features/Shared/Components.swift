@@ -57,6 +57,162 @@ extension View {
     }
 }
 
+// MARK: - Wide windows
+
+/// How wide the native screens' content grows before it stops and centres,
+/// on an iPad, in landscape, or in a Mac window (the app runs there as an
+/// iPad app, in a window the player can make as wide as the display). On a
+/// phone in portrait they are narrower than this anyway.
+enum ReadableWidth {
+    /// The dashboard and profiles: two columns of cards.
+    static let wide: CGFloat = 1100
+    /// One column: lists, forms, search results, the games.
+    static let narrow: CGFloat = 720
+}
+
+extension View {
+    /// Centres a scroll view's content at no more than `maxWidth` across. The
+    /// scroll view itself still spans the window, so it scrolls from anywhere
+    /// in it.
+    func readableWidth(_ maxWidth: CGFloat) -> some View {
+        frame(maxWidth: maxWidth)
+            .frame(maxWidth: .infinity)
+    }
+
+    /// The same for a List or a Form: once the window is wider than
+    /// `maxWidth`, the margins grow to keep the rows that wide, centred.
+    /// Narrower than that, the system's own margins.
+    func readableListWidth(_ maxWidth: CGFloat = ReadableWidth.narrow) -> some View {
+        modifier(ReadableListWidth(maxWidth: maxWidth))
+    }
+}
+
+private struct ReadableListWidth: ViewModifier {
+    let maxWidth: CGFloat
+    @State private var width: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.horizontal, margin, for: .scrollContent)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    /// Nil leaves the system's margin, which is about 20 points.
+    private var margin: CGFloat? {
+        let margin = ((width - maxWidth) / 2).rounded()
+        return margin > 24 ? margin : nil
+    }
+}
+
+/// A grid whose rows come out even: as many columns as fit at `minItemWidth`,
+/// but never more than there are items, and the items spread evenly over the
+/// rows. Five tiles in room for seven are one row of five, not five tiles
+/// and two holes; in room for four, rows of three and two. A LazyVGrid of
+/// adaptive columns left the space it had no items for empty, so on an iPad
+/// the Games tab was three small cards on the left of the screen.
+struct BalancedGrid: Layout {
+    var minItemWidth: CGFloat
+    var spacing: CGFloat = 16
+
+    private struct Grid {
+        let columns: Int
+        let itemWidth: CGFloat
+    }
+
+    private func grid(width: CGFloat?, count: Int) -> Grid {
+        guard count > 0 else { return Grid(columns: 1, itemWidth: 0) }
+        guard let width, width.isFinite else {
+            return Grid(columns: count, itemWidth: minItemWidth)
+        }
+        let fit = max(1, Int((width + spacing) / (minItemWidth + spacing)))
+        let rows = (count + fit - 1) / fit
+        let columns = (count + rows - 1) / rows
+        let itemWidth = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        return Grid(columns: columns, itemWidth: itemWidth)
+    }
+
+    /// Each row's height: its tallest item's.
+    private func rowHeights(_ subviews: Subviews, _ grid: Grid) -> [CGFloat] {
+        stride(from: 0, to: subviews.count, by: grid.columns).map { start in
+            subviews[start..<min(start + grid.columns, subviews.count)]
+                .map { $0.sizeThatFits(ProposedViewSize(width: grid.itemWidth, height: nil)).height }
+                .max() ?? 0
+        }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let grid = grid(width: proposal.width, count: subviews.count)
+        let heights = rowHeights(subviews, grid)
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+            ?? grid.itemWidth * CGFloat(grid.columns) + spacing * CGFloat(grid.columns - 1)
+        return CGSize(width: width, height: heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let grid = grid(width: bounds.width, count: subviews.count)
+        let heights = rowHeights(subviews, grid)
+        var y = bounds.minY
+        for (row, height) in heights.enumerated() {
+            for column in 0..<grid.columns {
+                let index = row * grid.columns + column
+                guard index < subviews.count else { break }
+                let x = bounds.minX + CGFloat(column) * (grid.itemWidth + spacing)
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                                      proposal: ProposedViewSize(width: grid.itemWidth, height: height))
+            }
+            y += height + spacing
+        }
+    }
+}
+
+/// Cards of different heights in up to `maxColumns` columns, each card going
+/// to whichever column is shortest so far, in order. One column, as on a
+/// phone, is a plain stack. Rows of a grid were as tall as their tallest
+/// card, which on an iPad left a short card with a hole under it beside the
+/// Spin chart.
+struct MasonryColumns: Layout {
+    var minColumnWidth: CGFloat
+    var maxColumns: Int = 2
+    var spacing: CGFloat = 16
+
+    private struct Arrangement {
+        var columnWidth: CGFloat
+        var frames: [CGRect] = []
+        var size: CGSize = .zero
+    }
+
+    private func arrange(width: CGFloat?, _ subviews: Subviews) -> Arrangement {
+        let width = width.flatMap { $0.isFinite ? $0 : nil } ?? minColumnWidth
+        let columns = max(1, min(maxColumns, Int((width + spacing) / (minColumnWidth + spacing))))
+        let columnWidth = max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        var arrangement = Arrangement(columnWidth: columnWidth)
+        // Where the next card in each column goes.
+        var tops = Array(repeating: CGFloat(0), count: columns)
+        for subview in subviews {
+            let height = subview.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height
+            let column = tops.indices.min { tops[$0] < tops[$1] } ?? 0
+            arrangement.frames.append(CGRect(x: CGFloat(column) * (columnWidth + spacing), y: tops[column],
+                                             width: columnWidth, height: height))
+            tops[column] += height + spacing
+        }
+        let bottoms = tops.map { max(0, $0 - spacing) }
+        arrangement.size = CGSize(width: width, height: bottoms.max() ?? 0)
+        return arrangement
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(width: proposal.width, subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let arrangement = arrange(width: bounds.width, subviews)
+        for (subview, frame) in zip(subviews, arrangement.frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: frame.width, height: frame.height))
+        }
+    }
+}
+
 /// A rounded section of a native screen, optionally with a heading.
 struct Card<Content: View>: View {
     var title: String?

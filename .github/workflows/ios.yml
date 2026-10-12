@@ -33,20 +33,64 @@ jobs:
     - name: Generate the Xcode project
       run: xcodegen generate
 
-    # Whichever iPhone simulator this runner's Xcode ships with, rather than a
-    # hard-coded model name that disappears with the next Xcode update.
-    - name: Pick a simulator
+    # Whichever iPhone and iPad simulators this runner's Xcode ships with
+    # (the largest iPad there is), rather than hard-coded model names that
+    # disappear with the next Xcode update.
+    - name: Pick simulators
       id: sim
       run: |
-        udid=$(xcrun simctl list devices available --json \
-          | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,l in sorted(d.items(), reverse=True) if "iOS" in r for x in l if x["name"].startswith("iPhone")))')
-        echo "udid=$udid" >> "$GITHUB_OUTPUT"
+        xcrun simctl list devices available --json | python3 -c '
+        import json, sys
+        devices = json.load(sys.stdin)["devices"]
+        def pick(*prefixes):
+            for prefix in prefixes:
+                for runtime, items in sorted(devices.items(), reverse=True):
+                    for device in items:
+                        if "iOS" in runtime and device["name"].startswith(prefix):
+                            return device["udid"]
+            sys.exit("No simulator named " + " or ".join(prefixes))
+        print("iphone=" + pick("iPhone"))
+        print("ipad=" + pick("iPad Pro 13", "iPad Pro", "iPad Air 13", "iPad"))
+        ' >> "$GITHUB_OUTPUT"
 
-    - name: Build and test
+    - name: Build
       run: |
         set -o pipefail
-        xcodebuild test \
+        xcodebuild build-for-testing \
           -project Empanadas.xcodeproj \
           -scheme Empanadas \
-          -destination "id=${{ steps.sim.outputs.udid }}" \
+          -destination "id=${{ steps.sim.outputs.iphone }}" \
           CODE_SIGNING_ALLOWED=NO
+
+    # Both runs also draw the native screens with a made-up account
+    # (EmpanadasTests/ScreenshotTests.swift): the iPhone's screen, and on the
+    # iPad its screen both ways round, Split View and a wide Mac window.
+    - name: Test on an iPhone
+      env:
+        TEST_RUNNER_SCREENSHOTS_DIR: ${{ runner.temp }}/screenshots
+      run: |
+        set -o pipefail
+        xcodebuild test-without-building \
+          -project Empanadas.xcodeproj \
+          -scheme Empanadas \
+          -destination "id=${{ steps.sim.outputs.iphone }}" \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Test on an iPad
+      env:
+        TEST_RUNNER_SCREENSHOTS_DIR: ${{ runner.temp }}/screenshots
+      run: |
+        set -o pipefail
+        xcodebuild test-without-building \
+          -project Empanadas.xcodeproj \
+          -scheme Empanadas \
+          -destination "id=${{ steps.sim.outputs.ipad }}" \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Upload the screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: screenshots
+        path: ${{ runner.temp }}/screenshots
+        if-no-files-found: warn

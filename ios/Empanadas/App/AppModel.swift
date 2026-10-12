@@ -22,11 +22,6 @@ enum SignInProgress: Equatable {
     case finishing
 }
 
-struct ShareItem: Identifiable {
-    let id = UUID()
-    let url: URL
-}
-
 /// App-wide state: the session, which screen is showing, the native screens'
 /// data, and the web pages that outlive a single screen. Everything a WebPage
 /// cannot decide by itself comes here.
@@ -46,7 +41,6 @@ final class AppModel {
         }
     }
     var popup: WebPage?
-    var shareItem: ShareItem?
     /// A site page opened outside the tabs (see handOff).
     var webSheet: WebLink?
     /// A site page a game linked to, in a sheet over the game player (which
@@ -85,7 +79,7 @@ final class AppModel {
     private(set) var signInProgress: SignInProgress = .idle
     var signInError: String?
 
-    @ObservationIgnored let account = AccountAPI()
+    @ObservationIgnored let account: AccountAPI
     /// Signing in to the app: the whole of it, in the system browser.
     @ObservationIgnored private let signInBrowser = BrowserSession()
     @ObservationIgnored private var pendingSignIn: SignInRequest?
@@ -97,7 +91,9 @@ final class AppModel {
     @ObservationIgnored private var checkingSession = false
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
 
-    init() {
+    /// `account`: the screenshot tests give it one that answers for the site.
+    init(account: AccountAPI = AccountAPI()) {
+        self.account = account
         let defaults = UserDefaults.standard
         session = defaults.bool(forKey: Preferences.signedInKey) ? .signedIn : .signedOut
         theme = defaults.integer(forKey: Preferences.themeKey)
@@ -352,7 +348,7 @@ final class AppModel {
     }
 
     func share(_ url: URL) {
-        shareItem = ShareItem(url: url)
+        ShareSheet.present([url])
     }
 
     // MARK: - Signing in

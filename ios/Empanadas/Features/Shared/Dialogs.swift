@@ -40,16 +40,23 @@ enum Dialogs {
     /// Presents over whatever is frontmost. False when nothing can present.
     @discardableResult
     static func present(_ controller: UIViewController) -> Bool {
+        guard let top = frontmost() else { return false }
+        top.present(controller, animated: true)
+        return true
+    }
+
+    /// What is in front in the key window: the game player, a sheet, or the
+    /// tabs.
+    static func frontmost() -> UIViewController? {
         guard var top = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .flatMap(\.windows)
             .first(where: \.isKeyWindow)?
-            .rootViewController else { return false }
+            .rootViewController else { return nil }
         while let presented = top.presentedViewController, !presented.isBeingDismissed {
             top = presented
         }
-        top.present(controller, animated: true)
-        return true
+        return top
     }
 }
 

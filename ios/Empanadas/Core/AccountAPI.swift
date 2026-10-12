@@ -180,7 +180,9 @@ final class AccountAPI {
     private let session: URLSession
     private let cookieStore: WKHTTPCookieStore
 
-    init() {
+    /// `protocolClasses` answer instead of the site: the screenshot tests'
+    /// made-up account.
+    init(protocolClasses: [AnyClass] = []) {
         let configuration = URLSessionConfiguration.ephemeral
         // Cookies live in WebKit's store, not URLSession's: they are copied in
         // for each request and any the site sets are copied back.
@@ -188,6 +190,7 @@ final class AccountAPI {
         configuration.httpCookieAcceptPolicy = .never
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 15
+        configuration.protocolClasses = protocolClasses + (configuration.protocolClasses ?? [])
         session = URLSession(configuration: configuration)
         cookieStore = WKWebsiteDataStore.default().httpCookieStore
     }

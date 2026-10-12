@@ -65,6 +65,13 @@ struct SettingsView: View {
 
                 Section {
                     Button("Sign Out", role: .destructive) { confirmingSignOut = true }
+                        // On the button rather than the screen: on an iPad or
+                        // a Mac the question is a popover, and it points at
+                        // whatever it is attached to.
+                        .confirmationDialog("Sign out of Empanadas.io?", isPresented: $confirmingSignOut,
+                                            titleVisibility: .visible) {
+                            Button("Sign Out", role: .destructive) { model.signOut() }
+                        }
                 }
 
                 Section {
@@ -76,6 +83,7 @@ struct SettingsView: View {
                 }
             }
             .disabled(settings.savingField != nil)
+            .readableListWidth()
             .navigationTitle("Settings")
             .glassNavigationBar()
             .profileDestinations()
@@ -95,16 +103,6 @@ struct SettingsView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(settings.saveError ?? "")
-            }
-            .confirmationDialog("Sign out of Empanadas.io?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
-                Button("Sign Out", role: .destructive) { model.signOut() }
-            }
-            .confirmationDialog("Opt out of analytics?", isPresented: $confirmingAnalyticsOptOut, titleVisibility: .visible) {
-                Button("Opt Out & Delete", role: .destructive) {
-                    Task { await settings.set(\.analytics, field: "analytics", to: 0, app: model) }
-                }
-            } message: {
-                Text("This deletes the analytics collected for your account. You can opt back in later.")
             }
             .sheet(isPresented: $deletingAccount) {
                 DeleteAccountView(settings: settings)
@@ -191,6 +189,13 @@ struct SettingsView: View {
                     }
                 }
             ))
+            .confirmationDialog("Opt out of analytics?", isPresented: $confirmingAnalyticsOptOut, titleVisibility: .visible) {
+                Button("Opt Out & Delete", role: .destructive) {
+                    Task { await settings.set(\.analytics, field: "analytics", to: 0, app: model) }
+                }
+            } message: {
+                Text("This deletes the analytics collected for your account. You can opt back in later.")
+            }
         } header: {
             Text("Privacy")
         } footer: {

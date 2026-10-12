@@ -3,47 +3,48 @@ import SwiftUI
 struct GamesView: View {
     @Environment(AppModel.self) private var model
 
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
-
     var body: some View {
         NavigationStack {
             ScrollView {
-                if !model.isOnline {
-                    Label("You're offline. Games you've played before still work, and your progress syncs when you're back.",
-                          systemImage: "wifi.slash")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .padding([.horizontal, .top])
-                }
-
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(Game.allCases) { game in
-                        Button {
-                            Haptics.play("light")
-                            model.navigate(to: .game(game))
-                        } label: {
-                            GameCard(game: game)
-                        }
-                        .buttonStyle(.plain)
+                VStack {
+                    if !model.isOnline {
+                        Label("You're offline. Games you've played before still work, and your progress syncs when you're back.",
+                              systemImage: "wifi.slash")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .padding([.horizontal, .top])
                     }
-                }
-                .padding()
 
-                Button {
-                    model.navigate(to: .leaderboard)
-                } label: {
-                    Label("Leaderboards", systemImage: "trophy.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    BalancedGrid(minItemWidth: 160) {
+                        ForEach(Game.allCases) { game in
+                            Button {
+                                Haptics.play("light")
+                                model.navigate(to: .game(game))
+                            } label: {
+                                GameCard(game: game)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+
+                    Button {
+                        model.navigate(to: .leaderboard)
+                    } label: {
+                        Label("Leaderboards", systemImage: "trophy.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
+                .readableWidth(ReadableWidth.narrow)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Games")
