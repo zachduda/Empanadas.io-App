@@ -6,5 +6,7 @@
 	<array>
 		<string>webcredentials:empanadas.io</string>
 	</array>
+	<key>com.apple.developer.game-center</key>
+	<true/>
 </dict>
 </plist>

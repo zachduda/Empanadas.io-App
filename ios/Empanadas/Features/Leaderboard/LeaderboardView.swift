@@ -3,7 +3,8 @@ import SwiftUI
 /// The leaderboards, native: the three boards of the site's /leaderboard,
 /// read from /v2/ios/leaderboard.php (LeaderboardModel). Refreshes while on
 /// screen at the pace the site's shared cache rebuilds, and marks the
-/// player's own row. A row opens the player's native profile.
+/// player's own row. A row opens the player's native profile. The Game
+/// Center button opens the same board there (GameCenter).
 struct LeaderboardView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
@@ -62,6 +63,14 @@ struct LeaderboardView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("Leaderboards")
             .glassNavigationBar()
+            .toolbar {
+                if model.gameCenter.isSignedIn || model.gameCenter.canSignIn {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Game Center") { model.gameCenter.showLeaderboard(for: game) }
+                            .accessibilityHint("Shows this board in Game Center")
+                    }
+                }
+            }
             .profileDestinations()
             .refreshable { await leaderboard.load(app: model) }
             .task(id: scenePhase) { await keepFresh() }

@@ -140,7 +140,7 @@ final class SiteURLsTests: XCTestCase {
         XCTAssertFalse(SiteURLs.isAuthDeepLink(link), "nor a provider's")
     }
 
-    func testAMalformedSignInLinkIsRefused() {
+    func testAMalformedAppSignInLinkIsRefused() {
         XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin")), "no code")
         XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin?code=abc")), "a short code")
         XCTAssertNil(SiteURLs.signInCode(url("empanadas-io://signin?code=\(signInCode)%26x%3D1")), "a code carrying more query")

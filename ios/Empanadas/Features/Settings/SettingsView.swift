@@ -60,6 +60,7 @@ struct SettingsView: View {
 
                 accountSection
                 appSection
+                gameCenterSection
                 aboutSection
 
                 Section {
@@ -255,6 +256,35 @@ struct SettingsView: View {
             Text("App")
         } footer: {
             Text("Haptics include the games' vibration: a tap when you spin, and a buzz when you crash or your tower falls.")
+        }
+    }
+
+    private var gameCenterSection: some View {
+        let gameCenter = model.gameCenter
+        return Section {
+            if gameCenter.isSignedIn {
+                Toggle("Post Scores to Game Center", isOn: Binding(
+                    get: { gameCenter.postsScores },
+                    set: { gameCenter.postsScores = $0 }
+                ))
+                if let name = gameCenter.playerName {
+                    LabeledContent("Signed In As", value: name)
+                }
+            } else if gameCenter.canSignIn {
+                Button("Sign In to Game Center") { gameCenter.signIn() }
+            } else {
+                LabeledContent("Game Center", value: "Not Signed In")
+            }
+        } header: {
+            Text("Game Center")
+        } footer: {
+            if !gameCenter.isSignedIn && !gameCenter.canSignIn {
+                Text("Sign in to Game Center in the Settings app to see how you rank there too.")
+            } else if gameCenter.postsScores {
+                Text("Your lifetime spins and best Flappy and Tower scores go on Game Center's leaderboards too, under your Game Center name.")
+            } else {
+                Text("New scores stay off Game Center.")
+            }
         }
     }
 
