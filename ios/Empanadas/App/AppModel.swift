@@ -57,6 +57,8 @@ final class AppModel {
     let settings: SettingsModel
     /// Game Center's leaderboards, fed by the dashboard.
     let gameCenter: GameCenter
+    /// Every game, saved for playing offline (saveGamesForOffline).
+    let offlineGames: OfflineGames
 
     /// The account's theme setting: 0 follows the device, 1 light, 2 dark.
     var theme: Int {
@@ -90,6 +92,11 @@ final class AppModel {
     @ObservationIgnored private var backgroundPages: [WebPage] = []
     @ObservationIgnored private var checkingSession = false
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
+    /// The connection has been heard from since launch: until then isOnline
+    /// is a guess.
+    @ObservationIgnored private var knowsConnection = false
+    /// Low Data Mode is on for the current connection.
+    @ObservationIgnored private var isLowDataMode = false
 
     /// `account`: the screenshot tests give it one that answers for the site.
     init(account: AccountAPI? = nil) {
@@ -101,6 +108,7 @@ final class AppModel {
         leaderboard = LeaderboardModel()
         settings = SettingsModel()
         gameCenter = GameCenter()
+        offlineGames = OfflineGames()
 
         // A sign-out the site never heard about (no connection, and the app
         // was closed before there was one).
@@ -159,6 +167,7 @@ final class AppModel {
             signInError = nil
             pendingSignIn = nil
             gameCenter.start()
+            saveGamesForOffline()
             Task { await self.refreshTheme() }
         case .signedOut:
             activeGame = nil
@@ -498,19 +507,48 @@ final class AppModel {
         navigate(to: .game(game))
     }
 
+    // MARK: - Offline games
+
+    /// Saves every game for offline play, if it is time to (OfflineGames):
+    /// each game's page and everything it loads, into WebKit's cache, which
+    /// a game opened without a connection starts from. So a game works
+    /// offline without ever having been opened online. Asked as the app
+    /// comes to the front, when it signs in and when the connection comes
+    /// or changes. Not in Low Data Mode: the first save is several megabytes,
+    /// most of them sound.
+    func saveGamesForOffline() {
+        guard session == .signedIn, knowsConnection, isOnline, !isLowDataMode else { return }
+        offlineGames.saveIfDue()
+    }
+
+    /// Settings' Clear Cache emptied WebKit's cache, and the saved games with
+    /// it: they are saved again, fresh.
+    func cacheCleared() {
+        offlineGames.forget()
+        saveGamesForOffline()
+    }
+
     // MARK: - Connection
 
     private func monitorConnection() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
+            let lowData = path.isConstrained
             Task { @MainActor in
-                guard let self, self.isOnline != online else { return }
-                self.isOnline = online
-                // Back online: retry whatever failed while it was not. The
-                // native screens refresh themselves when they are showing.
-                if online, let page = self.signOutPage, page.loadError != nil {
-                    page.reload()
+                guard let self else { return }
+                self.knowsConnection = true
+                self.isLowDataMode = lowData
+                if self.isOnline != online {
+                    self.isOnline = online
+                    // Back online: retry whatever failed while it was not. The
+                    // native screens refresh themselves when they are showing.
+                    if online, let page = self.signOutPage, page.loadError != nil {
+                        page.reload()
+                    }
                 }
+                // The first answer at launch included: the games are saved as
+                // soon as there is a connection to save them with.
+                self.saveGamesForOffline()
             }
         }
         pathMonitor.start(queue: .main)

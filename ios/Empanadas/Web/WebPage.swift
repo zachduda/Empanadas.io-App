@@ -15,7 +15,8 @@ final class WebPage: NSObject, Identifiable {
         var ownRoute: NativeRoute?
         var pullToRefresh = true
         /// Without a connection, load from the copy WebKit's cache already
-        /// has (the games: static pages that keep their saves on the device).
+        /// has (the games: static pages that keep their saves on the device,
+        /// saved there whole by OfflineGames).
         var loadsFromCacheOffline = false
     }
 
@@ -182,8 +183,9 @@ final class WebPage: NSObject, Identifiable {
     }
 
     /// Loads whatever WebKit's cache has for the page, however old: the page
-    /// and, while it loads, everything it asks for. A page that was never
-    /// opened online has nothing there, and fails as before.
+    /// and, while it loads, everything it asks for. A game is there once
+    /// OfflineGames has saved it, or it was played online; one that is not
+    /// fails as before.
     private func loadFromCache(_ url: URL) {
         triedCache = true
         isOfflineCopy = true

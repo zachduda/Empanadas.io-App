@@ -5,7 +5,9 @@ import WebKit
 /// rest, and the games keep the same localStorage (the same save) everywhere.
 @MainActor
 enum WebEnvironment {
-    static func makeConfiguration() -> WKWebViewConfiguration {
+    /// `bridge`: whether pages get window.empanadasApp. Every page the
+    /// player sees does; OfflineGames' blank page has no use for it.
+    static func makeConfiguration(bridge: Bool = true) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.applicationNameForUserAgent = AppConfig.userAgentSuffix
@@ -23,7 +25,9 @@ enum WebEnvironment {
         // The sign-in buttons call window.open() after a fetch, which is no
         // longer inside the tap that started it.
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        configuration.userContentController.addUserScript(bridgeScript)
+        if bridge {
+            configuration.userContentController.addUserScript(bridgeScript)
+        }
         return configuration
     }
 
@@ -72,7 +76,8 @@ enum WebEnvironment {
 
     /// Empties the caches but keeps cookies and local storage, so the player
     /// stays signed in and keeps their game saves. Same as clearAppCache() in
-    /// the desktop app.
+    /// the desktop app. The games saved for offline go too
+    /// (AppModel.cacheCleared saves them again).
     static func clearCache() async {
         let types: Set<String> = [
             WKWebsiteDataTypeDiskCache,

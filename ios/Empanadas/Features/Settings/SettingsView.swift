@@ -248,6 +248,7 @@ struct SettingsView: View {
             Button {
                 Task {
                     await WebEnvironment.clearCache()
+                    model.cacheCleared()
                     cacheCleared = true
                 }
             } label: {
@@ -256,12 +257,19 @@ struct SettingsView: View {
                 }
             }
             .foregroundStyle(.primary)
+            LabeledContent("Offline Games", value: offlineGamesStatus)
             LabeledContent("Version", value: "\(AppConfig.version) (\(AppConfig.build))")
         } header: {
             Text("App")
         } footer: {
-            Text("Haptics include the games' vibration: a tap when you spin, and a buzz when you crash or your tower falls.")
+            Text("Haptics include the games' vibration: a tap when you spin, and a buzz when you crash or your tower falls. Spin, Flappy and Tower are saved on this device whenever the app is open with a connection, so they play offline too.")
         }
+    }
+
+    private var offlineGamesStatus: String {
+        let offline = model.offlineGames
+        if offline.isSaving { return "Saving…" }
+        return offline.isSaved ? "Saved" : "Not Saved Yet"
     }
 
     private var gameCenterSection: some View {
