@@ -15,9 +15,12 @@ struct RootView: View {
         }
         .background { WindowStyle(style: model.interfaceStyle) }
         // Each time the app comes to the front: the theme may have been
-        // changed on the website meanwhile.
+        // changed on the website meanwhile, and the games saved for offline
+        // may be due an update.
         .task(id: scenePhase) {
-            if scenePhase == .active { await model.refreshTheme() }
+            guard scenePhase == .active else { return }
+            model.saveGamesForOffline()
+            await model.refreshTheme()
         }
         .fullScreenCover(item: $model.activeGame) { game in
             GamePlayerView(game: game)

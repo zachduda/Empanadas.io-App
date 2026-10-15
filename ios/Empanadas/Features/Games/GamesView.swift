@@ -8,7 +8,9 @@ struct GamesView: View {
             ScrollView {
                 VStack {
                     if !model.isOnline {
-                        Label("You're offline. Games you've played before still work, and your progress syncs when you're back.",
+                        Label(model.offlineGames.isSaved
+                              ? "You're offline. Your games are saved on this device, and your progress syncs when you're back."
+                              : "You're offline. Games you've played before still work, and your progress syncs when you're back.",
                               systemImage: "wifi.slash")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -105,7 +107,7 @@ struct GamePlayerView: View {
                     if page.offlineCopyMissing {
                         ConnectionErrorView(
                             title: "Not Saved for Offline Yet",
-                            message: "Play \(game.title) once while you're online, and it'll be ready next time you're not.",
+                            message: "\(game.title) is saved for offline play the next time the app is open with a connection.",
                             systemImage: "icloud.slash"
                         ) { page.reload() }
                     } else {

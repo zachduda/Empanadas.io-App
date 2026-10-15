@@ -23,7 +23,7 @@ App Review expects.
 | **Popups** | Captcha and other script-opened windows of the signed-in pages open in a sheet, limited to the site, the providers and the SSO hosts. Connect Google/GitHub/Discord on the account page goes through the system browser too, using the site's provider hand-off (`/v2/auth/browser.php`, `empanadas-io://auth`). |
 | **Quick actions** | Play Flappy / Spin / Tower from the Home Screen icon. |
 | **Haptics** | The games' own `navigator.vibrate()` calls (a manual spin, a Flappy crash, a Tower slip or topple) play native haptics: WebKit on iOS has no Vibration API, so `Resources/bridge.js` fills it in, and the Haptics switch in Settings turns it off. Pages can also call `window.empanadasApp.haptic(style)` directly. Tested by `test/iosbridge.test.js` (`npm test`). |
-| **Offline** | Home, Leaderboard and Settings keep their last good answer on the device (`Core/OfflineStore.swift`) and open with it at launch and without a connection, saying when it was saved. Settings can't be changed offline. Profile pictures are cached on disk. A game opened offline starts from the copy in WebKit's cache, so any game played online before works offline; the games keep their saves on the device and sync them when back online. Everything refreshes when the connection returns. |
+| **Offline** | Home, Leaderboard and Settings keep their last good answer on the device (`Core/OfflineStore.swift`) and open with it at launch and without a connection, saying when it was saved. Settings can't be changed offline. Profile pictures are cached on disk. Every game is saved for offline play as soon as the app is open, signed in, with a connection (`Web/OfflineGames.swift`): a web view nobody sees, on a blank page of the site's, fetches each game's page and every stylesheet, script, picture, sound and font it loads into WebKit's cache, and a game opened offline starts from there. The files are found from the games themselves (`Core/OfflineAssets.swift`: the pages, then what they name, then what their stylesheets and scripts name), plus the sounds and pictures Spin builds the path of in script. It is brought up to date at most every six hours, as the app comes to the front, signs in or gets a connection, asking the site only whether each file changed; not in Low Data Mode. Settings shows whether it is done (**Offline Games**), and Clear Cache saves them again. The games keep their saves on the device and sync them when back online. Everything refreshes when the connection returns. |
 | **iPad and Mac** | One app for iPhone and iPad, which also runs on Apple silicon Macs as an iPad app, in a window that can be as wide as the display. On a wide window the native screens stop growing and centre: the dashboard and profiles at 1100 points, in two columns of cards that each go to the shorter column; lists, forms, search and the games at 720 (`ReadableWidth` in `Features/Shared/Components.swift`). The stat tiles and game cards fill their rows evenly rather than leaving holes (`BalancedGrid`). The share sheet is a popover there, and Settings' questions point at the button that asked. Narrower than that, as in Split View, they are the phone's screens. |
 | **Deep links** | `empanadas-io://home`, `://leaderboard`, `://settings`, `://play/<game>`, `://profile`, `://profile/<id>`, `://friends` and `://feedback` (`?reason=<subject>`) open native screens. `://signin?code=` finishes a sign-in the app started, and `://auth?...` connecting a provider, each only while one is under way. Anything else is ignored. |
 
@@ -129,13 +129,15 @@ round, and the score shows on the board once the dashboard has refreshed.
 
 ## Next steps
 
-- **Offline play without a first visit.** Games start offline from WebKit's
-  cache, so only after being played online once. The desktop app goes further
-  with the site's service worker (`sw.js`, `lib/offline.js`). WKWebView only
+- **Offline play from the site's service worker.** The games are saved into
+  WebKit's HTTP cache (`OfflineGames`), which serves a file the game asks
+  for while its page loads however old it is, but one asked for later (a
+  sound the first time it plays) only while the site's caching headers say it
+  is fresh. The desktop app uses the site's service worker instead (`sw.js`,
+  `lib/offline.js`), which serves every saved file offline. WKWebView only
   runs service workers for App-Bound Domains (`WKAppBoundDomains`), which also
-  blocks script injection on every other domain, so it needs testing on a
-  device against the sign-in popups before it ships. Bundling the three games
-  is the other route.
+  blocks script injection in every web view not limited to those domains, so
+  it needs testing on a device against the sign-in popups before it ships.
 - **Game Center achievements.** The leaderboards are done (see "Game Center"
   above); achievements could follow the same way, from the dashboard's
   numbers.

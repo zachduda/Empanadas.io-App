@@ -51,6 +51,7 @@ final class ScreenshotTests: XCTestCase {
     override func tearDown() async throws {
         guard directory != nil else { return }
         OfflineStore.clear()
+        OfflineGamesRecord.forget()
         UserDefaults.standard.set(wasSignedIn, forKey: Preferences.signedInKey)
     }
 
@@ -172,6 +173,9 @@ private enum Fixtures {
         OfflineStore.save(json(leaderboard), as: .leaderboard)
         OfflineStore.save(json(account), as: .settings)
         OfflineStore.save(json(profile), as: .profile)
+        // Saved for offline already: a model signed in would otherwise fetch
+        // every game from the live site while the screens are drawn.
+        OfflineGamesRecord.saved()
     }
 
     static func answer(for path: String) -> Data? {
