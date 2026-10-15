@@ -1,13 +1,30 @@
 # Validates the app on every push and PR, and builds installable artifacts for
 # the platforms this app actually ships on.
+#
+# Not for a change only to the iOS app (ios/, built and tested by ios.yml):
+# the desktop app leaves ios/ out of its build (package.json "files"), and
+# each run here stores a few hundred MB of installers, which is what filled
+# the account's Actions artifact storage. Except bridge.js, which npm test
+# checks (test/iosbridge.test.js). A change to anything else as well still
+# runs this.
 
 name: Node.js CI
 
 on:
   push:
     branches: [ "main" ]
+    paths:
+      - '**'
+      - '!ios/**'
+      - 'ios/Empanadas/Resources/bridge.js'
+      - '!.github/workflows/ios.yml'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - '**'
+      - '!ios/**'
+      - 'ios/Empanadas/Resources/bridge.js'
+      - '!.github/workflows/ios.yml'
   workflow_dispatch:
 
 permissions:
@@ -80,11 +97,11 @@ jobs:
             # Notarization needs Apple credentials that CI does not have.
             args: --mac --config.mac.identity=- --config.mac.hardenedRuntime=false --config.mac.notarize=false
             artifact: macos-app
+            # The disk images only. The zips, blockmaps and latest-mac.yml are
+            # what the updater downloads, and it refuses a build that is not
+            # release-signed, so here they would only double the size.
             files: |
               dist/*.dmg
-              dist/*.zip
-              dist/*.blockmap
-              dist/*.yml
 
     steps:
     - uses: actions/checkout@v5
@@ -161,4 +178,6 @@ jobs:
         name: ${{ matrix.artifact }}
         path: ${{ matrix.files }}
         if-no-files-found: error
-        retention-days: 14
+        # Long enough to try a build; the installers are a few hundred MB, and
+        # artifact storage counts every day they are kept.
+        retention-days: 2
