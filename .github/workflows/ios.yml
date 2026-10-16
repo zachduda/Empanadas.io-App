@@ -87,10 +87,14 @@ jobs:
           -destination "id=${{ steps.sim.outputs.ipad }}" \
           CODE_SIGNING_ALLOWED=NO
 
+    # Pictures to look at, not a check: a full artifact storage quota fails
+    # the upload, and that should not turn a passing build and test run red.
     - name: Upload the screenshots
       if: always()
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: screenshots
         path: ${{ runner.temp }}/screenshots
         if-no-files-found: warn
+        retention-days: 7

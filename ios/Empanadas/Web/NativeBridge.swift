@@ -127,4 +127,8 @@ enum Preferences {
     static let themeKey = "theme"
     /// Settings' "Post Scores to Game Center" (GameCenter.postsScores).
     static let gameCenterScoresKey = "gameCenterScores"
+    /// When every game was last saved for offline play, and by which version
+    /// of the app (OfflineGamesRecord).
+    static let offlineGamesSavedAtKey = "offlineGames.savedAt"
+    static let offlineGamesVersionKey = "offlineGames.version"
 }

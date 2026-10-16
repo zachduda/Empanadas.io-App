@@ -128,8 +128,10 @@ CI installs that browser, so those assertions run on every push and PR.
 
 `.github/workflows/node.js.yml` validates every push and PR, then builds an
 unsigned Windows installer and ad-hoc signed macOS apps and attaches them to the
-run. Download them from the run's **Artifacts** section; they are kept for 14
-days.
+run (the macOS disk images only). Download them from the run's **Artifacts**
+section; they are kept for 2 days, since each run's are a few hundred MB and
+the account's Actions artifact storage is limited. A change only to the iOS
+app (`ios/`, apart from `bridge.js`, which `npm test` checks) does not run it.
 
 CI deliberately does not publish. It passes `--publish never`, because
 electron-builder otherwise detects CI and implicitly tries to upload to the
