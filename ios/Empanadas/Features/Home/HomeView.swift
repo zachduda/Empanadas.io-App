@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The dashboard, native: what the site's /v2/dashboard shows, read from
 /// /v2/ios/dashboard.php (DashboardModel). Profiles and Find Friends are
-/// native screens pushed on top (ProfileRoute); the parts that are still the
+/// native screens pushed on top (ProfileRoute), and so are the site's
+/// announcements, from the bell (UpdatesRoute); the parts that are still the
 /// web's (the profile picture, verifying the address) are site pages.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
@@ -42,6 +43,11 @@ struct HomeView: View {
             .glassNavigationBar()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    UpdatesBell(unread: model.updates.unread) {
+                        model.homePath.append(UpdatesRoute.all)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     accountMenu(dashboard.data)
                 }
             }
@@ -49,26 +55,35 @@ struct HomeView: View {
                 WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
             }
             .profileDestinations()
+            .updatesDestinations()
             .refreshable { await dashboard.load(app: model) }
             .task(id: scenePhase) { await keepFresh() }
             .onChange(of: model.isOnline) { _, online in
-                if online { Task { await dashboard.load(app: model) } }
+                guard online else { return }
+                Task { await dashboard.load(app: model) }
+                Task { await model.updates.check(app: model, maxAge: Self.updatesMaxAge) }
             }
         }
     }
 
     /// While the tab is on screen and the app in front: a refresh if the last
     /// is a little old, then one a minute, as the site's dashboard refreshes
-    /// its friends list.
+    /// its friends list. The bell asks whether anything has been posted at
+    /// most every ten minutes, the time the site caches the answer for.
     private func keepFresh() async {
         guard scenePhase == .active else { return }
         await model.dashboard.load(app: model, maxAge: 20)
+        await model.updates.check(app: model, maxAge: Self.updatesMaxAge)
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(60))
             guard !Task.isCancelled else { return }
-            if model.isOnline { await model.dashboard.load(app: model) }
+            guard model.isOnline else { continue }
+            await model.dashboard.load(app: model)
+            await model.updates.check(app: model, maxAge: Self.updatesMaxAge)
         }
     }
+
+    private static let updatesMaxAge: TimeInterval = 10 * 60
 
     /// A native profile screen, pushed.
     private func show(_ route: ProfileRoute) {

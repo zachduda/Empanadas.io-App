@@ -82,6 +82,25 @@ enum SiteURLs {
     /// footer links a bare "feedback"). The app's Send Feedback screen
     /// stands in for it.
     static let feedbackPaths: Set<String> = ["/v2/feedback", "/v2/feedback.php"]
+    /// The site's announcements page. The app's Updates screen stands in for
+    /// it.
+    static let updatesPaths: Set<String> = ["/updates", "/updates.html"]
+
+    /// The site's public API, on a host of its own.
+    static let api = URL(string: "https://api.empanadas.io")!
+
+    /// One announcement, as the site's Updates page asks for it (updates.js):
+    /// by `page`, 0 the newest, or the one with the id `post`. `fresh` asks
+    /// past the ten minutes the answer is cached for, as the page's own
+    /// reload does.
+    static func updatesAPI(page number: Int = 0, post: String? = nil, fresh: Bool = false) -> URL {
+        var components = URLComponents(url: api.appending(path: "/v1/updates.php"), resolvingAgainstBaseURL: false)!
+        var items = [URLQueryItem(name: "v", value: "1"), URLQueryItem(name: "page", value: String(max(0, number)))]
+        if let post { items.append(URLQueryItem(name: "post", value: post)) }
+        if fresh { items.append(URLQueryItem(name: "sc", value: String(Int(Date().timeIntervalSince1970 * 1000)))) }
+        components.queryItems = items
+        return components.url!
+    }
 
     /// The feedback page asking for one subject, as Spin's Report a Problem
     /// links it (?reason=3). What NativeRoute reads back.

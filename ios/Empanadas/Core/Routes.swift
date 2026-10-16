@@ -71,6 +71,8 @@ enum NativeRoute: Equatable {
     case findFriends
     /// Send Feedback, with the subject the link asked for (?reason=), if any.
     case feedback(Int?)
+    /// The announcements, or one of them by its id (?post=).
+    case updates(String?)
 
     static func of(_ url: URL) -> NativeRoute? {
         if let game = Game.of(url) { return .game(game) }
@@ -79,6 +81,9 @@ enum NativeRoute: Equatable {
         if SiteURLs.isPath(url, in: SiteURLs.accountPaths) { return .settings }
         if let route = profileRoute(url) { return route }
         if let route = feedbackRoute(url) { return route }
+        if SiteURLs.isPath(url, in: SiteURLs.updatesPaths) {
+            return .updates(SiteURLs.queryValue("post", in: url).flatMap { Announcement.isID($0) ? $0 : nil })
+        }
         return nil
     }
 
@@ -119,8 +124,9 @@ enum NativeRoute: Equatable {
     /// empanadas-io://home, empanadas-io://leaderboard,
     /// empanadas-io://settings, empanadas-io://play/<game>,
     /// empanadas-io://profile, empanadas-io://profile/<id>,
-    /// empanadas-io://friends and empanadas-io://feedback (?reason=<subject>).
-    /// Anything else is ignored.
+    /// empanadas-io://friends, empanadas-io://feedback (?reason=<subject>),
+    /// empanadas-io://updates and empanadas-io://updates/<id>. Anything else
+    /// is ignored.
     static func of(deepLink url: URL) -> NativeRoute? {
         guard url.scheme?.lowercased() == AppConfig.urlScheme else { return nil }
         let path = url.path(percentEncoded: false).split(separator: "/").map(String.init)
@@ -133,6 +139,8 @@ enum NativeRoute: Equatable {
         case "profile"? where path.count == 1 && PlayerID.isValid(path[0]): return .profile(path[0])
         case "friends"? where path.isEmpty: return .findFriends
         case "feedback"? where path.isEmpty: return .feedback(reason(in: url))
+        case "updates"? where path.isEmpty: return .updates(nil)
+        case "updates"? where path.count == 1 && Announcement.isID(path[0]): return .updates(path[0])
         default: return nil
         }
     }

@@ -325,6 +325,26 @@ final class AccountAPI {
         }
     }
 
+    // MARK: - Updates
+
+    /// GET api.empanadas.io/v1/updates.php: one announcement, the request the
+    /// site's Updates page makes (SiteURLs.updatesAPI). Public, so it goes
+    /// without the session's cookies, as the site's pages ask for it.
+    func announcement(page: Int = 0, id: String? = nil, fresh: Bool = false) async throws -> AnnouncementReply {
+        var request = URLRequest(url: SiteURLs.updatesAPI(page: page, post: id, fresh: fresh))
+        request.setValue(await WebEnvironment.userAgent(), forHTTPHeaderField: "User-Agent")
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw AccountError.network
+        }
+        guard let http = response as? HTTPURLResponse else { throw AccountError.network }
+        guard http.statusCode == 200 else { throw AccountError.unavailable("HTTP \(http.statusCode)") }
+        return try Self.decode(AnnouncementReply.self, data)
+    }
+
     /// The uuid field account_edit.php takes: 32 hex digits, no dashes.
     private nonisolated static func uuidField(_ playerID: String) throws -> String {
         guard let raw = PlayerID.raw(playerID) else { throw AccountError.server("That player couldn't be found.") }
