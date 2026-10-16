@@ -55,6 +55,8 @@ final class AppModel {
     let dashboard: DashboardModel
     let leaderboard: LeaderboardModel
     let settings: SettingsModel
+    /// The site's announcements, and the bell on Home.
+    let updates: UpdatesModel
     /// Game Center's leaderboards, fed by the dashboard.
     let gameCenter: GameCenter
     /// Every game, saved for playing offline (saveGamesForOffline).
@@ -107,6 +109,7 @@ final class AppModel {
         dashboard = DashboardModel()
         leaderboard = LeaderboardModel()
         settings = SettingsModel()
+        updates = UpdatesModel()
         gameCenter = GameCenter()
         offlineGames = OfflineGames()
 
@@ -265,6 +268,11 @@ final class AppModel {
             } else {
                 webSheet = link
             }
+        case .updates(let post):
+            guard session == .signedIn else { return }
+            activeGame = nil
+            selectedTab = .home
+            homePath.append(post.map { UpdatesRoute.post($0) } ?? .all)
         }
     }
 

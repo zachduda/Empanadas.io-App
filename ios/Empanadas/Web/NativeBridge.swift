@@ -131,4 +131,6 @@ enum Preferences {
     /// of the app (OfflineGamesRecord).
     static let offlineGamesSavedAtKey = "offlineGames.savedAt"
     static let offlineGamesVersionKey = "offlineGames.version"
+    /// The newest announcement the player has seen (UpdatesModel).
+    static let updatesSeenKey = "updates.lastSeen"
 }

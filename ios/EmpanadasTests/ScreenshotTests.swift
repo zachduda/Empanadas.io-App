@@ -25,7 +25,8 @@ final class ScreenshotTests: XCTestCase {
         let name: String
         var signedIn = true
         var tab: AppTab = .home
-        var route: ProfileRoute?
+        /// Pushed on the Home tab: a ProfileRoute or an UpdatesRoute.
+        var route: (any Hashable)?
     }
 
     private static let screens = [
@@ -33,12 +34,14 @@ final class ScreenshotTests: XCTestCase {
         Screen(name: "games", tab: .games),
         Screen(name: "leaderboard", tab: .leaderboard),
         Screen(name: "settings", tab: .settings),
-        Screen(name: "profile", route: .player(id: nil, name: nil)),
+        Screen(name: "profile", route: ProfileRoute.player(id: nil, name: nil)),
+        Screen(name: "updates", route: UpdatesRoute.all),
         Screen(name: "welcome", signedIn: false),
     ]
 
     private var directory: URL!
     private var wasSignedIn = false
+    private var lastSeenUpdate: String?
 
     override func setUp() async throws {
         guard let path = ProcessInfo.processInfo.environment["SCREENSHOTS_DIR"], !path.isEmpty else {
@@ -46,6 +49,7 @@ final class ScreenshotTests: XCTestCase {
         }
         directory = URL(filePath: path, directoryHint: .isDirectory)
         wasSignedIn = UserDefaults.standard.bool(forKey: Preferences.signedInKey)
+        lastSeenUpdate = UserDefaults.standard.string(forKey: Preferences.updatesSeenKey)
     }
 
     override func tearDown() async throws {
@@ -53,6 +57,7 @@ final class ScreenshotTests: XCTestCase {
         OfflineStore.clear()
         OfflineGamesRecord.forget()
         UserDefaults.standard.set(wasSignedIn, forKey: Preferences.signedInKey)
+        UserDefaults.standard.set(lastSeenUpdate, forKey: Preferences.updatesSeenKey)
     }
 
     func testDrawsTheScreensAtEachSize() async throws {
@@ -150,7 +155,7 @@ private final class FakeSite: URLProtocol {
 
     override func startLoading() {
         guard let url = request.url else { return }
-        let body = Fixtures.answer(for: url.path())
+        let body = Fixtures.answer(for: url)
         let response = HTTPURLResponse(url: url, statusCode: body == nil ? 404 : 200, httpVersion: "HTTP/1.1",
                                        headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -163,6 +168,8 @@ private final class FakeSite: URLProtocol {
 
 /// What the site's /v2/ios/ endpoints would say about a player a few weeks
 /// in: friends, a request waiting, scores in all three games, pumpkin season.
+/// And the site's announcements, two of them posted since the player last
+/// looked.
 private enum Fixtures {
     static let picture = "/Content/Images/defaultpfp.png"
 
@@ -176,16 +183,66 @@ private enum Fixtures {
         // Saved for offline already: a model signed in would otherwise fetch
         // every game from the live site while the screens are drawn.
         OfflineGamesRecord.saved()
+        // Seen up to the third: the bell has a dot, and the two above it are
+        // New.
+        UserDefaults.standard.set(posts[2]["id"] as? String, forKey: Preferences.updatesSeenKey)
     }
 
-    static func answer(for path: String) -> Data? {
-        switch path {
+    static func answer(for url: URL) -> Data? {
+        switch url.path() {
         case "/v2/ios/dashboard.php": json(dashboard)
         case "/v2/ios/leaderboard.php": json(leaderboard)
         case "/v2/ios/account.php": json(account)
         case "/v2/ios/profile.php": json(profile)
+        case "/v1/updates.php": updates(url)
         default: nil
         }
+    }
+
+    /// The announcements, newest first, as the admin panel would have saved
+    /// them.
+    static let posts: [[String: Any]] = [
+        post("k3n9q2", "Spin Got a Makeover", "2 hours ago", """
+            <p>The <b>Spin</b> game has a fresh look, and it&#39;s <i>faster</i> on every device.</p>
+            <ul><li>New upgrades in the shop</li><li>Smoother animations</li><li>Haptics on iPhone</li></ul>
+            <p>Give it a <a href="/spin">spin</a> and tell us what you think!</p>
+            """),
+        post("f7h2m1", "Tower Leaderboards Are Live", "3 days ago", """
+            <h3>Stack your way to the top</h3>
+            Your tallest tower now counts on the leaderboard. See <a href="/leaderboard">where you rank</a>.
+            """),
+        post("a1b2c3", "Welcome to the App! &#x1F389;", "2 weeks ago", """
+            <p>Empanadas.io is on iPhone and iPad now.</p>
+            <blockquote>Play offline, and your saves sync when you&#39;re back.</blockquote>
+            """, edited: "1 week ago"),
+        post("z9y8x7", "Pumpkin Season", "1 month ago", "<p>&#x1F383; Pumpkins are back for October.</p>"),
+    ]
+
+    private static func post(_ id: String, _ title: String, _ date: String, _ content: String,
+                             edited: String? = nil) -> [String: Any] {
+        var post: [String: Any] = ["id": id, "title": title, "content": content, "date": date]
+        post["edited"] = edited.map { $0 as Any } ?? false
+        post["author"] = ["username": "zach", "uuid": "55555555-5555-5555-5555-555555555555", "is_admin": true,
+                          "pfp": picture, "default_pfp": true] as [String: Any]
+        return post
+    }
+
+    /// updates.php's answer: by ?page=, or by ?post=.
+    private static func updates(_ url: URL) -> Data {
+        var reply: [String: Any] = ["total": posts.count, "last_checked": Int(Date().timeIntervalSince1970)]
+        let index: Int?
+        if let id = SiteURLs.queryValue("post", in: url) {
+            index = posts.firstIndex { $0["id"] as? String == id }
+        } else {
+            let page = Int(SiteURLs.queryValue("page", in: url) ?? "") ?? 0
+            index = posts.indices.contains(page) ? page : nil
+        }
+        if let index {
+            reply.merge(posts[index]) { _, post in post }
+        }
+        reply["found"] = index != nil
+        reply["page"] = index ?? 0
+        return json(reply)
     }
 
     private static func json(_ object: [String: Any]) -> Data {
