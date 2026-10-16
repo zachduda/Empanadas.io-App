@@ -16,7 +16,7 @@
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",
   "devDependencies": {
-    "electron": "^44.1.1",
+    "electron": "^44.7.2",
     "electron-builder": "^26.16.0"
   },
   "build": {
