@@ -538,12 +538,24 @@ final class AppModel {
 
     // MARK: - Connection
 
+    /// The screens' first requests go out at launch, before the connection
+    /// has been heard from, and may have failed while it was coming up: once
+    /// it is confirmed, whichever did are asked again.
+    private func retryLaunchFailures() {
+        guard session == .signedIn else { return }
+        if dashboard.error != nil { Task { await dashboard.load(app: self) } }
+        if leaderboard.error != nil { Task { await leaderboard.load(app: self) } }
+        if settings.loadError != nil { Task { await settings.load(app: self) } }
+        if updates.error != nil, !updates.isLoading { Task { await updates.refresh(app: self) } }
+    }
+
     private func monitorConnection() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
             let lowData = path.isConstrained
             Task { @MainActor in
                 guard let self else { return }
+                let firstAnswer = !self.knowsConnection
                 self.knowsConnection = true
                 self.isLowDataMode = lowData
                 if self.isOnline != online {
@@ -553,6 +565,10 @@ final class AppModel {
                     if online, let page = self.signOutPage, page.loadError != nil {
                         page.reload()
                     }
+                } else if firstAnswer && online {
+                    // isOnline was a guess until now, and a right one, so the
+                    // screens see no change to retry on.
+                    self.retryLaunchFailures()
                 }
                 // The first answer at launch included: the games are saved as
                 // soon as there is a connection to save them with.

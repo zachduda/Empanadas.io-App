@@ -48,9 +48,12 @@ final class FeedbackModel {
             subjectID = fresh.initialSubject(reason).id
             loadError = nil
         } catch let error as AccountError {
+            // Cancelled (the sheet closed): not a failure.
+            guard !Task.isCancelled else { return }
             if error == .signedOut { app.observe(.unsure) }
             loadError = error
         } catch {
+            guard !Task.isCancelled else { return }
             loadError = .network
         }
     }

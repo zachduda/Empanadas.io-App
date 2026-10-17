@@ -46,11 +46,12 @@ final class SettingsModel {
             loadError = nil
             app.theme = fresh.settings.theme
         } catch let error as AccountError {
-            guard generation == self.generation else { return }
+            // Cancelled (the tab left before the answer): not a failure.
+            guard generation == self.generation, !Task.isCancelled else { return }
             if error == .signedOut { app.observe(.unsure) }
             loadError = error
         } catch {
-            guard generation == self.generation else { return }
+            guard generation == self.generation, !Task.isCancelled else { return }
             loadError = .network
         }
     }

@@ -204,6 +204,20 @@ final class DashboardTests: XCTestCase {
         }
     }
 
+    func testRetriesOnlyReadsThatFailedBeforeAnAnswer() {
+        let read = URLRequest(url: SiteURLs.site)
+        var change = read
+        change.httpMethod = "POST"
+        // The connection still coming up after a while away.
+        XCTAssertTrue(AccountAPI.isWorthRetrying(URLError(.notConnectedToInternet), read))
+        XCTAssertTrue(AccountAPI.isWorthRetrying(URLError(.networkConnectionLost), read))
+        XCTAssertFalse(AccountAPI.isWorthRetrying(URLError(.networkConnectionLost), change),
+                       "a change may already have reached the site")
+        XCTAssertFalse(AccountAPI.isWorthRetrying(URLError(.timedOut), read), "it has waited long enough")
+        XCTAssertFalse(AccountAPI.isWorthRetrying(URLError(.cancelled), read))
+        XCTAssertFalse(AccountAPI.isWorthRetrying(AccountError.signedOut, read))
+    }
+
     func testWebPagesTellServerErrorsFromChallenges() throws {
         func response(_ status: Int, _ url: String, headers: [String: String] = [:]) -> (HTTPURLResponse, URL) {
             let url = URL(string: url)!

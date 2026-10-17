@@ -36,11 +36,13 @@ final class LeaderboardModel {
             updatedAt = Date()
             error = nil
         } catch let failure as AccountError {
-            guard generation == self.generation else { return }
+            // Cancelled (the screen left, or the app went to the back): not
+            // a failure, and not one to show until the next refresh.
+            guard generation == self.generation, !Task.isCancelled else { return }
             if failure == .signedOut { app.observe(.unsure) }
             error = failure
         } catch {
-            guard generation == self.generation else { return }
+            guard generation == self.generation, !Task.isCancelled else { return }
             self.error = .network
         }
     }
