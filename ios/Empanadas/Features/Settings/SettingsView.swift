@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var confirmingAnalyticsOptOut = false
     @State private var deletingAccount = false
     @State private var cacheCleared = false
+    @State private var cacheSize: Int64?
 
     /// The app's, so it is made once (see AppModel.settings).
     private var settings: SettingsModel { model.settings }
@@ -250,13 +251,20 @@ struct SettingsView: View {
                     await WebEnvironment.clearCache()
                     model.cacheCleared()
                     cacheCleared = true
+                    cacheSize = await WebEnvironment.cacheSize()
                 }
             } label: {
                 LabeledContent("Clear Cache") {
-                    if cacheCleared { Image(systemName: "checkmark").foregroundStyle(.green) }
+                    HStack(spacing: 6) {
+                        if let cacheSize {
+                            Text(cacheSize.formatted(.byteCount(style: .file, allowedUnits: .mb, spellsOutZero: false)))
+                        }
+                        if cacheCleared { Image(systemName: "checkmark").foregroundStyle(.green) }
+                    }
                 }
             }
             .foregroundStyle(.primary)
+            .task { cacheSize = await WebEnvironment.cacheSize() }
             LabeledContent("Offline Games", value: offlineGamesStatus)
             LabeledContent("Version", value: "\(AppConfig.version) (\(AppConfig.build))")
         } header: {

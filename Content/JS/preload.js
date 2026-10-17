@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('electronWindow', {
   // Empties the app's cache but keeps cookies and saves - see clearAppCache()
   // in main.js. Resolves { ok }, or null if the page is not empanadas.io.
   clearCache: () => ipcRenderer.invoke('app-clear-cache'),
+  // How much clearCache() would free - see appCacheSize() in main.js.
+  // Resolves { bytes }, or null if the page is not empanadas.io.
+  cacheSize: () => ipcRenderer.invoke('app-cache-size'),
   // Offline games (lib/offline.js). status() resolves { signedIn, ready,
   // available, games }; play() opens a game when it is in games ('spin',
   // 'flappy' or 'tower').

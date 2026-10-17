@@ -1,4 +1,5 @@
 const {app, BrowserWindow, ipcMain, Menu, net, shell, session, systemPreferences} = require('electron');
+const fs = require('fs');
 const path = require('path');
 const updater = require('./updater');
 const isMac = process.platform === 'darwin';
@@ -234,6 +235,42 @@ async function clearAppCache() {
 		console.warn('[cache] could not clear part of the cache: ' + (r.reason && r.reason.message));
 	}
 	return { ok: failed.length === 0 };
+}
+
+// How much clearAppCache() would free, in bytes: the HTTP cache plus the
+// code and shader caches kept beside it. Cookies, saves and the offline
+// games' storage are not counted, as they are not cleared.
+async function appCacheSize() {
+	const ses = session.defaultSession;
+	const base = ses.getStoragePath() || app.getPath('userData');
+	const sizes = await Promise.all([
+		ses.getCacheSize().catch(() => 0),
+		dirSize(path.join(base, 'Code Cache')),
+		dirSize(path.join(base, 'GPUCache')),
+		dirSize(path.join(base, 'DawnGraphiteCache')),
+		dirSize(path.join(base, 'DawnWebGPUCache'))
+	]);
+	return { bytes: sizes.reduce((a, b) => a + b, 0) };
+}
+
+async function dirSize(dir) {
+	let entries;
+	try {
+		entries = await fs.promises.readdir(dir, { withFileTypes: true });
+	} catch {
+		return 0;
+	}
+	const sizes = await Promise.all(entries.map(async (entry) => {
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) return dirSize(full);
+		if (!entry.isFile()) return 0;
+		try {
+			return (await fs.promises.stat(full)).size;
+		} catch {
+			return 0;
+		}
+	}));
+	return sizes.reduce((a, b) => a + b, 0);
 }
 
 function showSplash(failedUrl) {
@@ -587,6 +624,7 @@ function registerIpcHandlers() {
 
 	handle('app-ping', () => pingSite());
 	handle('app-clear-cache', () => clearAppCache());
+	handle('app-cache-size', () => appCacheSize());
 	handle('offline-status', () => offlineStore ? offlineStore.get() : { signedIn: false, ready: false, available: false, games: [] });
 
 	handle('offline-play', (name) => {
