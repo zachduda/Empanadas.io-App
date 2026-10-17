@@ -196,6 +196,28 @@ final class DashboardTests: XCTestCase {
         XCTAssertThrowsError(try AccountAPI.iosBody(nginx, reply: AccountAPI.iosReply(nginx), status: 404)) {
             XCTAssertEqual($0 as? AccountError, .unavailable("HTTP 404"), "an endpoint not deployed yet")
         }
+        let gateway = Data("<html>502 Bad Gateway</html>".utf8)
+        XCTAssertThrowsError(try AccountAPI.iosBody(gateway, reply: AccountAPI.iosReply(gateway), status: 502)) {
+            XCTAssertEqual($0 as? AccountError, .server(AccountAPI.serverErrorMessage(502)))
+            XCTAssertTrue(($0 as? AccountError)?.localizedDescription.contains("502") == true,
+                          "the status is shown, so a report says what went wrong")
+        }
+    }
+
+    func testWebPagesTellServerErrorsFromChallenges() throws {
+        func response(_ status: Int, _ url: String, headers: [String: String] = [:]) -> (HTTPURLResponse, URL) {
+            let url = URL(string: url)!
+            return (HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!, url)
+        }
+        let site = SiteURLs.terms.absoluteString
+        var (r, u) = response(502, site)
+        XCTAssertTrue(WebPage.isServerError(r, from: u))
+        (r, u) = response(503, site, headers: ["cf-mitigated": "challenge"])
+        XCTAssertFalse(WebPage.isServerError(r, from: u), "Cloudflare's check has to be drawn")
+        (r, u) = response(404, site)
+        XCTAssertFalse(WebPage.isServerError(r, from: u), "the site's own 404 page")
+        (r, u) = response(500, "https://example.com/")
+        XCTAssertFalse(WebPage.isServerError(r, from: u), "not the site")
     }
 
     func testTheSavedAccountHasNoToken() throws {
