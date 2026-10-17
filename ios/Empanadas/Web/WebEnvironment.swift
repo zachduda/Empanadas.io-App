@@ -87,4 +87,27 @@ enum WebEnvironment {
         ]
         await WKWebsiteDataStore.default().removeData(ofTypes: types, modifiedSince: .distantPast)
     }
+
+    /// How much clearCache() would free, in bytes. WebKit does not report
+    /// sizes, so this adds up its cache folders on disk: the HTTP cache
+    /// (NetworkCache), the fetch cache (CacheStorage) and the old application
+    /// cache, wherever this iOS version keeps them under Library. Cookies,
+    /// local storage and the app's own picture cache are not counted.
+    static func cacheSize() async -> Int64 {
+        await Task.detached(priority: .utility) {
+            let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            let folders: Set<String> = ["NetworkCache", "CacheStorage", "OfflineWebApplicationCache", "ApplicationCache"]
+            let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
+            var total: Int64 = 0
+            for root in [library.appending(path: "Caches"), library.appending(path: "WebKit")] {
+                guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { continue }
+                for case let file as URL in files {
+                    guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
+                          file.pathComponents.contains(where: folders.contains) else { continue }
+                    total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+                }
+            }
+            return total
+        }.value
+    }
 }

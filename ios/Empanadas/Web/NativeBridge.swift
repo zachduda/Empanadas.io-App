@@ -75,6 +75,9 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             await WebEnvironment.clearCache()
             return (["ok": true], nil)
 
+        case "cacheSize":
+            return (["bytes": await WebEnvironment.cacheSize()], nil)
+
         case "pageColor":
             // Only ever a colour to paint around the page; anything that does
             // not parse as an opaque one is ignored.

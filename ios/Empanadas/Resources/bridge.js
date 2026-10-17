@@ -185,7 +185,10 @@
     // desktop app.
     ping: function () { return call('ping'); },
     // Empties the app's cache but keeps cookies and saves. Resolves { ok }.
-    clearCache: function () { return call('clearCache'); }
+    clearCache: function () { return call('clearCache'); },
+    // How much clearCache() would free. Resolves { bytes }, as in the
+    // desktop app.
+    cacheSize: function () { return call('cacheSize'); }
   };
 
   Object.freeze(app);
