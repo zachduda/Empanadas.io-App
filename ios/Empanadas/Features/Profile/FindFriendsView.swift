@@ -67,9 +67,10 @@ struct FindFriendsView: View {
                     .frame(maxWidth: .infinity, minHeight: 240)
             } else if let error = finder.error {
                 ContentUnavailableView {
-                    Label("Couldn't Search", systemImage: "exclamationmark.triangle")
+                    Label(model.isOnline ? "Couldn't Search" : "You're Offline",
+                          systemImage: model.isOnline ? "exclamationmark.triangle" : "wifi.slash")
                 } description: {
-                    Text(error.localizedDescription)
+                    Text(model.isOnline ? error.localizedDescription : "Players can be searched for once you're back online.")
                 } actions: {
                     if model.isOnline {
                         Button("Try Again") { Task { await finder.search(app: model) } }

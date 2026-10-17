@@ -396,9 +396,11 @@ final class AccountAPI {
     }
 
     /// The body of a successful /v2/ios/ answer, or the error it stands for.
-    /// A 404 that is not our JSON is a site without the endpoint deployed.
+    /// A 404 that is not our JSON is a site without the endpoint deployed; a
+    /// 5xx that is not, the server (or Cloudflare in front of it) failing.
     nonisolated static func iosBody(_ data: Data, reply: (ok: Bool, reason: String?)?, status: Int) throws -> Data {
         guard let reply else {
+            if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
             throw AccountError.unavailable("HTTP \(status)")
         }
         if reply.ok { return data }
@@ -406,6 +408,10 @@ final class AccountAPI {
         case "no_session": throw AccountError.signedOut
         default: throw AccountError.unavailable(reply.reason ?? "HTTP \(status)")
         }
+    }
+
+    nonisolated static func serverErrorMessage(_ status: Int) -> String {
+        "Empanadas.io is having trouble right now (error \(status)). Try again in a bit."
     }
 
     private nonisolated static func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {

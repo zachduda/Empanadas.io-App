@@ -55,6 +55,7 @@ private struct PageBars: ViewModifier {
 
 /// A page inside a navigation stack, with the spinner and the offline screen.
 struct WebScreen: View {
+    @Environment(AppModel.self) private var model
     let page: WebPage
     var title: String?
 
@@ -62,12 +63,16 @@ struct WebScreen: View {
         ZStack {
             PageBackdrop(page: page)
             WebViewContainer(webView: page.webView)
-            if page.loadError != nil {
-                ConnectionErrorView { page.reload() }
+            if let failure {
+                failure
             } else if !page.hasLoaded {
                 ProgressView()
                     .controlSize(.large)
             }
+        }
+        // Back online: load what could not be, rather than wait for a tap.
+        .onChange(of: model.isOnline) { _, online in
+            if online && (page.loadError != nil || !page.hasLoaded) { page.reload() }
         }
         // The given title only while the page is the one it names; after
         // that, the page's own. A popup is "Sign In" whichever provider page
@@ -75,6 +80,37 @@ struct WebScreen: View {
         .navigationTitle((page.isPopup || page.isOnFirstPage ? title : nil) ?? Self.displayTitle(page.title))
         .navigationBarTitleDisplayMode(.inline)
         .pageBars(page)
+    }
+
+    /// What shows instead of the page, if it could not load. Without a
+    /// connection that is said at once, rather than under a spinner until
+    /// WebKit gives up.
+    private var failure: ConnectionErrorView? {
+        let error = page.loadError
+        if let server = error as? WebPage.ServerError {
+            return ConnectionErrorView(
+                title: "Server Error",
+                message: "Empanadas.io had a problem loading this page (error \(server.status)). Try again in a bit.",
+                systemImage: "exclamationmark.icloud"
+            ) { page.reload() }
+        }
+        if !model.isOnline && (error != nil || !page.hasLoaded) {
+            return ConnectionErrorView(
+                title: "You're Offline",
+                message: "This page will load once you're back online.",
+                systemImage: "wifi.slash"
+            ) { page.reload() }
+        }
+        guard let error else { return nil }
+        if WebPage.isConnectionError(error) {
+            return ConnectionErrorView { page.reload() }
+        }
+        // Something else went wrong: its code, so a report says what.
+        return ConnectionErrorView(
+            title: "Couldn't Load This Page",
+            message: "Something went wrong (error \((error as NSError).code)). Try again.",
+            systemImage: "exclamationmark.triangle"
+        ) { page.reload() }
     }
 
     /// "Empanadas.io | Manage Account" -> "Manage Account".

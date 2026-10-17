@@ -63,6 +63,18 @@ final class WebPage: NSObject, Identifiable {
     private(set) var offlineCopyMissing = false
     @ObservationIgnored private var triedCache = false
 
+    /// The site answered a page with a 5xx. Shown with its status, so a
+    /// report says what went wrong, rather than the site's error page (or
+    /// Cloudflare's, which is often blank).
+    struct ServerError: LocalizedError, Equatable {
+        let status: Int
+        var errorDescription: String? { "Server error \(status)" }
+    }
+
+    /// How long a page may take to start answering before it counts as
+    /// unreachable. WebKit's own is a minute, all of it under a spinner.
+    nonisolated static let timeout: TimeInterval = 20
+
     /// A page of the app's own, with the bridge.
     init(url: URL?, options: Options = Options(), app: AppModel) {
         kind = .main(options)
@@ -147,11 +159,12 @@ final class WebPage: NSObject, Identifiable {
             loadFromCache(url)
         } else {
             isOfflineCopy = false
-            webView.load(URLRequest(url: url))
+            webView.load(URLRequest(url: url, timeoutInterval: Self.timeout))
         }
     }
 
     func reload() {
+        let failedOnServer = loadError is ServerError
         loadError = nil
         triedCache = false
         offlineCopyMissing = false
@@ -160,7 +173,11 @@ final class WebPage: NSObject, Identifiable {
         } else if webView.url == nil || isOfflineCopy, let url = lastRequestedURL ?? webView.url {
             // A copy from the cache, or nothing at all: go to the site.
             isOfflineCopy = false
-            webView.load(URLRequest(url: url))
+            webView.load(URLRequest(url: url, timeoutInterval: Self.timeout))
+        } else if failedOnServer, let url = lastRequestedURL ?? webView.url {
+            // The page that failed was never committed: reload() would load
+            // the one before it.
+            webView.load(URLRequest(url: url, timeoutInterval: Self.timeout))
         } else {
             webView.reload()
         }
@@ -376,7 +393,20 @@ extension WebPage: WKNavigationDelegate {
             }
             app?.observe(signal)
         }
+        if navigationResponse.isForMainFrame, let response = navigationResponse.response as? HTTPURLResponse,
+           let url = response.url, Self.isServerError(response, from: url) {
+            lastRequestedURL = url
+            loadError = ServerError(status: response.statusCode)
+            return .cancel
+        }
         return .allow
+    }
+
+    /// A 5xx from the site itself. Not a Cloudflare challenge, which comes
+    /// as a 403 or a 503 and has to be drawn for the player to pass it.
+    nonisolated static func isServerError(_ response: HTTPURLResponse, from url: URL) -> Bool {
+        (500...599).contains(response.statusCode) && SiteURLs.isAppURL(url)
+            && response.value(forHTTPHeaderField: "cf-mitigated") == nil
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
