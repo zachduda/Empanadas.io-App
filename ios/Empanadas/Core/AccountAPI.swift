@@ -333,13 +333,7 @@ final class AccountAPI {
     func announcement(page: Int = 0, id: String? = nil, fresh: Bool = false) async throws -> AnnouncementReply {
         var request = URLRequest(url: SiteURLs.updatesAPI(page: page, post: id, fresh: fresh))
         request.setValue(await WebEnvironment.userAgent(), forHTTPHeaderField: "User-Agent")
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw AccountError.network
-        }
+        let (data, response) = try await transfer(request)
         guard let http = response as? HTTPURLResponse else { throw AccountError.network }
         guard http.statusCode == 200 else { throw AccountError.unavailable("HTTP \(http.statusCode)") }
         return try Self.decode(AnnouncementReply.self, data)
@@ -571,13 +565,7 @@ final class AccountAPI {
         }
         request.setValue(await WebEnvironment.userAgent(), forHTTPHeaderField: "User-Agent")
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw AccountError.network
-        }
+        let (data, response) = try await transfer(request)
         guard let http = response as? HTTPURLResponse else { throw AccountError.network }
 
         if let fields = http.allHeaderFields as? [String: String], let responseURL = http.url {
@@ -586,6 +574,36 @@ final class AccountAPI {
             }
         }
         return (data, http)
+    }
+
+    /// The request itself, tried once more on a failure worth retrying, and
+    /// any failure to get an answer as AccountError.network.
+    private func transfer(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch let error where Self.isWorthRetrying(error, request) && !Task.isCancelled {
+            // Just after launch, after a while away, the connection is often
+            // still coming up (the radio waking, Wi-Fi rejoining, a VPN): the
+            // first request fails at once though a moment later it would not.
+            try? await Task.sleep(for: .seconds(1.5))
+            do {
+                return try await session.data(for: request)
+            } catch {
+                throw AccountError.network
+            }
+        } catch {
+            throw AccountError.network
+        }
+    }
+
+    /// A failure to try once more: one before the site has answered, on a
+    /// request that changes nothing (a change may have reached the site
+    /// before the connection dropped). Not a timeout, which has already
+    /// waited long enough.
+    nonisolated static func isWorthRetrying(_ error: Error, _ request: URLRequest) -> Bool {
+        guard (request.httpMethod ?? "GET") == "GET", let error = error as? URLError else { return false }
+        return [.notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+                .cannotFindHost, .dnsLookupFailed, .secureConnectionFailed].contains(error.code)
     }
 
     nonisolated static func cookie(_ cookie: HTTPCookie, appliesTo url: URL) -> Bool {
