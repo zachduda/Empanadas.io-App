@@ -118,18 +118,14 @@ enum OfflineAssets {
 
     // MARK: - Reading
 
-    // The patterns are nonisolated(unsafe): an NSRegularExpression never
-    // changes once made and is documented as safe to use from any thread,
-    // but is not marked Sendable.
-
     // src="..." or href="...", in either quotes or none.
-    nonisolated(unsafe) private static let attributePattern = try! NSRegularExpression(
+    private static let attributePattern = try! NSRegularExpression(
         pattern: #"\b(?:src|href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))"#,
         options: [.caseInsensitive]
     )
 
     // url(...), in either quotes or none. data: URLs come out in resolved().
-    nonisolated(unsafe) private static let stylesheetPattern = try! NSRegularExpression(
+    private static let stylesheetPattern = try! NSRegularExpression(
         pattern: #"url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s"'()]+))\s*\)"#,
         options: [.caseInsensitive]
     )
@@ -137,7 +133,7 @@ enum OfflineAssets {
     // A whole path under /Content/ with a picture, sound or font's extension,
     // in quotes: "/Content/Sounds/SpinGame/zap.mp3". Not a folder
     // ("/Content/Sounds/") a script adds the rest of the path to.
-    nonisolated(unsafe) private static let scriptPattern = try! NSRegularExpression(
+    private static let scriptPattern = try! NSRegularExpression(
         pattern: #"["'`](/Content/[A-Za-z0-9_\-./]+\.(?:png|gif|webp|jpe?g|svg|ico|mp3|wav|ogg|m4a|woff2))["'`]"#,
         options: [.caseInsensitive]
     )

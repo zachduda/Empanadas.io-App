@@ -94,20 +94,24 @@ enum WebEnvironment {
     /// cache, wherever this iOS version keeps them under Library. Cookies,
     /// local storage and the app's own picture cache are not counted.
     static func cacheSize() async -> Int64 {
-        await Task.detached(priority: .utility) {
-            let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            let folders: Set<String> = ["NetworkCache", "CacheStorage", "OfflineWebApplicationCache", "ApplicationCache"]
-            let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
-            var total: Int64 = 0
-            for root in [library.appending(path: "Caches"), library.appending(path: "WebKit")] {
-                guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { continue }
-                for case let file as URL in files {
-                    guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
-                          file.pathComponents.contains(where: folders.contains) else { continue }
-                    total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
-                }
+        await Task.detached(priority: .utility) { measureCaches() }.value
+    }
+
+    /// The walk itself, off the main actor. Synchronous: a directory
+    /// enumerator cannot be iterated in an async context.
+    private nonisolated static func measureCaches() -> Int64 {
+        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        let folders: Set<String> = ["NetworkCache", "CacheStorage", "OfflineWebApplicationCache", "ApplicationCache"]
+        let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
+        var total: Int64 = 0
+        for root in [library.appending(path: "Caches"), library.appending(path: "WebKit")] {
+            guard let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { continue }
+            for case let file as URL in files {
+                guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
+                      file.pathComponents.contains(where: folders.contains) else { continue }
+                total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             }
-            return total
-        }.value
+        }
+        return total
     }
 }
