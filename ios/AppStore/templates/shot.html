@@ -14,6 +14,9 @@
     sub     the line under it
     tag     the small label above it, with icon (a name in icons.js) and tint
     n       which screenshot this is, so the backdrop differs from one to the next
+    art     true: img floats on the backdrop as it is, with no device (the widgets)
+    bleed   iphone | ipad: on that device, the device is larger and runs off the
+            bottom, for a screen with nothing in its lower part
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=block" rel="stylesheet">
@@ -40,6 +43,7 @@
   h1 .gold { background: linear-gradient(180deg, #ffd978, #ffb43a); -webkit-background-clip: text; background-clip: text; color: transparent; }
   p { font-weight: 500; line-height: 1.32; color: rgba(255, 255, 255, 0.78); text-wrap: balance; margin: 0 auto; }
   .device { position: absolute; left: 50%; transform: translateX(-50%); z-index: 1; }
+  .art { position: absolute; z-index: 1; filter: drop-shadow(0 40px 70px rgba(4, 6, 40, 0.45)) drop-shadow(0 8px 18px rgba(4, 6, 40, 0.3)); }
 
   .iphone-shot .caption { top: 150px; }
   .iphone-shot .tag { font-size: 34px; }
@@ -91,11 +95,16 @@ document.body.insertAdjacentHTML('beforeend', html);
 // same height in every shot. render.mjs waits for window.ready.
 window.ready = document.fonts.ready.then(() => {
   const iphone = device === 'iphone';
+  const captionBottom = Math.ceil(document.querySelector('.caption').getBoundingClientRect().bottom);
+  if (q.get('art') === 'true') return floatArt(captionBottom, iphone);
   const aspect = iphone ? 956 / 440 : 1376 / 1032;
   const bezel = iphone ? 0.032 : 0.024;
-  const frameTop = Math.ceil(document.querySelector('.caption').getBoundingClientRect().bottom) + (iphone ? 80 : 70);
+  const frameTop = captionBottom + (iphone ? 80 : 70);
   const frameBottom = iphone ? 120 : 110;
-  const w = Math.round((H - frameTop - frameBottom) / (aspect + 2 * bezel));
+  // Bled: as wide as leaves a margin at the sides; the bottom is cut off.
+  const w = q.get('bleed') === device
+    ? Math.round((W - 2 * (iphone ? 120 : 130)) / (1 + 2 * bezel))
+    : Math.round((H - frameTop - frameBottom) / (aspect + 2 * bezel));
   const buttons = iphone
     ? `<i class="btn l" style="top:${w * 0.42}px;height:${w * 0.075}px"></i>
        <i class="btn l" style="top:${w * 0.56}px;height:${w * 0.14}px"></i>
@@ -108,6 +117,20 @@ window.ready = document.fonts.ready.then(() => {
     `<div class="device ${device}" style="--w:${w}px;top:${frameTop}px">${buttons}<img src="${q.get('img')}" alt=""><div class="island"></div></div>`);
   return document.querySelector('.device img').decode();
 });
+
+// The art, as large as fits under the caption, centred in the room left.
+async function floatArt(captionBottom, iphone) {
+  const img = new Image();
+  img.className = 'art';
+  img.src = q.get('img');
+  await img.decode();
+  const top = captionBottom + (iphone ? 110 : 100), bottom = iphone ? 150 : 140, side = iphone ? 80 : 250;
+  const k = Math.min((W - 2 * side) / img.naturalWidth, (H - top - bottom) / img.naturalHeight);
+  const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+  Object.assign(img.style, { width: `${w}px`, height: `${h}px`, left: `${Math.round((W - w) / 2)}px`,
+    top: `${Math.round(top + (H - top - bottom - h) / 2)}px` });
+  document.body.appendChild(img);
+}
 </script>
 </body>
 </html>
