@@ -94,7 +94,7 @@ enum WebEnvironment {
     /// cache, wherever this iOS version keeps them under Library. Cookies,
     /// local storage and the app's own picture cache are not counted.
     static func cacheSize() async -> Int64 {
-        await Task.detached(priority: .utility) { measureCaches() }.value
+        await Task.detached(priority: .utility) { WebEnvironment.measureCaches() }.value
     }
 
     /// The walk itself, off the main actor. Synchronous: a directory
