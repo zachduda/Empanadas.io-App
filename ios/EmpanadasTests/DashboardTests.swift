@@ -78,6 +78,49 @@ final class DashboardTests: XCTestCase {
         XCTAssertThrowsError(try decode(Dashboard.self, #"{"ok":true,"peppers":3}"#))
     }
 
+    // MARK: - The Games tab
+
+    func testThreeNumbersUnderEachGame() throws {
+        let dashboard = try decode(Dashboard.self, """
+            {"account":{"username":"tester"},
+             "spin":{"lifetime":280412,"prestige":37,"ascends":2,"spins":51000},
+             "flappy":{"high":41,"recent":23,"played":96},
+             "tower":{"high":18,"recent":12,"played":40}}
+            """)
+        XCTAssertEqual(dashboard.quickStats(for: .spin), [
+            GameStat(label: "Spins", value: 280412), GameStat(label: "Prestige", value: 37),
+            GameStat(label: "Ascensions", value: 2),
+        ], "lifetime spins, not this prestige's")
+        XCTAssertEqual(dashboard.quickStats(for: .flappy), [
+            GameStat(label: "Best", value: 41), GameStat(label: "Last", value: 23), GameStat(label: "Rounds", value: 96),
+        ])
+        XCTAssertEqual(dashboard.quickStats(for: .tower), [
+            GameStat(label: "Tallest", value: 18), GameStat(label: "Last", value: 12), GameStat(label: "Runs", value: 40),
+        ])
+    }
+
+    func testAGameNeverPlayedAnywhere() throws {
+        let new = try decode(Dashboard.self, #"{"account":{"username":"new"},"spin":{"prestige":1}}"#)
+        XCTAssertFalse(new.hasPlayed(.spin), "every account starts at prestige 1")
+        XCTAssertFalse(new.hasPlayed(.flappy))
+        XCTAssertFalse(new.hasPlayed(.tower))
+
+        let played = try decode(Dashboard.self, """
+            {"account":{"username":"x"},"spin":{"lifetime":3},"flappy":{"played":1},"tower":{"high":2}}
+            """)
+        XCTAssertTrue(played.hasPlayed(.spin))
+        XCTAssertTrue(played.hasPlayed(.flappy), "a round that scored nothing still counts")
+        XCTAssertTrue(played.hasPlayed(.tower))
+    }
+
+    func testBigNumbersAreShortenedToFitThreeAcross() {
+        let english = Locale(identifier: "en_US")
+        XCTAssertEqual(GameStat.format(41, locale: english), "41")
+        XCTAssertEqual(GameStat.format(9_999, locale: english), "9,999", "whole while it fits")
+        XCTAssertEqual(GameStat.format(280_412, locale: english), "280K")
+        XCTAssertEqual(GameStat.format(1_234_567, locale: english), "1.2M")
+    }
+
     // MARK: - Spin Progress chart
 
     func testOnePointADayInDateOrderWithWhatEachEarned() {

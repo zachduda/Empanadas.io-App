@@ -218,6 +218,49 @@ struct Dashboard: Decodable, Equatable {
         case .tower: tower
         }
     }
+
+    /// The three numbers the Games tab shows under a game.
+    func quickStats(for game: Game) -> [GameStat] {
+        switch game {
+        case .spin:
+            [GameStat(label: "Spins", value: spin.lifetime),
+             GameStat(label: "Prestige", value: spin.prestige),
+             GameStat(label: "Ascensions", value: spin.ascends)]
+        case .flappy:
+            [GameStat(label: "Best", value: flappy.high),
+             GameStat(label: "Last", value: flappy.recent),
+             GameStat(label: "Rounds", value: flappy.played)]
+        case .tower:
+            [GameStat(label: "Tallest", value: tower.high),
+             GameStat(label: "Last", value: tower.recent),
+             GameStat(label: "Runs", value: tower.played)]
+        }
+    }
+
+    /// Whether the site has the player down as having played the game at
+    /// all, on any device.
+    func hasPlayed(_ game: Game) -> Bool {
+        switch game {
+        case .spin: spin.lifetime > 0 || spin.ascends > 0
+        case .flappy: flappy.played > 0 || flappy.high > 0
+        case .tower: tower.played > 0 || tower.high > 0
+        }
+    }
+}
+
+/// One of the numbers under a game on the Games tab.
+struct GameStat: Equatable {
+    let label: String
+    let value: Int
+
+    var text: String { Self.format(value) }
+
+    /// Whole up to 9,999, short past that ("280K"), so three fit side by side
+    /// under a game on a phone.
+    static func format(_ value: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        if abs(value) < 10_000 { return value.formatted(.number.locale(locale)) }
+        return value.formatted(.number.notation(.compactName).locale(locale))
+    }
 }
 
 /// Decodes a chart day without throwing, so a malformed one is dropped alone.

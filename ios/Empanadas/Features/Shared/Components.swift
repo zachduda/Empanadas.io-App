@@ -64,9 +64,10 @@ extension View {
 /// iPad app, in a window the player can make as wide as the display). On a
 /// phone in portrait they are narrower than this anyway.
 enum ReadableWidth {
-    /// The dashboard and profiles: two columns of cards.
+    /// The dashboard and profiles (two columns of cards), and the games
+    /// (three across).
     static let wide: CGFloat = 1100
-    /// One column: lists, forms, search results, the games.
+    /// One column: lists, forms, search results.
     static let narrow: CGFloat = 720
 }
 

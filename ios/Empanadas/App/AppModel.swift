@@ -36,10 +36,21 @@ final class AppModel {
     var homePath = NavigationPath()
     var activeGame: Game? {
         didSet {
-            if activeGame != oldValue { gameSheet = nil }
+            guard activeGame != oldValue else { return }
+            gameSheet = nil
+            // As it opens, and again as it closes or gives way to another:
+            // "Played 5 minutes ago" from the end of a long round, not its
+            // start.
+            for game in [oldValue, activeGame].compactMap({ $0 }) { played(game) }
             if oldValue != nil && activeGame == nil { gameClosed() }
         }
     }
+    /// When each game was last played here (PlayHistory): the Games tab's
+    /// "Played 2 hours ago" and its Jump Back In.
+    private(set) var lastPlayed: [Game: Date]
+    /// The board the Leaderboard tab shows. Here so another tab can open it
+    /// on a game's board (showLeaderboard).
+    var leaderboardGame: Game = .spin
     var popup: WebPage?
     /// A site page opened outside the tabs (see handOff).
     var webSheet: WebLink?
@@ -104,7 +115,9 @@ final class AppModel {
     init(account: AccountAPI? = nil) {
         self.account = account ?? AccountAPI()
         let defaults = UserDefaults.standard
-        session = defaults.bool(forKey: Preferences.signedInKey) ? .signedIn : .signedOut
+        let signedIn = defaults.bool(forKey: Preferences.signedInKey)
+        session = signedIn ? .signedIn : .signedOut
+        lastPlayed = signedIn ? PlayHistory.load(from: defaults) : [:]
         theme = defaults.integer(forKey: Preferences.themeKey)
         dashboard = DashboardModel()
         leaderboard = LeaderboardModel()
@@ -185,6 +198,8 @@ final class AppModel {
             leaderboard.reset()
             settings.reset()
             gameCenter.reset()
+            lastPlayed = [:]
+            PlayHistory.clear()
             OfflineStore.clear()
             ImageStore.shared.clear()
             if signingOut { signOutOnSite() }
@@ -297,6 +312,18 @@ final class AppModel {
     /// Leaves the full-screen game player, back to whichever tab opened it.
     func closeGame() {
         activeGame = nil
+    }
+
+    /// The Leaderboard tab, on one game's board.
+    func showLeaderboard(for game: Game) {
+        leaderboardGame = game
+        navigate(to: .leaderboard)
+    }
+
+    private func played(_ game: Game) {
+        guard session == .signedIn else { return }
+        lastPlayed[game] = Date()
+        PlayHistory.save(lastPlayed)
     }
 
     /// A round just ended: its save reaches the site a moment after the

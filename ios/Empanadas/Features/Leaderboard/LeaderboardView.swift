@@ -9,15 +9,17 @@ struct LeaderboardView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var game: Game = .spin
+    /// The app's, so the Games tab can open a game's board.
+    private var game: Game { model.leaderboardGame }
 
     var body: some View {
+        @Bindable var model = model
         let leaderboard = model.leaderboard
 
         NavigationStack {
             List {
                 Section {
-                    Picker("Board", selection: $game) {
+                    Picker("Board", selection: $model.leaderboardGame) {
                         ForEach(Game.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)

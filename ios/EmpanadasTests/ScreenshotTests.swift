@@ -42,6 +42,7 @@ final class ScreenshotTests: XCTestCase {
     private var directory: URL!
     private var wasSignedIn = false
     private var lastSeenUpdate: String?
+    private var playHistory: [Game: Date] = [:]
 
     override func setUp() async throws {
         guard let path = ProcessInfo.processInfo.environment["SCREENSHOTS_DIR"], !path.isEmpty else {
@@ -50,6 +51,7 @@ final class ScreenshotTests: XCTestCase {
         directory = URL(filePath: path, directoryHint: .isDirectory)
         wasSignedIn = UserDefaults.standard.bool(forKey: Preferences.signedInKey)
         lastSeenUpdate = UserDefaults.standard.string(forKey: Preferences.updatesSeenKey)
+        playHistory = PlayHistory.load()
     }
 
     override func tearDown() async throws {
@@ -58,6 +60,7 @@ final class ScreenshotTests: XCTestCase {
         OfflineGamesRecord.forget()
         UserDefaults.standard.set(wasSignedIn, forKey: Preferences.signedInKey)
         UserDefaults.standard.set(lastSeenUpdate, forKey: Preferences.updatesSeenKey)
+        PlayHistory.save(playHistory)
     }
 
     func testDrawsTheScreensAtEachSize() async throws {
@@ -186,6 +189,10 @@ private enum Fixtures {
         // Seen up to the third: the bell has a dot, and the two above it are
         // New.
         UserDefaults.standard.set(posts[2]["id"] as? String, forKey: Preferences.updatesSeenKey)
+        // Flappy a couple of hours ago (Jump Back In), Spin yesterday, and
+        // Tower only ever on the website: the Games tab's three cases.
+        let now = Date()
+        PlayHistory.save([.flappy: now.addingTimeInterval(-2 * 3600), .spin: now.addingTimeInterval(-26 * 3600)])
     }
 
     static func answer(for url: URL) -> Data? {
