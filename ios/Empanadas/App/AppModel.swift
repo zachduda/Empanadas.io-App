@@ -135,6 +135,7 @@ final class AppModel {
         // Before the first request needs it, and outside any Swift task.
         WebEnvironment.readUserAgent()
         if session == .signedIn { gameCenter.start() }
+        updateHomeScreen()
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
@@ -184,6 +185,7 @@ final class AppModel {
             pendingSignIn = nil
             gameCenter.start()
             saveGamesForOffline()
+            updateHomeScreen()
             Task { await self.refreshTheme() }
         case .signedOut:
             activeGame = nil
@@ -202,6 +204,7 @@ final class AppModel {
             PlayHistory.clear()
             OfflineStore.clear()
             ImageStore.shared.clear()
+            updateHomeScreen()
             if signingOut { signOutOnSite() }
         }
     }
@@ -324,6 +327,7 @@ final class AppModel {
         guard session == .signedIn else { return }
         lastPlayed[game] = Date()
         PlayHistory.save(lastPlayed)
+        updateHomeScreen()
     }
 
     /// A round just ended: its save reaches the site a moment after the
@@ -537,9 +541,29 @@ final class AppModel {
     }
 
     func performQuickAction(_ type: String) {
-        let prefix = "io.empanadas.app.play."
+        let prefix = QuickActions.playPrefix
         guard type.hasPrefix(prefix), let game = Game(rawValue: String(type.dropFirst(prefix.count))) else { return }
         navigate(to: .game(game))
+    }
+
+    // MARK: - The Home Screen
+
+    /// The icon's quick actions and the widget, for the session and the play
+    /// history as they are now.
+    private func updateHomeScreen() {
+        guard session == .signedIn else {
+            QuickActions.show([], jumpBackIn: nil)
+            HomeScreenWidget.clear()
+            return
+        }
+        QuickActions.show(PlayHistory.ordered(lastPlayed), jumpBackIn: PlayHistory.latest(lastPlayed)?.game)
+        HomeScreenWidget.update(dashboard: dashboard.data, lastPlayed: lastPlayed)
+    }
+
+    /// A fresh dashboard: the widget's numbers.
+    func dashboardUpdated() {
+        guard session == .signedIn else { return }
+        HomeScreenWidget.update(dashboard: dashboard.data, lastPlayed: lastPlayed)
     }
 
     // MARK: - Offline games

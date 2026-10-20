@@ -40,33 +40,6 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
-	<key>UIApplicationShortcutItems</key>
-	<array>
-		<dict>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>bird.fill</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play Flappy</string>
-			<key>UIApplicationShortcutItemType</key>
-			<string>io.empanadas.app.play.flappy</string>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>arrow.triangle.2.circlepath</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play Spin</string>
-			<key>UIApplicationShortcutItemType</key>
-			<string>io.empanadas.app.play.spin</string>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>square.stack.3d.up.fill</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Play Tower</string>
-			<key>UIApplicationShortcutItemType</key>
-			<string>io.empanadas.app.play.tower</string>
-		</dict>
-	</array>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

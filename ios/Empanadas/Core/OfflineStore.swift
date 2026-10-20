@@ -7,6 +7,10 @@ import Foundation
 /// Stores the reply exactly as the site sent it and decodes it the same way as
 /// a fresh one, so there is no second format to keep in step. Cleared when the
 /// player signs out, since it describes their account.
+///
+/// On the main actor, as everything that reads or writes it is: the copy in
+/// memory and the generation are shared by every screen.
+@MainActor
 enum OfflineStore {
     enum Key: String, CaseIterable {
         case dashboard

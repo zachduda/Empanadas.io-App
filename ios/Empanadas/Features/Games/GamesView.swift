@@ -95,8 +95,9 @@ struct GamesView: View {
         }
         .buttonStyle(PressableCardStyle())
         .hoverEffect(.lift)
-        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: GameCard.cornerRadius, style: .continuous))
-        .contextMenu { menu(for: game) }
+        .gameMenu(game, cornerRadius: GameCard.cornerRadius) {
+            path.append(GamesRoute.feedback(reason: FeedbackForm.gameProblem))
+        }
         .accessibilityHint("Plays \(game.title)")
     }
 
@@ -115,25 +116,6 @@ struct GamesView: View {
         guard let board = model.leaderboard.board,
               let row = board.rows(for: game).first(where: { board.isYou($0) }), row.rank > 0 else { return nil }
         return row.rank
-    }
-
-    @ViewBuilder
-    private func menu(for game: Game) -> some View {
-        Button { play(game) } label: {
-            Label("Play \(game.title)", systemImage: "play.fill")
-        }
-        Button { model.showLeaderboard(for: game) } label: {
-            Label("Leaderboard", systemImage: "trophy")
-        }
-        if model.gameCenter.isSignedIn {
-            Button { model.gameCenter.showLeaderboard(for: game) } label: {
-                Label("Game Center", systemImage: "gamecontroller")
-            }
-        }
-        Divider()
-        Button { path.append(GamesRoute.feedback(reason: FeedbackForm.gameProblem)) } label: {
-            Label("Report a Problem", systemImage: "exclamationmark.bubble")
-        }
     }
 
     /// The leaderboards, and Send Feedback: the screen Settings opens, pushed

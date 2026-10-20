@@ -17,12 +17,27 @@ struct EmpanadasApp: App {
     }
 }
 
-/// Home Screen quick actions (Info.plist UIApplicationShortcutItems): the
-/// desktop app's Go > Launch Flappy/Spin/Tower menu items.
+/// Home Screen quick actions: the desktop app's Go > Launch Flappy/Spin/Tower
+/// menu items, the game played last first.
 @MainActor
 enum QuickActions {
+    /// Followed by the game's id: io.empanadas.app.play.flappy.
+    static let playPrefix = "io.empanadas.app.play."
+
     static var handler: (@MainActor (String) -> Void)? {
         didSet { flush() }
+    }
+
+    /// A Play item for each of `games`, in that order, the one to jump back
+    /// into saying so; none while signed out, when there is nothing they could
+    /// open. Set by the app rather than listed in Info.plist so the order can
+    /// follow the play history (AppModel.updateHomeScreen).
+    static func show(_ games: [Game], jumpBackIn: Game?) {
+        UIApplication.shared.shortcutItems = games.map { game in
+            UIApplicationShortcutItem(type: playPrefix + game.rawValue, localizedTitle: "Play \(game.title)",
+                                      localizedSubtitle: game == jumpBackIn ? "Jump back in" : nil,
+                                      icon: UIApplicationShortcutIcon(systemImageName: game.systemImage))
+        }
     }
 
     private static var pending: String?

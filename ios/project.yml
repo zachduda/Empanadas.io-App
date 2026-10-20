@@ -18,8 +18,10 @@ settings:
   base:
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
-    SWIFT_VERSION: "5.0"
-    SWIFT_STRICT_CONCURRENCY: minimal
+    # Swift 6: data races are compile errors, and what runs on the main
+    # actor is checked.
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
     # The Apple Developer Team ID, for signing. The site's
     # apple-app-site-association names the app by it (MWBT4TC7JN.io.empanadas.app),
     # so passkeys only work in a build signed by this team.
@@ -38,6 +40,11 @@ targets:
       # rather than being treated as source.
       - path: Empanadas/Resources/bridge.js
         buildPhase: resources
+      # What the app tells the widget (GamesSnapshot), in both.
+      - path: Shared
+    dependencies:
+      # The Home Screen widget, embedded in the app.
+      - target: EmpanadasWidget
     settings:
       base:
         PRODUCT_NAME: Empanadas
@@ -52,6 +59,27 @@ targets:
     scheme:
       testTargets:
         - EmpanadasTests
+
+  # The Home Screen widget (EmpanadasWidget/GamesWidget.swift). It shares an
+  # App Group with the app, which writes what it shows there.
+  EmpanadasWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: EmpanadasWidget
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: EmpanadasWidget
+        PRODUCT_BUNDLE_IDENTIFIER: io.empanadas.app.widget
+        INFOPLIST_FILE: EmpanadasWidget/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: EmpanadasWidget/EmpanadasWidget.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
 
   EmpanadasTests:
     type: bundle.unit-test

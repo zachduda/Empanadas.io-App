@@ -305,6 +305,7 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(SiteURLs.iosLeaderboard.path(), "/v2/ios/leaderboard.php")
     }
 
+    @MainActor
     func testOfflineCopiesRoundTripAndGoAtSignOut() throws {
         OfflineStore.save(Data(boardJSON.utf8), as: .leaderboard)
         let saved = try XCTUnwrap(OfflineStore.load(Leaderboard.self, .leaderboard))
@@ -316,6 +317,7 @@ final class DashboardTests: XCTestCase {
         XCTAssertNil(OfflineStore.load(.leaderboard))
     }
 
+    @MainActor
     func testAnAnswerAskedForBeforeSignOutIsNotSaved() {
         let before = OfflineStore.generation
         OfflineStore.clear()

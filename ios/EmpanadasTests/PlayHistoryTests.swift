@@ -62,4 +62,50 @@ final class PlayHistoryTests: XCTestCase {
         XCTAssertEqual(PlayHistory.label(now.addingTimeInterval(3600), now: now, locale: english), "Played just now",
                        "a clock set back is not \"in 1 hour\"")
     }
+
+    func testQuickActionsPutTheGamePlayedLastFirst() {
+        let now = Date()
+        XCTAssertEqual(PlayHistory.ordered([:]), [.spin, .flappy, .tower], "nothing played: the usual order")
+        XCTAssertEqual(PlayHistory.ordered([.tower: now, .spin: now.addingTimeInterval(-60)]), [.tower, .spin, .flappy],
+                       "the last first, then the rest played, then the others as usual")
+    }
+
+    // MARK: - The Home Screen widget
+
+    func testTheWidgetIsToldEachGameItsNumbersAndWhenItWasPlayed() throws {
+        let dashboard = try JSONDecoder().decode(Dashboard.self, from: Data("""
+            {"account":{"username":"tester"},"flappy":{"high":41,"recent":23,"played":96}}
+            """.utf8))
+        let played = Date(timeIntervalSince1970: 1_760_000_000)
+        let snapshot = HomeScreenWidget.snapshot(dashboard: dashboard, lastPlayed: [.flappy: played])
+
+        XCTAssertEqual(snapshot.games.map(\.id), ["spin", "flappy", "tower"])
+        let flappy = try XCTUnwrap(snapshot.games.first { $0.id == "flappy" })
+        XCTAssertEqual(flappy.title, "Flappy")
+        XCTAssertEqual(flappy.tint, Game.flappy.tintHex)
+        XCTAssertEqual(flappy.stats.first, GamesSnapshot.Stat(label: "Best", text: GameStat.format(41)))
+        XCTAssertEqual(flappy.lastPlayed, played)
+        XCTAssertEqual(snapshot.featured?.id, "flappy", "the one to jump back into")
+    }
+
+    func testBeforeTheDashboardTheWidgetHasNoNumbers() {
+        let snapshot = HomeScreenWidget.snapshot(dashboard: nil, lastPlayed: [:])
+        XCTAssertTrue(snapshot.games.allSatisfy(\.stats.isEmpty))
+        XCTAssertEqual(snapshot.featured?.id, "spin", "nothing played here yet: the first game")
+    }
+
+    func testTheWidgetReadsBackWhatTheAppWrote() throws {
+        let snapshot = HomeScreenWidget.snapshot(dashboard: nil, lastPlayed: [.tower: Date(timeIntervalSince1970: 1_760_000_000)])
+        let data = try XCTUnwrap(snapshot.encoded())
+        XCTAssertEqual(GamesSnapshot.decode(data), snapshot)
+        XCTAssertEqual(snapshot.encoded(), data, "the same snapshot, the same bytes: the widget is not reloaded for nothing")
+        XCTAssertNil(GamesSnapshot.decode(Data("not json".utf8)))
+        XCTAssertNil(GamesSnapshot.decode(nil), "signed out: nothing written")
+    }
+
+    func testAWidgetTapOpensTheGame() {
+        XCTAssertEqual(GamesSnapshot.playURL("flappy").absoluteString, "empanadas-io://play/flappy")
+        XCTAssertEqual(NativeRoute.of(deepLink: GamesSnapshot.playURL("flappy")), .game(.flappy))
+        XCTAssertEqual(NativeRoute.of(deepLink: GamesSnapshot.homeURL), .home)
+    }
 }

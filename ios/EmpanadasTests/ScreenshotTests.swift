@@ -177,6 +177,7 @@ private enum Fixtures {
     static let picture = "/Content/Images/defaultpfp.png"
 
     /// The saved copies the screens open with, as after a good answer.
+    @MainActor
     static func seed() {
         OfflineStore.clear()
         OfflineStore.save(json(dashboard), as: .dashboard)
@@ -208,7 +209,7 @@ private enum Fixtures {
 
     /// The announcements, newest first, as the admin panel would have saved
     /// them.
-    static let posts: [[String: Any]] = [
+    static var posts: [[String: Any]] { [
         post("k3n9q2", "Spin Got a Makeover", "2 hours ago", """
             <p>The <b>Spin</b> game has a fresh look, and it&#39;s <i>faster</i> on every device.</p>
             <ul><li>New upgrades in the shop</li><li>Smoother animations</li><li>Haptics on iPhone</li></ul>
@@ -223,7 +224,7 @@ private enum Fixtures {
             <blockquote>Play offline, and your saves sync when you&#39;re back.</blockquote>
             """, edited: "1 week ago"),
         post("z9y8x7", "Pumpkin Season", "1 month ago", "<p>&#x1F383; Pumpkins are back for October.</p>"),
-    ]
+    ] }
 
     private static func post(_ id: String, _ title: String, _ date: String, _ content: String,
                              edited: String? = nil) -> [String: Any] {
@@ -265,12 +266,12 @@ private enum Fixtures {
         return friend
     }
 
-    private static let friends = [
+    private static var friends: [[String: Any]] { [
         friend("pal", "22222222-2222-2222-2222-222222222222", state: "online", label: "Online"),
         friend("spinmaster", "33333333-3333-3333-3333-333333333333", state: "idle", label: "Idle"),
         friend("flapjack", "66666666-6666-6666-6666-666666666666", state: "offline", label: "Last seen 2h ago"),
         friend("towerqueen", "77777777-7777-7777-7777-777777777777", state: "offline", label: "Last seen yesterday"),
-    ]
+    ] }
 
     /// Two months of lifetime spins, a busier day now and then.
     private static var spinHistory: [[String: Any]] {

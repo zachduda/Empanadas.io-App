@@ -163,6 +163,9 @@ struct ConnectionErrorView: View {
     var title = "Can't Reach Empanadas.io"
     var message = "Check your connection and try again."
     var systemImage = "wifi.exclamationmark"
+    /// Opaque, to cover the page that failed. The grouped background on a
+    /// native form (Send Feedback), so it matches the screen around it.
+    var background = Color(uiColor: .systemBackground)
     let retry: () -> Void
 
     var body: some View {
@@ -174,7 +177,7 @@ struct ConnectionErrorView: View {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(background)
     }
 }
 

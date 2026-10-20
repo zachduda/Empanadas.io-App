@@ -20,13 +20,15 @@ final class BrowserSession: NSObject, ASWebAuthenticationPresentationContextProv
     /// when it could not be shown at all. Opening another page closes this
     /// one without a completion.
     @discardableResult
-    func open(_ url: URL, completion: @escaping @MainActor (URL?) -> Void) -> Bool {
+    func open(_ url: URL, completion: @escaping @MainActor @Sendable (URL?) -> Void) -> Bool {
         let id = UUID()
         current = id
         // Its handler runs later, and finds it is no longer current.
         session?.cancel()
 
-        let handler: ASWebAuthenticationSession.CompletionHandler = { [weak self] callbackURL, _ in
+        // Sendable, so not taken to be on the main actor, whichever thread
+        // the session calls it on: it goes to the main actor itself.
+        let handler: ASWebAuthenticationSession.CompletionHandler = { @Sendable [weak self] callbackURL, _ in
             Task { @MainActor in
                 guard let self, self.current == id else { return }
                 self.session = nil
@@ -100,7 +102,7 @@ final class BrowserSignIn {
         return Date().timeIntervalSince(startedAt) < AppConfig.browserSignInTTL
     }
 
-    func start(_ url: URL, completion: @escaping @MainActor (URL) -> Void) {
+    func start(_ url: URL, completion: @escaping @MainActor @Sendable (URL) -> Void) {
         startedAt = Date()
         let opened = browser.open(url) { callbackURL in
             // A cancel leaves startedAt alone: the player may still finish in

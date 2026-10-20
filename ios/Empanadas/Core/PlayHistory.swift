@@ -29,15 +29,25 @@ enum PlayHistory {
         history.max { $0.value < $1.value }.map { (game: $0.key, date: $0.value) }
     }
 
-    /// "Played just now", "Played 2 hours ago", "Played yesterday". A time
-    /// ahead of `now` (the clock was changed) is just now, not "in 2 hours".
+    /// "Played just now", "Played 2 hours ago", "Played yesterday"
+    /// (LastPlayed, which the widget words its times with too).
     static func label(_ date: Date, now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> String {
-        let seconds = now.timeIntervalSince(date)
-        guard seconds >= 60 else { return "Played just now" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = locale
-        formatter.dateTimeStyle = .named
-        formatter.unitsStyle = .full
-        return "Played " + formatter.localizedString(for: date, relativeTo: now)
+        LastPlayed.label(date, now: now, locale: locale)
+    }
+
+    /// The games, the one played last first, then the rest played here, then
+    /// those never played here in the usual order: the Home Screen quick
+    /// actions.
+    static func ordered(_ history: [Game: Date]) -> [Game] {
+        Game.allCases.enumerated()
+            .sorted { a, b in
+                switch (history[a.element], history[b.element]) {
+                case let (x?, y?): x > y
+                case (.some, nil): true
+                case (nil, .some): false
+                case (nil, nil): a.offset < b.offset
+                }
+            }
+            .map(\.element)
     }
 }

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var confirmingSignOut = false
     @State private var confirmingAnalyticsOptOut = false
     @State private var deletingAccount = false
+    @State private var clearingCache = false
     @State private var cacheCleared = false
     @State private var cacheSize: Int64?
 
@@ -246,31 +247,55 @@ struct SettingsView: View {
     private var appSection: some View {
         Section {
             Toggle("Haptics", isOn: $haptics)
-            Button {
-                Task {
-                    await WebEnvironment.clearCache()
-                    model.cacheCleared()
-                    cacheCleared = true
-                    cacheSize = await WebEnvironment.cacheSize()
-                }
-            } label: {
+            Button(action: clearCache) {
                 LabeledContent("Clear Cache") {
                     HStack(spacing: 6) {
-                        if let cacheSize {
+                        if clearingCache {
+                            ProgressView()
+                        } else if cacheCleared {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(.green)
+                                .transition(.opacity)
+                        } else if let cacheSize {
                             Text(cacheSize.formatted(.byteCount(style: .file, allowedUnits: .mb, spellsOutZero: false)))
                         }
-                        if cacheCleared { Image(systemName: "checkmark").foregroundStyle(.green) }
                     }
+                    .animation(.easeOut(duration: 0.2), value: cacheCleared)
                 }
             }
             .foregroundStyle(.primary)
+            .disabled(clearingCache)
             .task { cacheSize = await WebEnvironment.cacheSize() }
+            // The games are saved again straight after a clear: the size
+            // once that is done, not halfway through.
+            .onChange(of: model.offlineGames.isSaving) { _, saving in
+                guard !saving else { return }
+                Task { cacheSize = await WebEnvironment.cacheSize() }
+            }
             LabeledContent("Offline Games", value: offlineGamesStatus)
             LabeledContent("Version", value: "\(AppConfig.version) (\(AppConfig.build))")
         } header: {
             Text("App")
         } footer: {
             Text("Haptics include the games' vibration: a tap when you spin, and a buzz when you crash or your tower falls. Spin, Flappy and Tower are saved on this device whenever the app is open with a connection, so they play offline too.")
+        }
+    }
+
+    /// Empties the cache, says so for a moment, and saves the games for
+    /// offline again. The size is read before they start coming back, so it
+    /// shows what the clear left rather than a download under way.
+    private func clearCache() {
+        guard !clearingCache else { return }
+        clearingCache = true
+        Task {
+            await WebEnvironment.clearCache()
+            cacheSize = await WebEnvironment.cacheSize()
+            clearingCache = false
+            cacheCleared = true
+            model.cacheCleared()
+            Haptics.play("success")
+            try? await Task.sleep(for: .seconds(2))
+            cacheCleared = false
         }
     }
 

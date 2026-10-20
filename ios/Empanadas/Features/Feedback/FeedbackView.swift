@@ -30,7 +30,8 @@ struct FeedbackView: View {
                 ConnectionErrorView(
                     title: "Couldn't Load the Form",
                     message: app.isOnline ? error.localizedDescription : "Feedback can be sent once you're back online.",
-                    systemImage: app.isOnline ? "exclamationmark.bubble" : "wifi.exclamationmark"
+                    systemImage: app.isOnline ? "exclamationmark.bubble" : "wifi.exclamationmark",
+                    background: Color(uiColor: .systemGroupedBackground)
                 ) {
                     Task { await model.load(app: app) }
                 }
