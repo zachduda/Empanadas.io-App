@@ -65,7 +65,7 @@ enum Dialogs {
 /// shown over, at a sign-out, or never shown at all) gives `otherwise`, as
 /// Cancel would, when it is released and this with it: before, the page that
 /// asked waited on it for good.
-private final class Answer<Value> {
+private final class Answer<Value: Sendable> {
     private var continuation: CheckedContinuation<Value, Never>?
     private let otherwise: Value
 
