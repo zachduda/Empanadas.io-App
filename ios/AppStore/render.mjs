@@ -9,7 +9,8 @@
 //  1. Screens, into screens/iphone/ and screens/ipad/ at the devices' full
 //     resolution. The games are the site's own pages (--site, a checkout of
 //     zachduda/Empanadas-io's html/), played to a good moment with demo
-//     numbers. Home, Friends and Leaderboard are templates/native.html.
+//     numbers. Home, Friends, Games, Leaderboard and the Home Screen widgets
+//     are templates/native.html.
 //  2. The App Store images: each screen in a device frame under its caption
 //     (templates/shot.html), and the creative assets: the product page header,
 //     the search results image, the universal asset that can be both, and the
@@ -36,7 +37,9 @@ const SITE = path.resolve(option('--site', path.join(HERE, '../../../Empanadas-i
 
 // The screenshots, in App Store order. The first three are the ones search
 // results show, so they are the three games. In a title, *a word* is gold and
-// | breaks the line.
+// | breaks the line. art: the screen floats on the backdrop, with no device
+// around it. bleed: on that device, the device is drawn larger and runs off
+// the bottom, for a screen whose lower half is empty.
 const SHOTS = [
 	{ name: '01-spin', screen: 'spin', tag: 'Spin', icon: 'spin', tint: '#2E82EF',
 		title: 'Spin the|*empanada*', sub: 'Rack up spins, earn peppers and rank up to Spin Overlord.' },
@@ -44,11 +47,15 @@ const SHOTS = [
 		title: 'Flap through|the *gaps*', sub: 'Hold to rise, let go to fall. How far can you fly?' },
 	{ name: '03-tower', screen: 'tower', tag: 'Tower', icon: 'stack', tint: '#E0891B',
 		title: 'Stack it|*sky-high*', sub: "Drop each empanada just right, and don't let the tower topple." },
-	{ name: '04-home', screen: 'home', tag: 'Home', icon: 'house', tint: '#3756E9',
+	{ name: '04-games', screen: 'games', tag: 'Games', icon: 'gamecontroller', tint: '#D9534F', bleed: 'ipad',
+		title: 'Jump right|back *in*', sub: 'Pick up where you left off, with your best scores on every game.' },
+	{ name: '05-home', screen: 'home', tag: 'Home', icon: 'house', tint: '#3756E9',
 		title: 'Every stat in|*one place*', sub: 'Peppers, high scores and progress for all three games.' },
-	{ name: '05-leaderboards', screen: 'leaderboard', tag: 'Leaderboards', icon: 'trophy', tint: '#F5B301',
+	{ name: '06-leaderboards', screen: 'leaderboard', tag: 'Leaderboards', icon: 'trophy', tint: '#F5B301',
 		title: 'Climb the|*leaderboards*', sub: 'See where you stand in Spin, Flappy and Tower.' },
-	{ name: '06-friends', screen: 'friends', tag: 'Friends', icon: 'friends', tint: '#7952B3', iphoneOnly: true,
+	{ name: '07-widgets', screen: 'widgets', tag: 'Widgets', icon: 'widget', tint: '#F08000', art: true,
+		title: 'Right on your|*Home Screen*', sub: 'Your best scores at a glance. Tap a game to jump straight in.' },
+	{ name: '08-friends', screen: 'friends', tag: 'Friends', icon: 'friends', tint: '#7952B3', iphoneOnly: true,
 		title: 'Play with|your *friends*', sub: "See who's online and how far your spins have come." },
 ];
 
@@ -136,14 +143,18 @@ async function render(template, params, [width, height], scale, out) {
 	await page.close();
 }
 
+// The widgets are drawn on their own, on a clear background, and at 4x: the
+// screenshot shows them larger than a screen would.
 async function captureNative(screen, spec, out) {
-	const page = await browser.newPage({ viewport: { width: spec.points[0], height: spec.points[1] }, deviceScaleFactor: spec.scale });
+	const art = screen === 'widgets';
+	const page = await browser.newPage({ viewport: { width: spec.points[0], height: spec.points[1] }, deviceScaleFactor: art ? 4 : spec.scale });
 	const url = pathToFileURL(path.join(TEMPLATES, 'native.html'));
 	url.searchParams.set('screen', screen);
 	url.searchParams.set('device', spec.native);
 	await page.goto(url.href, { waitUntil: 'networkidle' });
 	await page.evaluate(() => document.fonts.ready);
-	await page.screenshot({ path: out });
+	if (art) await page.locator('.widgets').screenshot({ path: out, omitBackground: true });
+	else await page.screenshot({ path: out });
 	await page.close();
 }
 
@@ -252,10 +263,12 @@ async function stageSpin(spec) {
 	return game;
 }
 
-// Flappy: a run at 41 points, caught threading a gap: the empanada below the
-// clouds, nothing white behind the white score. A simple autopilot flies, and
+// Flappy: a run from 41 points, caught threading a gap: no cloud around the
+// empanada, nothing white behind the white score. A simple autopilot flies, and
 // posts don't knock it down, so the run lasts until that frame comes; the
-// game's frame loop is stopped on it.
+// game's frame loop is stopped on it. The sky stays the day's it starts in,
+// where at 45 it would turn (every 15 points), its lilac clouds then passing
+// the white test behind the score.
 async function stageFlappy(spec) {
 	const game = await openGame('flappy', spec, `window.__game = {
 		get player() { return player; }, get posts() { return posts; }, get fieldH() { return fieldH; }, POST_W,
@@ -263,6 +276,7 @@ async function stageFlappy(spec) {
 		start(points) {
 			circleHitsRect = () => false;
 			circleHitsMountain = () => false;
+			setSky = () => {};
 			if (state === READY) launch();
 			score = points;
 			ui.score.textContent = points;
@@ -274,16 +288,23 @@ async function stageFlappy(spec) {
 			return ahead > 30 && ahead < 70
 				&& player.y > next.top + 45 && player.y < next.top + next.gap - 45
 				&& player.y > fieldH * 0.4 && player.y < fieldH * 0.75
-				&& this.scoreClear();
+				&& this.scoreClear() && this.playerClear();
+		},
+		white(x, y, w, h) {
+			const pixels = ctx.getImageData(x, y, w, h).data;
+			let white = 0;
+			for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 200 && pixels[i + 1] > 200 && pixels[i + 2] > 200) white += 1;
+			return white / (pixels.length / 4);
+		},
+		playerClear() {
+			const k = fieldK * dpr, r = 60 * k; // the field's units to the canvas's pixels
+			return this.white(player.x * k - r, player.y * k - r, 2 * r, 2 * r) < 0.02;
 		},
 		scoreClear() {
 			const digits = document.createRange();
 			digits.selectNodeContents(ui.score); // the score's box is the width of the screen; the digits aren't
 			const box = digits.getBoundingClientRect(), k = canvas.width / canvas.clientWidth, pad = 12;
-			const pixels = ctx.getImageData((box.left - pad) * k, (box.top - pad) * k, (box.width + 2 * pad) * k, (box.height + 2 * pad) * k).data;
-			let white = 0;
-			for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 200 && pixels[i + 1] > 200 && pixels[i + 2] > 200) white += 1;
-			return white / (pixels.length / 4) < 0.01;
+			return this.white((box.left - pad) * k, (box.top - pad) * k, (box.width + 2 * pad) * k, (box.height + 2 * pad) * k) < 0.01;
 		},
 	};`);
 	const { page } = game;

@@ -6,12 +6,15 @@
 <title>Native screens</title>
 <!--
   The app's native screens, drawn in HTML for the App Store screenshots:
-  Home (HomeView.swift), Home scrolled to Spin Progress and Friends, and the
-  Leaderboard (LeaderboardView.swift), with demo data. Sizes, colours and
+  Home (HomeView.swift), Home scrolled to Spin Progress and Friends, the
+  Games tab (GamesView.swift; on iPad with a card's menu open, GameMenu.swift),
+  the Leaderboard (LeaderboardView.swift), and the Home Screen widgets
+  (EmpanadasWidget/GamesWidget.swift), with demo data. Sizes, colours and
   wording follow the SwiftUI code and Palette in Components.swift. Rendered by
-  render.mjs at 440x956 (iPhone 6.9") and 1032x1376 (iPad 13").
+  render.mjs at 440x956 (iPhone 6.9") and 1032x1376 (iPad 13"); the widgets
+  on their own, on a clear background, for the screenshot to float.
 
-  ?screen=home|friends|leaderboard  &device=phone|pad
+  ?screen=home|friends|games|leaderboard|widgets  &device=phone|pad
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block" rel="stylesheet">
@@ -53,17 +56,24 @@
   /* Navigation bar: the large title, then the inline one once scrolled */
   .nav { position: absolute; left: 0; right: 0; top: 0; z-index: 20; }
   .nav .bar { height: 106px; display: flex; align-items: flex-end; justify-content: flex-end; padding: 0 16px 6px; }
-  .nav .glassbtn { width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
+  /* The toolbar's glass: the items on one side share a capsule (iOS 26) */
+  .nav .glass { height: 44px; border-radius: 22px; display: flex; align-items: center;
     background: rgba(255,255,255,0.72); box-shadow: 0 1px 6px rgba(0,0,0,0.08), inset 0 0 0 0.5px rgba(0,0,0,0.06);
     backdrop-filter: blur(10px); }
+  .nav .glass > * { width: 40px; height: 44px; display: grid; place-items: center; position: relative; }
+  .nav .glass { padding: 0 2px; }
+  .nav .glass .text { width: auto; padding: 0 14px; font-size: 17px; font-weight: 500; }
+  .bell { font-size: 19px; color: #1c1c1e; }
+  .bell .badge { position: absolute; top: 10px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: #FF3B30;
+    box-shadow: 0 0 0 1.5px #fff; }
   .nav h1 { font-size: 34px; font-weight: 700; letter-spacing: 0.2px; padding: 2px 16px 10px; line-height: 41px; }
   .nav.inline { background: linear-gradient(to bottom, rgba(242,242,247,0.96) 70%, rgba(242,242,247,0)); }
   .nav.inline .bar { justify-content: center; align-items: flex-end; height: 106px; padding-bottom: 16px; position: relative; }
   .nav.inline .bar .title { font-size: 17px; font-weight: 600; }
-  .nav.inline .bar .glassbtn { position: absolute; right: 16px; bottom: 6px; }
+  .nav.inline .bar .glass { position: absolute; right: 16px; bottom: 6px; }
   .pad .nav .bar { height: 32px; }
   .pad .nav h1 { padding: 76px 24px 10px; }
-  .pad .nav .glassbtn { position: absolute; top: 41px; right: 24px; }
+  .pad .nav .glass { position: absolute; top: 41px; right: 24px; }
 
   /* Tab bar: iOS 26's floating glass bar on iPhone, the tab strip on top on iPad.
      Headless Chromium skips a backdrop blur much past 10px and leaves what's
@@ -108,14 +118,16 @@
   .avatar { border-radius: 50%; display: grid; place-items: center; flex: none; overflow: hidden;
     font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif; line-height: 1; }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  /* BalancedGrid: its columns are worked out once laid out (balance()) */
+  .balanced { display: grid; }
+  .tiles { gap: 12px; }
   .tile { background: var(--card); border-radius: 16px; padding: 12px; display: flex; gap: 12px; align-items: center; }
   .tile .badge { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 17px; flex: none; }
   .tile b { font-size: 17px; font-weight: 600; display: block; line-height: 21px; }
   .tile b span { color: var(--secondary); font-weight: 600; }
   .tile small { font-size: 12px; color: var(--secondary); display: block; }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+  .cards { gap: 16px; }
   .rows { display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
   .rows div { display: flex; justify-content: space-between; }
   .rows span { color: var(--secondary); }
@@ -141,6 +153,7 @@
     border-radius: 99px; padding: 8px; }
 
   /* Leaderboard: an inset grouped list */
+  .pad .lb { max-width: 720px; margin: 0 auto; }  /* readableListWidth() */
   .lb .seg { margin: 0 0 14px; font-size: 14px; }
   .lb .seg div { padding: 7px 0; }
   .sechead { display: flex; justify-content: space-between; text-transform: uppercase; font-size: 13px; color: var(--secondary);
@@ -171,6 +184,87 @@
   .sum .gain b { font-size: 17px; font-weight: 600; color: var(--flappy); }
   .xp { display: flex; gap: 8px; font-size: 20px; font-weight: 600; align-items: center; }
   .xp .e { font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+
+  /* Games tab: Jump Back In, a card a game, then the links */
+  .jump { background: var(--card); border-radius: 20px; padding: 14px; display: flex; gap: 14px; align-items: center; }
+  .jump .jicon { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; color: #fff; font-size: 23px; flex: none; }
+  .jump .jtxt { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .jump .kicker { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--secondary); letter-spacing: 0; }
+  .jump b { font-size: 17px; font-weight: 600; line-height: 22px; }
+  .jump small { font-size: 12px; color: var(--secondary); }
+  .jump .jplay { font-size: 15px; font-weight: 700; color: #fff; padding: 9px 16px; border-radius: 99px; display: flex; gap: 6px; align-items: center; }
+  .jump .jplay .ico { font-size: 12px; }
+
+  .games { gap: 16px; }
+  .gcard { position: relative; overflow: hidden; isolation: isolate; border-radius: 22px; padding: 16px; color: #fff;
+    display: flex; flex-direction: column; gap: 14px; }
+  .gshade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(to bottom right, rgba(255,255,255,0.14), rgba(0,0,0,0.2)); }
+  .gmark { position: absolute; z-index: -1; right: -28px; bottom: -22px; font-size: 124px; opacity: 0.1; transform: rotate(-14deg); }
+  .gmark .ico { display: block; }
+  .ghead { display: flex; gap: 14px; align-items: flex-start; }
+  .gicon { width: 56px; height: 56px; border-radius: 16px; background: rgba(255,255,255,0.2); display: grid; place-items: center;
+    font-size: 25px; flex: none; }
+  .gtitle { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .gtitle b { font-size: 20px; font-weight: 700; line-height: 25px; }
+  .gtitle small { font-size: 13px; line-height: 18px; opacity: 0.85; }
+  .gplay { width: 36px; height: 36px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 14px;
+    flex: none; margin-left: 8px; padding-left: 2px; }
+  .gbadges { display: flex; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 99px;
+    background: rgba(255,255,255,0.2); white-space: nowrap; }
+  .pill .ico { font-size: 11px; }
+  .gnums { display: flex; align-items: center; padding: 10px 4px; border-radius: 14px; background: rgba(0,0,0,0.14); margin-top: auto; }
+  .gnums > div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .gnums b { font-size: 17px; font-weight: 600; line-height: 22px; font-variant-numeric: tabular-nums; }
+  .gnums small { font-size: 11px; font-weight: 500; line-height: 13px; opacity: 0.85; }
+  .gnums > i { width: 1px; height: 28px; background: rgba(255,255,255,0.25); flex: none; }
+
+  .links { background: var(--card); border-radius: 20px; padding: 0 16px; }
+  .link { display: flex; gap: 12px; align-items: center; padding: 12px 0; position: relative; }
+  .link + .link::before { content: ""; position: absolute; top: 0; left: 48px; right: 0; height: 0.5px; background: var(--separator); }
+  .link .licon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 17px; flex: none; }
+  .link .ltxt { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .link b { font-size: 17px; font-weight: 600; line-height: 22px; }
+  .link small { font-size: 12px; color: var(--secondary); }
+  .link .chev { color: var(--tertiary); font-size: 12px; }
+
+  /* A card held: the screen blurred behind it, the card lifted, its menu
+     under it. The status bar stays sharp, as it does in iOS. */
+  .held-dim { position: absolute; inset: 0; z-index: 28; background: rgba(40,40,60,0.12); backdrop-filter: blur(10px) saturate(1.1); }
+  .held { position: absolute; z-index: 29; box-shadow: 0 18px 50px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.12); }
+  .menu { position: absolute; z-index: 29; width: 260px; border-radius: 26px; padding: 6px 0; background: rgba(250,250,252,0.86);
+    backdrop-filter: blur(10px) saturate(1.6); box-shadow: 0 18px 50px rgba(0,0,0,0.22), inset 0 0 0 0.5px rgba(0,0,0,0.06); }
+  .menu .item { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 18px; font-size: 17px; }
+  .menu .item .ico { width: 20px; font-size: 17px; }
+  .menu .sep { height: 1px; margin: 5px 18px; background: var(--separator); }
+
+  /* The Home Screen widgets (GamesWidget.swift), and the app's icon beside them */
+  html.art, html.art body { background: transparent; }
+  .widgets { position: absolute; left: 0; top: 0; padding: 8px; display: flex; flex-direction: column; gap: 30px; width: 380px; }
+  .wrow { display: flex; align-items: flex-start; }
+  .widget { border-radius: 24px; overflow: hidden; position: relative; isolation: isolate; color: #fff; }
+  .wbg { position: absolute; inset: 0; z-index: -1; }
+  .wbg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom right, rgba(255,255,255,0.14), rgba(0,0,0,0.2)); }
+  .wmedium { width: 364px; height: 170px; padding: 16px; display: flex; gap: 8px; background: #EFEFF0; }
+  .wsmall { width: 170px; height: 170px; padding: 16px; display: flex; flex-direction: column; gap: 2px; }
+  .wsmall .top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .wsym { width: 38px; height: 38px; border-radius: 11px; background: rgba(255,255,255,0.2); display: grid; place-items: center; font-size: 19px; }
+  .wsmall .wplay { width: 26px; height: 26px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 10px; padding-left: 1px; }
+  .wsmall .space { flex: 1; min-height: 6px; }
+  .wsmall .k { font-size: 11px; font-weight: 700; text-transform: uppercase; opacity: 0.8; line-height: 13px; }
+  .wsmall b { font-size: 20px; font-weight: 700; line-height: 24px; }
+  .wsmall .st { font-size: 12px; font-weight: 600; line-height: 15px; font-variant-numeric: tabular-nums; }
+  .wsmall small { font-size: 11px; line-height: 13px; opacity: 0.85; white-space: nowrap; }
+  .wtile { flex: 1; min-width: 0; border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+  .wtile .wsym { width: 30px; height: 30px; border-radius: 9px; font-size: 15px; }
+  .wtile .space { flex: 1; min-height: 4px; }
+  .wtile b { font-size: 15px; font-weight: 700; line-height: 19px; }
+  .wtile .v { font-size: 17px; font-weight: 600; line-height: 21px; font-variant-numeric: tabular-nums; }
+  .wtile .l { font-size: 11px; line-height: 13px; opacity: 0.85; }
+  .wtile small { font-size: 10px; font-weight: 500; line-height: 12px; opacity: 0.8; white-space: nowrap; }
+  .appicon { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 4px; }
+  .appicon img { width: 64px; height: 64px; display: block; }
+  .appicon span { font-size: 12px; font-weight: 500; color: #fff; letter-spacing: 0; }
 </style>
 </head>
 <body>
@@ -237,11 +331,15 @@ const tabs = active => {
     `<div class="tab ${t === active ? 'on' : ''}">${icon(i)}<span>${t}</span></div>`).join('')}</div>`;
 };
 
-const nav = (title, { inline = false, avatarBtn = false } = {}) => `
+// trailing: the toolbar's items on the right, which share one glass capsule.
+const nav = (title, { inline = false, trailing = '' } = {}) => `
   <div class="nav ${inline ? 'inline' : ''}">
-    <div class="bar">${inline ? `<span class="title">${title}</span>` : ''}${avatarBtn ? `<div class="glassbtn">${avatar('mateo', 32)}</div>` : ''}</div>
+    <div class="bar">${inline ? `<span class="title">${title}</span>` : ''}${trailing ? `<div class="glass">${trailing}</div>` : ''}</div>
     ${inline ? '' : `<h1>${title}</h1>`}
   </div>`;
+
+// Home's: the announcements bell (UpdatesBell, with a new post) and the account menu.
+const homeToolbar = `<span class="bell">${icon('bell')}<i class="badge"></i></span><span>${avatar('mateo', 30)}</span>`;
 
 const tile = (title, value, ic, color, suffix = '', emoji = '') => `
   <div class="tile"><div class="badge" style="background:linear-gradient(${color}, color-mix(in srgb, ${color} 82%, #000))">${emoji ? `<span style="font-family:'Apple Color Emoji','Noto Color Emoji'">${emoji}</span>` : icon(ic)}</div>
@@ -263,7 +361,7 @@ const hero = () => `
     <div class="btns"><div class="btn">${icon('person')} My Profile</div><div class="btn">${icon('search')} Find Friends</div></div>
   </div>`;
 
-const tiles = () => `<div class="tiles">
+const tiles = () => `<div class="balanced tiles" data-min="165" data-gap="12">
   ${tile('Peppers', 1113, 'flame', 'var(--peppers)')}
   ${tile('Lifetime Spins', 83254, 'spin', 'var(--spin)')}
   ${tile('Flappy Best', 189, 'bird', 'var(--flappy)')}
@@ -272,7 +370,7 @@ const tiles = () => `<div class="tiles">
   ${tile('Pumpkins', 27, '', 'var(--pumpkin)', '', '🎃')}
 </div>`;
 
-const gameCards = () => `<div class="cards">
+const gameCards = () => `<div class="balanced cards" data-min="250" data-gap="16">
   ${gameCard('Spin', 'spin', 'var(--spin)', [['Manual spins', 83254], ['Prestige', 12], ['Ascensions', 2]], 12, 'Prestige 12 of 100', '12.0% to Ascension')}
   ${gameCard('Flappy', 'bird', 'var(--flappy)', [['Highest score', 189], ['Most recent', 143], ['Rounds played', 212]], 76, 'Last round vs. your best', '76%')}
   ${gameCard('Tower', 'stack', 'var(--tower)', [['Tallest tower', 31], ['Most recent', 24], ['Runs played', 97]], 77, 'Last tower vs. your best', '77%')}
@@ -291,7 +389,10 @@ function spinChart(W) {
   const line = pts.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
   const ticks = [80000, 81500, 83000].map(v => `<line x1="0" x2="${W - 70}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(60,60,67,.18)" stroke-dasharray="4 5"/>
     <text x="${W - 62}" y="${y(v) + 4}" font-size="11" fill="rgba(60,60,67,.6)">${(v / 1000).toFixed(1).replace('.0', '')}K</text>`).join('');
-  const labels = ['Sep 13', 'Sep 20', 'Sep 27', 'Oct 4', 'Oct 11'].map((t, i) => `<text x="${x(i * 7)}" y="${H}" font-size="11" fill="rgba(60,60,67,.6)" text-anchor="${i ? 'middle' : 'start'}">${t}</text>`).join('');
+  // AxisMarks(preset: .aligned): each date starts at its day's line, so the
+  // first isn't cut off at the edge.
+  const labels = ['Sep 13', 'Sep 20', 'Sep 27', 'Oct 4', 'Oct 11'].map((t, i) => `<line x1="${x(i * 7)}" x2="${x(i * 7)}" y1="0" y2="${H - 26}" stroke="rgba(60,60,67,.1)"/>
+    <text x="${x(i * 7) + 2}" y="${H}" font-size="11" fill="rgba(60,60,67,.6)">${t}</text>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}">
     <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FB9FF" stop-opacity=".38"/><stop offset="1" stop-color="#4FB9FF" stop-opacity=".02"/></linearGradient></defs>
     ${ticks}
@@ -354,9 +455,11 @@ function leaderboard() {
     ['jules', 47716, 'Prestige 29'],
     ['bea', 40122, 'Prestige 18'],
     ['carla', 36508, 'Prestige 9'],
+    // The iPad's screen is taller.
+    ...(device === 'pad' ? [['paco', 31877, 'Prestige 15'], ['kiki', 28340, 'Prestige 4']] : []),
   ];
   const medal = ['var(--gold)', 'var(--silver)', 'var(--bronze)'];
-  const names = { 6: 'nico.spins', 4: 'beatriz', 3: 'chefcarla', 11: 'julesy', 12: 'bea_bakes', 13: 'carlita' };
+  const names = { 6: 'nico.spins', 4: 'beatriz', 3: 'chefcarla', 11: 'julesy', 12: 'bea_bakes', 13: 'carlita', 14: 'pacoloco', 15: 'kikiflaps' };
   return `<div class="lb">
     <div class="seg"><div class="on">Spin</div><div>Flappy</div><div>Tower</div></div>
     <div class="sechead"><span>Most Manual Spins</span><span style="text-transform:none">Updated just now</span></div>
@@ -373,26 +476,165 @@ function leaderboard() {
   </div>`;
 }
 
-let html = statusBar();
-if (screen === 'home') {
-  html += nav('Home', { avatarBtn: true });
-  html += `<div class="scroll"><div class="stack">${hero()}${tiles()}${gameCards()}${device === 'pad'
-    ? `<div class="cards">${chartCard()}${friendsCard()}${xpCard()}</div>` : ''}</div></div>`;
-  html += tabs('Home');
-} else if (screen === 'friends') {
-  // Home, scrolled down past the game cards.
-  html += nav('Home', { inline: true, avatarBtn: true });
-  html += `<div class="scroll" style="top:${device === 'pad' ? 104 : 118}px"><div class="cards">${chartCard()}${friendsCard()}${xpCard()}</div></div>`;
-  html += tabs('Home');
-} else if (screen === 'leaderboard') {
-  html += nav('Leaderboards');
-  html += `<div class="scroll">${leaderboard()}</div>`;
-  html += tabs('Leaderboards');
+// The three games as the player's account has them: the same numbers as on
+// Home (quickStats, 83,254 spins written short as 83K), when each was last
+// played in the app, and their places on the boards (8th in Spin, as on the
+// Leaderboard screen).
+const GAMES = [
+  { key: 'spin', title: 'Spin', sub: 'Spin the empanada', ic: 'spin', tint: '#2E82EF',
+    played: 'Played yesterday', rank: 8, stats: [['83K', 'Spins'], ['12', 'Prestige'], ['2', 'Ascensions']] },
+  { key: 'flappy', title: 'Flappy', sub: 'Fly between the pipes', ic: 'bird', tint: '#17A673',
+    played: 'Played 2 hours ago', rank: 5, stats: [['189', 'Best'], ['143', 'Last'], ['212', 'Rounds']] },
+  { key: 'tower', title: 'Tower', sub: 'Stack it as high as you can', ic: 'stack', tint: '#E0891B',
+    played: 'Played 3 days ago', rank: 14, stats: [['31', 'Tallest'], ['24', 'Last'], ['97', 'Runs']] },
+];
+const LAST = GAMES[1]; // played last: Flappy
+const deepen = (color, k = 82) => `linear-gradient(${color}, color-mix(in srgb, ${color} ${k}%, #000))`; // Color.gradient
+
+const jumpBackIn = g => `
+  <div class="jump">
+    <div class="jicon" style="background:${deepen(g.tint)}">${icon(g.ic)}</div>
+    <div class="jtxt"><span class="kicker">Jump Back In</span><b>${g.title}</b><small>${g.played}</small></div>
+    <div class="jplay" style="background:${g.tint}">${icon('play')}Play</div>
+  </div>`;
+
+const playCard = g => `
+  <div class="gcard" data-game="${g.key}" style="background:${g.tint}">
+    <div class="gshade"></div>
+    <span class="gmark">${icon(g.ic)}</span>
+    <div class="ghead">
+      <div class="gicon">${icon(g.ic)}</div>
+      <div class="gtitle"><b>${g.title}</b><small>${g.sub}</small></div>
+      <div class="gplay" style="color:${g.tint}">${icon('play')}</div>
+    </div>
+    <div class="gbadges"><span class="pill">${icon('clock')}${g.played}</span><span class="pill">${icon('trophy')}#${g.rank}</span></div>
+    <div class="gnums">${g.stats.map(([v, l], i) => `${i ? '<i></i>' : ''}<div><b>${v}</b><small>${l}</small></div>`).join('')}</div>
+  </div>`;
+
+const link = (title, detail, ic, tint) => `
+  <div class="link"><div class="licon" style="background:${deepen(tint)}">${icon(ic)}</div>
+    <div class="ltxt"><b>${title}</b><small>${detail}</small></div><span class="chev">${icon('chevron')}</span></div>`;
+
+const gamesTab = () => `<div class="stack">
+  ${jumpBackIn(LAST)}
+  <div class="balanced games" data-min="260" data-gap="16">${GAMES.map(playCard).join('')}</div>
+  <div class="links">
+    ${link('Leaderboards', 'See where you rank in every game', 'trophy', 'var(--gold)')}
+    ${link('Send Feedback', "Found a bug or got an idea? We'd love to hear it.", 'comments', 'var(--friends)')}
+  </div>
+</div>`;
+
+// What holding a card offers (GameMenu.swift), signed in to Game Center.
+const heldMenu = g => `<div class="menu">
+  <div class="item">${icon('play')}Play ${g.title}</div>
+  <div class="item">${icon('trophy')}Leaderboard</div>
+  <div class="item">${icon('gamecontroller')}Game Center</div>
+  <div class="sep"></div>
+  <div class="item">${icon('bubble')}Report a Problem</div>
+</div>`;
+
+// The app icon's shape: a superellipse, as in creative.html.
+const squircle = (() => {
+  const pts = [];
+  for (let i = 0; i < 144; i++) {
+    const t = (i / 144) * 2 * Math.PI, c = Math.cos(t), s = Math.sin(t);
+    const x = Math.sign(c) * Math.abs(c) ** (2 / 5), y = Math.sign(s) * Math.abs(s) ** (2 / 5);
+    pts.push(`${(50 + 50 * x).toFixed(2)}% ${(50 + 50 * y).toFixed(2)}%`);
+  }
+  return `polygon(${pts.join(',')})`;
+})();
+
+// The widgets, signed in: medium (all three games) over small (the game
+// played last), with the app beside it as on a Home Screen.
+const widgets = () => {
+  const bg = g => `<div class="wbg" style="background:${g.tint}"></div>`;
+  const tile = g => `<div class="wtile widget">${bg(g)}<div class="wsym">${icon(g.ic)}</div><div class="space"></div>
+    <b>${g.title}</b><span class="v">${g.stats[0][0]}</span><span class="l">${g.stats[0][1]}</span><small class="fit">${g.played}</small></div>`;
+  return `<div class="widgets">
+    <div class="widget wmedium">${GAMES.map(tile).join('')}</div>
+    <div class="wrow">
+      <div class="widget wsmall">${bg(LAST)}
+        <div class="top"><div class="wsym">${icon(LAST.ic)}</div><div class="wplay" style="color:${LAST.tint}">${icon('play')}</div></div>
+        <div class="space"></div>
+        <span class="k">Jump Back In</span><b>${LAST.title}</b><span class="st">${LAST.stats[0][1]} ${LAST.stats[0][0]}</span><small>${LAST.played}</small>
+      </div>
+      <div class="appicon"><img src="../../Empanadas/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" alt="" style="clip-path:${squircle}"><span>Empanadas.io</span></div>
+    </div>
+  </div>`;
+};
+
+let html = '';
+if (screen === 'widgets') {
+  document.documentElement.classList.add('art');
+  html = widgets();
+} else {
+  html = statusBar();
+  if (screen === 'home') {
+    html += nav('Home', { trailing: homeToolbar });
+    html += `<div class="scroll"><div class="stack">${hero()}${tiles()}${gameCards()}${device === 'pad'
+      ? `<div class="masonry">${chartCard()}${friendsCard()}${xpCard()}</div>` : ''}</div></div>`;
+    html += tabs('Home');
+  } else if (screen === 'friends') {
+    // Home, scrolled down past the game cards.
+    html += nav('Home', { inline: true, trailing: homeToolbar });
+    html += `<div class="scroll" style="top:${device === 'pad' ? 104 : 118}px"><div class="masonry">${chartCard()}${friendsCard()}${xpCard()}</div></div>`;
+    html += tabs('Home');
+  } else if (screen === 'games') {
+    html += nav('Games');
+    html += `<div class="scroll">${gamesTab()}</div>`;
+    html += tabs('Games');
+  } else if (screen === 'leaderboard') {
+    html += nav('Leaderboards', { trailing: '<span class="text">Game Center</span>' });
+    html += `<div class="scroll">${leaderboard()}</div>`;
+    html += tabs('Leaderboards');
+  }
+  html += '<div class="homeind"></div>';
 }
-html += '<div class="homeind"></div>';
 document.body.insertAdjacentHTML('beforeend', html);
+
+// BalancedGrid: as many columns as fit at its least width, but rows of
+// even length: six tiles in room for five are two rows of three.
+document.querySelectorAll('.balanced').forEach(grid => {
+  const min = +grid.dataset.min, gap = +grid.dataset.gap, count = grid.children.length;
+  const fit = Math.max(1, Math.floor((grid.clientWidth + gap) / (min + gap)));
+  const rows = Math.ceil(count / fit);
+  grid.style.gridTemplateColumns = `repeat(${Math.ceil(count / rows)}, minmax(0, 1fr))`;
+});
+
+// MasonryColumns: up to two columns at least 340 wide, each card going to
+// the shorter one so far.
+document.querySelectorAll('.masonry').forEach(box => {
+  const gap = 16, cards = [...box.children];
+  const n = Math.max(1, Math.min(2, Math.floor((box.clientWidth + gap) / (340 + gap))));
+  box.style.cssText = `display:flex;gap:${gap}px;align-items:flex-start`;
+  const columns = Array.from({ length: n }, () => {
+    const column = document.createElement('div');
+    column.style.cssText = `flex:1;min-width:0;display:flex;flex-direction:column;gap:${gap}px`;
+    return box.appendChild(column);
+  });
+  for (const card of cards) columns.reduce((a, b) => (b.offsetHeight < a.offsetHeight ? b : a)).appendChild(card);
+});
+
 // The chart is drawn at the width its card ended up, so its labels aren't stretched.
 document.querySelectorAll('.chart').forEach(c => { c.innerHTML = spinChart(c.clientWidth); });
+
+// Text that shrinks to one line where it doesn't fit (minimumScaleFactor).
+document.querySelectorAll('.fit').forEach(el => {
+  const room = el.parentElement.clientWidth - 20;
+  if (el.scrollWidth > room) el.style.fontSize = `${Math.max(8, 10 * room / el.scrollWidth).toFixed(2)}px`;
+});
+
+// The iPad's Games tab: the game played last held down, its menu open.
+if (screen === 'games' && device === 'pad') {
+  const card = document.querySelector(`.gcard[data-game="${LAST.key}"]`), r = card.getBoundingClientRect();
+  const held = card.cloneNode(true);
+  held.classList.add('held');
+  Object.assign(held.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  document.body.insertAdjacentHTML('beforeend', '<div class="held-dim"></div>');
+  document.body.appendChild(held);
+  document.body.insertAdjacentHTML('beforeend', heldMenu(LAST));
+  Object.assign(document.querySelector('.menu').style, { left: `${r.left}px`, top: `${r.bottom + 14}px` });
+}
 </script>
 </body>
 </html>

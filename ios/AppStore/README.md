@@ -26,9 +26,16 @@ three games.
 | 1 | Spin | **Spin the empanada.** Rack up spins, earn peppers and rank up to Spin Overlord. |
 | 2 | Flappy | **Flap through the gaps.** Hold to rise, let go to fall. How far can you fly? |
 | 3 | Tower | **Stack it sky-high.** Drop each empanada just right, and don't let the tower topple. |
-| 4 | Home | **Every stat in one place.** Peppers, high scores and progress for all three games. |
-| 5 | Leaderboards | **Climb the leaderboards.** See where you stand in Spin, Flappy and Tower. |
-| 6 | Home, scrolled | **Play with your friends.** See who's online and how far your spins have come. (iPhone only) |
+| 4 | Games | **Jump right back in.** Pick up where you left off, with your best scores on every game. |
+| 5 | Home | **Every stat in one place.** Peppers, high scores and progress for all three games. |
+| 6 | Leaderboards | **Climb the leaderboards.** See where you stand in Spin, Flappy and Tower. |
+| 7 | Home Screen widgets | **Right on your Home Screen.** Your best scores at a glance. Tap a game to jump straight in. |
+| 8 | Home, scrolled | **Play with your friends.** See who's online and how far your spins have come. (iPhone only) |
+
+On iPad, the Games tab is held down on Flappy, with its menu open: the tab
+is short there, three cards across, so the iPad is drawn larger and runs off
+the bottom. The widgets float on the backdrop on their own, beside the app's
+icon as on a Home Screen, rather than on a drawing of one.
 
 The captions are in `SHOTS` at the top of `render.mjs`.
 
@@ -78,12 +85,14 @@ boxes used, open `templates/creative.html?kind=universal&guides=1`.
 - **Spin, Flappy and Tower** are the site's own game pages
   (zachduda/Empanadas-io, `html/`), loaded in Chromium at the device's size
   with the iPhone's safe areas filled in, as the app shows them. A script
-  plays each one to a good moment: Flappy threading a gap at 41 points, Tower
-  14 floors high (16 on iPad). Spin's numbers come from the account, so they
+  plays each one to a good moment: Flappy threading a gap in the 40s, under
+  the day's sky it starts in, Tower 14 floors high (16 on iPad). Spin's numbers come from the account, so they
   are filled in on the page.
-- **Home, Friends and Leaderboard** are `templates/native.html`, a copy in
-  HTML of the SwiftUI screens (`HomeView`, `SpinChartCard`, `LeaderboardView`,
-  the colours in `Palette`), with demo players. On a Mac it draws in SF Pro;
+- **Home, Friends, Games, Leaderboard and the widgets** are
+  `templates/native.html`, a copy in HTML of the SwiftUI screens (`HomeView`,
+  `SpinChartCard`, `GamesView`, `GameMenu`, `LeaderboardView`, the widget's
+  `GamesWidget`, the colours in `Palette`), with demo players. The iPad
+  layouts follow `BalancedGrid`, `MasonryColumns` and `readableListWidth`. On a Mac it draws in SF Pro;
   elsewhere in Inter, which is close. The icons are Font Awesome stand-ins for
   the SF Symbols.
 
@@ -93,7 +102,7 @@ with emoji for pictures, so no real account appears in the listing.
 App Review asks that screenshots show the app in use. The native screens
 follow the app closely, but they are drawings of it. To use real ones, take
 them in the Simulator (iPhone 16 Pro Max, and iPad Pro 13-inch (M4)), save
-them over the files in `screens/` (`home.png`, `friends.png`,
+them over the files in `screens/` (`home.png`, `friends.png`, `games.png`,
 `leaderboard.png`, or any of the games) and compose again:
 
 ```sh
