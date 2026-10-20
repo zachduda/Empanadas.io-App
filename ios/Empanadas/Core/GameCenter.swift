@@ -1,4 +1,6 @@
-import GameKit
+// GameKit's types (GKLocalPlayer, which a score is submitted for) are not
+// marked Sendable yet.
+@preconcurrency import GameKit
 import UIKit
 
 extension Game {
@@ -68,7 +70,9 @@ final class GameCenter {
     func start() {
         guard !started else { return }
         started = true
-        GKLocalPlayer.local.authenticateHandler = { [weak self] controller, _ in
+        // Sendable, so not taken to be on the main actor: GameKit may call
+        // it from another thread, and it goes to the main actor itself.
+        GKLocalPlayer.local.authenticateHandler = { @Sendable [weak self] controller, _ in
             Task { @MainActor in self?.authenticated(controller) }
         }
     }

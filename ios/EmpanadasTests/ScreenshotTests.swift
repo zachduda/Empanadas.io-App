@@ -42,6 +42,7 @@ final class ScreenshotTests: XCTestCase {
     private var directory: URL!
     private var wasSignedIn = false
     private var lastSeenUpdate: String?
+    private var playHistory: [Game: Date] = [:]
 
     override func setUp() async throws {
         guard let path = ProcessInfo.processInfo.environment["SCREENSHOTS_DIR"], !path.isEmpty else {
@@ -50,6 +51,7 @@ final class ScreenshotTests: XCTestCase {
         directory = URL(filePath: path, directoryHint: .isDirectory)
         wasSignedIn = UserDefaults.standard.bool(forKey: Preferences.signedInKey)
         lastSeenUpdate = UserDefaults.standard.string(forKey: Preferences.updatesSeenKey)
+        playHistory = PlayHistory.load()
     }
 
     override func tearDown() async throws {
@@ -58,6 +60,7 @@ final class ScreenshotTests: XCTestCase {
         OfflineGamesRecord.forget()
         UserDefaults.standard.set(wasSignedIn, forKey: Preferences.signedInKey)
         UserDefaults.standard.set(lastSeenUpdate, forKey: Preferences.updatesSeenKey)
+        PlayHistory.save(playHistory)
     }
 
     func testDrawsTheScreensAtEachSize() async throws {
@@ -174,6 +177,7 @@ private enum Fixtures {
     static let picture = "/Content/Images/defaultpfp.png"
 
     /// The saved copies the screens open with, as after a good answer.
+    @MainActor
     static func seed() {
         OfflineStore.clear()
         OfflineStore.save(json(dashboard), as: .dashboard)
@@ -186,6 +190,10 @@ private enum Fixtures {
         // Seen up to the third: the bell has a dot, and the two above it are
         // New.
         UserDefaults.standard.set(posts[2]["id"] as? String, forKey: Preferences.updatesSeenKey)
+        // Flappy a couple of hours ago (Jump Back In), Spin yesterday, and
+        // Tower only ever on the website: the Games tab's three cases.
+        let now = Date()
+        PlayHistory.save([.flappy: now.addingTimeInterval(-2 * 3600), .spin: now.addingTimeInterval(-26 * 3600)])
     }
 
     static func answer(for url: URL) -> Data? {
@@ -201,7 +209,7 @@ private enum Fixtures {
 
     /// The announcements, newest first, as the admin panel would have saved
     /// them.
-    static let posts: [[String: Any]] = [
+    static var posts: [[String: Any]] { [
         post("k3n9q2", "Spin Got a Makeover", "2 hours ago", """
             <p>The <b>Spin</b> game has a fresh look, and it&#39;s <i>faster</i> on every device.</p>
             <ul><li>New upgrades in the shop</li><li>Smoother animations</li><li>Haptics on iPhone</li></ul>
@@ -216,7 +224,7 @@ private enum Fixtures {
             <blockquote>Play offline, and your saves sync when you&#39;re back.</blockquote>
             """, edited: "1 week ago"),
         post("z9y8x7", "Pumpkin Season", "1 month ago", "<p>&#x1F383; Pumpkins are back for October.</p>"),
-    ]
+    ] }
 
     private static func post(_ id: String, _ title: String, _ date: String, _ content: String,
                              edited: String? = nil) -> [String: Any] {
@@ -258,12 +266,12 @@ private enum Fixtures {
         return friend
     }
 
-    private static let friends = [
+    private static var friends: [[String: Any]] { [
         friend("pal", "22222222-2222-2222-2222-222222222222", state: "online", label: "Online"),
         friend("spinmaster", "33333333-3333-3333-3333-333333333333", state: "idle", label: "Idle"),
         friend("flapjack", "66666666-6666-6666-6666-666666666666", state: "offline", label: "Last seen 2h ago"),
         friend("towerqueen", "77777777-7777-7777-7777-777777777777", state: "offline", label: "Last seen yesterday"),
-    ]
+    ] }
 
     /// Two months of lifetime spins, a busier day now and then.
     private static var spinHistory: [[String: Any]] {

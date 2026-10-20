@@ -58,6 +58,7 @@ final class DashboardModel {
             updatedAt = Date()
             error = nil
             app.gameCenter.report(fresh)
+            app.dashboardUpdated()
         } catch let failure as AccountError {
             // Cancelled (the screen left, or the app went to the back): not
             // a failure, and not one to show until the next refresh.

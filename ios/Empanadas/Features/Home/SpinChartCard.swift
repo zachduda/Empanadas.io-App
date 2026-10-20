@@ -5,7 +5,14 @@ import SwiftUI
 /// earned each day, with the same colours as the site's Chart.js version
 /// (dashboard-v2_2.js). Drag across it to read a day.
 struct SpinChartCard: View {
-    let history: [Dashboard.SpinDay]
+    /// The days, read once here: the body runs again on every move of a
+    /// finger across the chart, and parsing every date of the history each
+    /// time was work the drag never needed.
+    private let allPoints: [SpinPoint]
+
+    init(history: [Dashboard.SpinDay]) {
+        allPoints = SpinHistory.points(history)
+    }
 
     enum Mode: String, CaseIterable, Identifiable {
         case total = "Total"
@@ -17,8 +24,6 @@ struct SpinChartCard: View {
     @State private var range: SpinHistory.Range = .month
     @State private var mode: Mode = .total
     @State private var selectedDate: Date?
-
-    private var allPoints: [SpinPoint] { SpinHistory.points(history) }
 
     var body: some View {
         let all = allPoints

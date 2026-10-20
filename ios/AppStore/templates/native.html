@@ -232,7 +232,7 @@ const statusBar = () => device === 'phone'
     </span></div>`;
 
 const tabs = active => {
-  const items = [['house', 'Home'], ['gamecontroller', 'Games'], ['trophy', 'Leaderboard'], ['gear', 'Settings']];
+  const items = [['house', 'Home'], ['gamecontroller', 'Games'], ['trophy', 'Leaderboards'], ['gear', 'Settings']];
   return `<div class="tabbar">${items.map(([i, t]) =>
     `<div class="tab ${t === active ? 'on' : ''}">${icon(i)}<span>${t}</span></div>`).join('')}</div>`;
 };
@@ -387,7 +387,7 @@ if (screen === 'home') {
 } else if (screen === 'leaderboard') {
   html += nav('Leaderboards');
   html += `<div class="scroll">${leaderboard()}</div>`;
-  html += tabs('Leaderboard');
+  html += tabs('Leaderboards');
 }
 html += '<div class="homeind"></div>';
 document.body.insertAdjacentHTML('beforeend', html);

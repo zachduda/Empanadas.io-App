@@ -25,10 +25,14 @@ final class LeaderboardModel {
     func load(app: AppModel, maxAge: TimeInterval = 0) async {
         if error == nil, let updatedAt, Date().timeIntervalSince(updatedAt) < maxAge { return }
         guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
-
         let generation = self.generation
+        isLoading = true
+        // Not for a request from before a sign-out: reset() has already
+        // cleared it, and the next account's first load may be under way.
+        defer {
+            if generation == self.generation { isLoading = false }
+        }
+
         do {
             let fresh = try await app.account.leaderboard()
             guard generation == self.generation else { return }
@@ -58,5 +62,8 @@ final class LeaderboardModel {
         board = nil
         updatedAt = nil
         error = nil
+        // A request still out for the last account would otherwise hold off
+        // the next one's first load (load() waits while one is loading).
+        isLoading = false
     }
 }

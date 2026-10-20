@@ -103,6 +103,10 @@ struct FeedbackForm: Decodable, Equatable {
         Subject(id: 8, key: "other", label: "Other"),
     ])
 
+    /// Game or Account Problem: the subject the games' own Report a Problem
+    /// links pick (/v2/feedback?reason=3), and the Games tab's too.
+    static let gameProblem = 3
+
     func subject(_ id: Int?) -> Subject? {
         subjects.first { $0.id == id }
     }

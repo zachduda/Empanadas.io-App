@@ -172,6 +172,9 @@ private struct DashboardContent: View {
                         Haptics.play("light")
                         model.navigate(to: .game(game))
                     }
+                    .gameMenu(game, cornerRadius: 20) {
+                        model.navigate(to: .feedback(FeedbackForm.gameProblem))
+                    }
                 }
             }
 

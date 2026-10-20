@@ -17,9 +17,9 @@ extension Color {
 /// The site dashboard's colours (v2/dashboard.php), so a stat looks the same
 /// in the app as on the web.
 enum Palette {
-    static let spin = Color(hex: 0x2E82EF)
-    static let flappy = Color(hex: 0x17A673)
-    static let tower = Color(hex: 0xE0891B)
+    static let spin = Game.spin.tint
+    static let flappy = Game.flappy.tint
+    static let tower = Game.tower.tint
     static let friends = Color(hex: 0x7952B3)
     static let peppers = Color(hex: 0xD9534F)
     static let experience = Color(hex: 0x2DD67F)
@@ -34,13 +34,17 @@ enum Palette {
 }
 
 extension Game {
-    var tint: Color {
+    /// The game's colour, 0xRRGGBB: the site dashboard's, and what the Home
+    /// Screen widget is told (GamesSnapshot).
+    var tintHex: UInt32 {
         switch self {
-        case .spin: Palette.spin
-        case .flappy: Palette.flappy
-        case .tower: Palette.tower
+        case .spin: 0x2E82EF
+        case .flappy: 0x17A673
+        case .tower: 0xE0891B
         }
     }
+
+    var tint: Color { Color(hex: tintHex) }
 }
 
 extension View {
@@ -64,9 +68,10 @@ extension View {
 /// iPad app, in a window the player can make as wide as the display). On a
 /// phone in portrait they are narrower than this anyway.
 enum ReadableWidth {
-    /// The dashboard and profiles: two columns of cards.
+    /// The dashboard and profiles (two columns of cards), and the games
+    /// (three across).
     static let wide: CGFloat = 1100
-    /// One column: lists, forms, search results, the games.
+    /// One column: lists, forms, search results.
     static let narrow: CGFloat = 720
 }
 

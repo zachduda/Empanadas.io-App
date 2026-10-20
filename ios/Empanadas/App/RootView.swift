@@ -86,7 +86,7 @@ struct MainTabView: View {
                 .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
                 .tag(AppTab.games)
             LeaderboardView()
-                .tabItem { Label("Leaderboard", systemImage: "trophy.fill") }
+                .tabItem { Label("Leaderboards", systemImage: "trophy.fill") }
                 .tag(AppTab.leaderboard)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }

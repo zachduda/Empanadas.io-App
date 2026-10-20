@@ -31,7 +31,13 @@ final class SettingsModel {
         }
     }
 
-    func load(app: AppModel) async {
+    /// Asks the site, unless this session's last answer is younger than
+    /// `maxAge` seconds (coming back to the tab should not ask every time).
+    /// The copy saved last time never counts: it has no token to change
+    /// anything with.
+    func load(app: AppModel, maxAge: TimeInterval = 0) async {
+        if loadError == nil, snapshot?.csrf.isEmpty == false, let updatedAt,
+           Date().timeIntervalSince(updatedAt) < maxAge { return }
         let generation = self.generation
         isLoading = true
         defer {
