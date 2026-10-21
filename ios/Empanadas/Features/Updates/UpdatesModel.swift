@@ -67,8 +67,10 @@ final class UpdatesModel {
         guard !isChecking else { return }
         isChecking = true
         defer { isChecking = false }
+        // Signed out meanwhile (reset): the answer is not the next account's.
+        let generation = self.generation
 
-        guard let newest = try? await app.account.announcement() else { return }
+        guard let newest = try? await app.account.announcement(), generation == self.generation else { return }
         checkedAt = Date()
         guard let latest = newest.post else {
             unread = 0
@@ -86,7 +88,7 @@ final class UpdatesModel {
         // How many are newer than the one last seen: where it now sits.
         let reply = try? await app.account.announcement(id: seen)
         // The feed opened meanwhile, and the player has read them.
-        guard lastSeen == seen else { return }
+        guard lastSeen == seen, generation == self.generation else { return }
         unread = Self.unread(newest: latest.id, seen: seen, seenAt: reply.flatMap { $0.post == nil ? nil : $0.page })
     }
 
@@ -151,6 +153,22 @@ final class UpdatesModel {
             guard generation == self.generation, !Task.isCancelled else { return }
             self.error = error as? AccountError ?? .network
         }
+    }
+
+    /// Signed out: the next account's bell and feed start from nothing. What
+    /// has been seen is the device's (lastSeen), and stays.
+    func reset() {
+        generation += 1
+        posts = []
+        total = nil
+        nextPage = 0
+        isLoading = false
+        error = nil
+        unread = 0
+        seenWhenOpened = nil
+        unreadWhenOpened = 0
+        loadedAt = nil
+        checkedAt = nil
     }
 
     /// The next post down, as the end of the feed comes on screen.

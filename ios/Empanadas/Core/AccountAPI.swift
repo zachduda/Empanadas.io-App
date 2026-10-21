@@ -355,6 +355,26 @@ final class AccountAPI {
         if !csrf.isEmpty { token = csrf }
     }
 
+    /// Deletes the site's cookies (the session, UAK) from WebKit's store,
+    /// before a sign-in: the last account's could otherwise ride along with
+    /// the new session's, and the site answer for the old account until a
+    /// page replaced them. Cloudflare's are kept, they are not the account's.
+    /// Local storage is left alone: it holds the games' saves.
+    func forgetSession() async {
+        token = nil
+        for cookie in await cookieStore.allCookies() where Self.isAccountCookie(cookie) {
+            await cookieStore.deleteCookie(cookie)
+        }
+    }
+
+    nonisolated static func isAccountCookie(_ cookie: HTTPCookie) -> Bool {
+        let name = cookie.name.lowercased()
+        if name.hasPrefix("__cf") || name.hasPrefix("cf_") { return false }
+        var domain = cookie.domain.lowercased()
+        if domain.hasPrefix(".") { domain.removeFirst() }
+        return domain == SiteURLs.appHost || domain.hasSuffix("." + SiteURLs.appHost)
+    }
+
     func forgetToken() {
         token = nil
     }
