@@ -429,7 +429,7 @@ final class AccountAPI {
     /// fresh one from /v2/ios/account.php. The site clears its token after a
     /// mismatch (when a web page issued a new one meanwhile), so on that the
     /// change is tried once more with a fresh one.
-    private func withToken<T>(_ body: (String) async throws -> T) async throws -> T {
+    private func withToken<T: Sendable>(_ body: (String) async throws -> T) async throws -> T {
         let csrf: String
         if let token, !token.isEmpty {
             csrf = token

@@ -9,7 +9,7 @@ import Foundation
 /// The numbers a save point is listed by, and the account's now
 /// (gameHistoryStats() on the site). Nil for a game with no save, and for
 /// peppers when not known.
-struct SaveStats: Decodable, Equatable {
+struct SaveStats: Decodable, Equatable, Sendable {
     var prestige = 0
     var ascensions = 0
     var manualSpins = 0
@@ -181,7 +181,7 @@ struct SavePointsPage: Decodable, Equatable {
 }
 
 /// POST /v2/gamehistory.php: a restore that went through.
-struct RestoredSave: Decodable, Equatable {
+struct RestoredSave: Decodable, Equatable, Sendable {
     /// The whole account went back, not the Spin Game alone.
     var full = false
     /// What it replaced was kept as a new save point. False when the newest
