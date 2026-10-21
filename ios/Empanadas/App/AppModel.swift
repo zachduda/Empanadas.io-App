@@ -191,14 +191,18 @@ final class AppModel {
             activeGame = nil
             popup = nil
             webSheet = nil
+            gameSheet = nil
+            backgroundPages = []
             selectedTab = .home
             homePath = NavigationPath()
+            leaderboardGame = .spin
             account.forgetToken()
             // What was saved describes this account; the next one must not
             // open on it.
             dashboard.reset()
             leaderboard.reset()
             settings.reset()
+            updates.reset()
             gameCenter.reset()
             lastPlayed = [:]
             PlayHistory.clear()
@@ -452,6 +456,9 @@ final class AppModel {
         signInBrowser.cancel()
         Task {
             await waitForSignOutOnSite()
+            // Whether or not that landed, the last account's cookies go: the
+            // new session must be the only one the site is sent.
+            await account.forgetSession()
             do {
                 try await account.redeemSignIn(code: code, verifier: request.verifier)
             } catch {

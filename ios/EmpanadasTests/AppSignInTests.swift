@@ -50,4 +50,19 @@ final class AppSignInTests: XCTestCase {
         XCTAssertFalse(request.isFresh(at: start.addingTimeInterval(AppConfig.signInTTL)), "APP_SIGNIN_TTL on the site")
         XCTAssertFalse(request.isFresh(at: start.addingTimeInterval(-60)), "a clock that went back")
     }
+
+    /// The cookies a sign-in deletes first (AccountAPI.forgetSession): the
+    /// last account's session, not Cloudflare's or another site's.
+    func testASignInForgetsTheSitesCookiesButNotCloudflaresOrOtherSites() {
+        func cookie(_ name: String, _ domain: String) -> HTTPCookie {
+            HTTPCookie(properties: [.name: name, .value: "x", .domain: domain, .path: "/v2"])!
+        }
+        XCTAssertTrue(AccountAPI.isAccountCookie(cookie("PHPSESSID", "empanadas.io")))
+        XCTAssertTrue(AccountAPI.isAccountCookie(cookie("PHPSESSID", ".empanadas.io")))
+        XCTAssertTrue(AccountAPI.isAccountCookie(cookie("UAK", "www.empanadas.io")))
+        XCTAssertFalse(AccountAPI.isAccountCookie(cookie("__cf_bm", ".empanadas.io")))
+        XCTAssertFalse(AccountAPI.isAccountCookie(cookie("cf_clearance", ".empanadas.io")))
+        XCTAssertFalse(AccountAPI.isAccountCookie(cookie("PHPSESSID", "notempanadas.io")))
+        XCTAssertFalse(AccountAPI.isAccountCookie(cookie("SID", ".google.com")))
+    }
 }
