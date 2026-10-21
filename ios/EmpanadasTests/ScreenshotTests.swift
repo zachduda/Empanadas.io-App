@@ -25,8 +25,11 @@ final class ScreenshotTests: XCTestCase {
         let name: String
         var signedIn = true
         var tab: AppTab = .home
-        /// Pushed on the Home tab: a ProfileRoute or an UpdatesRoute.
+        /// Pushed on the Home tab: a ProfileRoute, an UpdatesRoute or a
+        /// GameDataRoute.
         var route: (any Hashable)?
+        /// The launch animation, this many seconds in, instead of a screen.
+        var launchAt: TimeInterval?
     }
 
     private static let screens = [
@@ -36,7 +39,11 @@ final class ScreenshotTests: XCTestCase {
         Screen(name: "settings", tab: .settings),
         Screen(name: "profile", route: ProfileRoute.player(id: nil, name: nil)),
         Screen(name: "updates", route: UpdatesRoute.all),
+        Screen(name: "save-points", route: GameDataRoute.savePoints),
         Screen(name: "welcome", signedIn: false),
+        // On its way in, and landed with the name in place.
+        Screen(name: "launch-flying", launchAt: 0.4),
+        Screen(name: "launch", launchAt: 1.5),
     ]
 
     private var directory: URL!
@@ -111,13 +118,18 @@ final class ScreenshotTests: XCTestCase {
         model.selectedTab = screen.tab
         if let route = screen.route { model.homePath.append(route) }
 
-        let root: AnyView = screen.signedIn
-            ? AnyView(MainTabView().environment(model))
-            : AnyView(WelcomeView().environment(model))
+        let root: AnyView
+        if let launchAt = screen.launchAt {
+            root = AnyView(LaunchScene(elapsed: launchAt))
+        } else if screen.signedIn {
+            root = AnyView(MainTabView().environment(model))
+        } else {
+            root = AnyView(WelcomeView().environment(model))
+        }
         let host = UIHostingController(rootView: root)
         host.traitOverrides.horizontalSizeClass = size.horizontal
         host.traitOverrides.verticalSizeClass = .regular
-        host.overrideUserInterfaceStyle = screen.signedIn ? .light : .dark
+        host.overrideUserInterfaceStyle = screen.signedIn && screen.launchAt == nil ? .light : .dark
 
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(origin: .zero, size: size.size)
@@ -203,8 +215,50 @@ private enum Fixtures {
         case "/v2/ios/account.php": json(account)
         case "/v2/ios/profile.php": json(profile)
         case "/v1/updates.php": updates(url)
+        case "/v2/gamehistory.php": json(savePoints)
         default: nil
         }
+    }
+
+    /// /v2/gamehistory.php's answer: the account now (the dashboard's
+    /// numbers), and its save points back over two months, the older ones
+    /// from before Flappy, Tower and peppers were kept with them, and the
+    /// oldest from before an anti-cheat reset.
+    static var savePoints: [String: Any] {
+        let current: [String: Any] = ["prestige": 37, "ascensions": 2, "manual_spins": 280_412, "peppers": 128,
+                                      "flappy_best": 41, "tower_best": 18]
+        let site = DateFormatter()
+        site.locale = Locale(identifier: "en_US_POSIX")
+        site.timeZone = TimeZone(identifier: "America/New_York")
+        site.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let label = DateFormatter()
+        label.locale = Locale(identifier: "en_US_POSIX")
+        label.timeZone = site.timeZone
+        label.dateFormat = "MMM d, yyyy h:mm a"
+
+        func point(_ id: Int, hoursAgo: Double, _ stats: [Any], full: Bool = true,
+                   restorable: Bool = true) -> [String: Any] {
+            let date = Date().addingTimeInterval(-hoursAgo * 3600)
+            var point: [String: Any] = ["id": id, "date": site.string(from: date), "label": label.string(from: date),
+                                        "ago": "", "full": full, "restorable": restorable]
+            for (key, value) in zip(["prestige", "ascensions", "manual_spins", "peppers", "flappy_best", "tower_best"],
+                                    stats) {
+                point[key] = value
+            }
+            return point
+        }
+        let points: [[String: Any]] = [
+            point(905, hoursAgo: 20, [36, 2, 276_300, 140, 41, 18]),
+            point(870, hoursAgo: 4 * 24 + 3, [31, 2, 262_950, 96, 38, 15]),
+            point(812, hoursAgo: 12 * 24 + 7, [18, 2, 241_000, 60, 30, NSNull()]),
+            point(640, hoursAgo: 40 * 24, [72, 1, 190_000, 55, NSNull(), NSNull()], full: false),
+            point(402, hoursAgo: 70 * 24, [90, 1, 160_000, NSNull(), NSNull(), NSNull()], full: false,
+                  restorable: false),
+        ]
+        var reply: [String: Any] = ["result": true, "more": false, "before": NSNull()]
+        reply["current"] = current
+        reply["points"] = points
+        return reply
     }
 
     /// The announcements, newest first, as the admin panel would have saved

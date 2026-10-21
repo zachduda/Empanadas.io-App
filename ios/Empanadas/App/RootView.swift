@@ -3,6 +3,12 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @State private var launch: LaunchPhase
+
+    init() {
+        _launch = State(initialValue: LaunchAnimation.hasPlayed ? .done : .playing)
+        LaunchAnimation.hasPlayed = true
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -13,7 +19,19 @@ struct RootView: View {
             case .signedOut: WelcomeView()
             }
         }
-        .background { WindowStyle(style: model.interfaceStyle) }
+        // The app loads underneath while the launch animation plays over it.
+        .overlay {
+            if launch != .done {
+                LaunchAnimation(phase: $launch)
+            }
+        }
+        // Dark while it plays, so the status bar is white on its navy.
+        .background { WindowStyle(style: launch == .playing ? .dark : model.interfaceStyle) }
+        // Opened on a game (a quick action, the widget): the game covers
+        // everything, and the window should be the game's style at once.
+        .onChange(of: model.activeGame, initial: true) { _, game in
+            if game != nil, launch != .done { launch = .done }
+        }
         // Each time the app comes to the front: the theme may have been
         // changed on the website meanwhile, and the games saved for offline
         // may be due an update.

@@ -3,8 +3,9 @@ import SwiftUI
 /// The dashboard, native: what the site's /v2/dashboard shows, read from
 /// /v2/ios/dashboard.php (DashboardModel). Profiles and Find Friends are
 /// native screens pushed on top (ProfileRoute), and so are the site's
-/// announcements, from the bell (UpdatesRoute); the parts that are still the
-/// web's (the profile picture, verifying the address) are site pages.
+/// announcements, from the bell (UpdatesRoute), and Manage Game Data, from
+/// the Spin Progress card (GameDataRoute); the parts that are still the web's
+/// (the profile picture, verifying the address) are site pages.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
@@ -56,6 +57,7 @@ struct HomeView: View {
             }
             .profileDestinations()
             .updatesDestinations()
+            .gameDataDestinations()
             .refreshable { await dashboard.load(app: model) }
             .task(id: scenePhase) { await keepFresh() }
             .onChange(of: model.isOnline) { _, online in
@@ -179,7 +181,9 @@ private struct DashboardContent: View {
             }
 
             MasonryColumns(minColumnWidth: 340) {
-                SpinChartCard(history: data.spinHistory)
+                SpinChartCard(history: data.spinHistory) {
+                    model.homePath.append(GameDataRoute.savePoints)
+                }
                 FriendsCard(friends: data.friends, show: show)
                 ExperienceCard(xp: data.xp, show: show)
                 if data.pumpkinSeason {
