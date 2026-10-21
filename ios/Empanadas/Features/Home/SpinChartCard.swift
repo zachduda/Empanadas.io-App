@@ -53,6 +53,9 @@ struct SpinChartCard: View {
                 } else {
                     chart(visible)
                         .frame(height: 220)
+                        // Dragging across it reads a day, rather than
+                        // changing tab.
+                        .keepsSidewaysDrags()
                 }
 
                 Picker("Range", selection: $range) {
