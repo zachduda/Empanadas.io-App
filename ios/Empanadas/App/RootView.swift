@@ -93,20 +93,29 @@ private struct WindowStyle: UIViewRepresentable {
 struct MainTabView: View {
     @Environment(AppModel.self) private var model
 
+    /// In the tab bar's order.
+    private static let tabs: [AppTab] = [.home, .games, .leaderboard, .settings]
+
     var body: some View {
         @Bindable var model = model
 
+        // Moving between tabs slides them, and a sideways swipe on a tab's
+        // first screen goes to the one beside it (TabSlides.swift).
         TabView(selection: $model.selectedTab) {
             HomeView()
+                .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(AppTab.home)
             GamesView()
+                .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
                 .tag(AppTab.games)
             LeaderboardView()
+                .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Leaderboards", systemImage: "trophy.fill") }
                 .tag(AppTab.leaderboard)
             SettingsView()
+                .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(AppTab.settings)
         }
