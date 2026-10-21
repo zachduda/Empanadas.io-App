@@ -78,6 +78,10 @@ enum SiteURLs {
     static let iosFeedback = page("/v2/ios/feedback.php")
     /// Where a sign-in run in the browser is redeemed (SignInRequest).
     static let iosSignIn = page("/v2/ios/signin.php")
+    /// The save points behind the dashboard's Spin Progress chart, and
+    /// restoring one: the site's own endpoint for its "Manage game data"
+    /// dialog, which the app's Manage Game Data screen uses too.
+    static let gameHistory = page("/v2/gamehistory.php")
     /// The feedback page in every shape the site links it (v2/dashboard.php's
     /// footer links a bare "feedback"). The app's Send Feedback screen
     /// stands in for it.
@@ -116,6 +120,14 @@ enum SiteURLs {
         guard let id, !id.isEmpty else { return page("/v2/ios/profile.php") }
         var components = URLComponents(url: page("/v2/ios/profile.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "id", value: id.lowercased())]
+        return components.url!
+    }
+
+    /// The newest save points, or with `before` the page older than that one.
+    static func gameHistory(before id: Int?) -> URL {
+        guard let id, id > 0 else { return gameHistory }
+        var components = URLComponents(url: gameHistory, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "before", value: String(id))]
         return components.url!
     }
 

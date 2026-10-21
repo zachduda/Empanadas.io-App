@@ -3,15 +3,19 @@ import SwiftUI
 
 /// The dashboard's Spin Progress card: lifetime spins over time, or the spins
 /// earned each day, with the same colours as the site's Chart.js version
-/// (dashboard-v2_2.js). Drag across it to read a day.
+/// (dashboard-v2_2.js). Drag across it to read a day. Under it, as on the
+/// site, the way to the save points the chart is drawn from (Manage Game
+/// Data).
 struct SpinChartCard: View {
     /// The days, read once here: the body runs again on every move of a
     /// finger across the chart, and parsing every date of the history each
     /// time was work the drag never needed.
     private let allPoints: [SpinPoint]
+    private let manageSaves: (() -> Void)?
 
-    init(history: [Dashboard.SpinDay]) {
+    init(history: [Dashboard.SpinDay], manageSaves: (() -> Void)? = nil) {
         allPoints = SpinHistory.points(history)
+        self.manageSaves = manageSaves
     }
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -56,6 +60,11 @@ struct SpinChartCard: View {
                 }
                 .pickerStyle(.segmented)
             }
+
+            if let manageSaves {
+                Divider()
+                manageSavesFooter(manageSaves)
+            }
         }
         .onChange(of: range) { selectedDate = nil }
         .onChange(of: mode) { selectedDate = nil }
@@ -74,6 +83,32 @@ struct SpinChartCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
+    }
+
+    /// The site's "Missing or overwrote your progress?" footer. Side by side
+    /// where they fit, the button under the question where they don't.
+    private func manageSavesFooter(_ action: @escaping () -> Void) -> some View {
+        let question = Text("Missing or overwrote your progress?")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        let button = Button(action: action) {
+            Label("Manage Game Data", systemImage: "clock.arrow.circlepath")
+                .font(.subheadline.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .tint(Palette.chart)
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                question.lineLimit(1)
+                Spacer(minLength: 0)
+                button.fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                question
+                button
+            }
+        }
     }
 
     private func summary(all: [SpinPoint], now: Date) -> some View {

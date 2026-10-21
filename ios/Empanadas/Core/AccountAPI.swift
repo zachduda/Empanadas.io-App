@@ -339,6 +339,52 @@ final class AccountAPI {
         return try Self.decode(AnnouncementReply.self, data)
     }
 
+    // MARK: - Save points
+
+    /// GET /v2/gamehistory.php: the newest save points, or with `before` the
+    /// page older than that one, and the account as it is now. The site's
+    /// own endpoint for its dashboard's "Manage game data" dialog, rather
+    /// than one of /v2/ios/: it answers {"result": Bool, "reason": String?}.
+    func savePoints(before: Int? = nil) async throws -> SavePointsPage {
+        let (data, response) = try await send(URLRequest(url: SiteURLs.gameHistory(before: before)))
+        return try Self.decode(SavePointsPage.self, Self.gameHistoryBody(data, status: response.statusCode))
+    }
+
+    /// POST /v2/gamehistory.php: puts the account's saves back the way save
+    /// point `id` had them. The site first keeps what it replaces as a save
+    /// point of its own, so the restore can be undone from the same list.
+    func restoreSavePoint(_ id: Int) async throws -> RestoredSave {
+        try await withToken { csrf in
+            var request = URLRequest(url: SiteURLs.gameHistory)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.formBody([("id", String(id)), ("csrf", csrf)])
+            let (data, response) = try await self.send(request)
+            return try Self.decode(RestoredSave.self, Self.gameHistoryBody(data, status: response.statusCode))
+        }
+    }
+
+    /// The body of a /v2/gamehistory.php answer that says it worked, or the
+    /// error it stands for. Its reasons are the ones the site's dashboard
+    /// explains (SavePointsReason).
+    nonisolated static func gameHistoryBody(_ data: Data, status: Int) throws -> Data {
+        guard let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let result = reply["result"] as? Bool else {
+            if status == 429 { throw AccountError.rateLimited }
+            if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
+            // A site without the endpoint yet: nginx's own 404 page.
+            throw AccountError.unavailable("HTTP \(status)")
+        }
+        if result { return data }
+        let reason = reply["reason"] as? String ?? ""
+        switch reason {
+        case "no_session": throw AccountError.signedOut
+        case "csrf": throw AccountError.staleToken
+        case "cooldown": throw AccountError.server(SavePointsReason.cooldown(intValue(reply["wait"]) ?? 30))
+        default: throw AccountError.server(SavePointsReason.message(reason))
+        }
+    }
+
     /// The uuid field account_edit.php takes: 32 hex digits, no dashes.
     private nonisolated static func uuidField(_ playerID: String) throws -> String {
         guard let raw = PlayerID.raw(playerID) else { throw AccountError.server("That player couldn't be found.") }
@@ -383,7 +429,7 @@ final class AccountAPI {
     /// fresh one from /v2/ios/account.php. The site clears its token after a
     /// mismatch (when a web page issued a new one meanwhile), so on that the
     /// change is tried once more with a fresh one.
-    private func withToken(_ body: (String) async throws -> Void) async throws {
+    private func withToken<T>(_ body: (String) async throws -> T) async throws -> T {
         let csrf: String
         if let token, !token.isEmpty {
             csrf = token
@@ -391,11 +437,11 @@ final class AccountAPI {
             csrf = try await snapshot().csrf
         }
         do {
-            try await body(csrf)
+            return try await body(csrf)
         } catch AccountError.staleToken {
             token = nil
             let fresh = try await snapshot().csrf
-            try await body(fresh)
+            return try await body(fresh)
         }
     }
 
