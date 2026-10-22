@@ -1,7 +1,7 @@
 import Foundation
 
 // The save points behind the Spin Progress chart, and putting the account
-// back to one of them: what /v2/gamehistory.php sends. The site decides what
+// back to one of them: what /v2/gamehistory sends. The site decides what
 // a save point holds and what a restore changes (v2/_gamehistory.php there);
 // its dashboard's "Manage game data" dialog (dashboard-v2_2.js) is the web's
 // side of this screen. Decoding is lenient, as the dashboard's is.
@@ -152,7 +152,7 @@ struct SavePoint: Decodable, Identifiable, Equatable {
     }
 }
 
-/// GET /v2/gamehistory.php: a page of save points, newest first, and the
+/// GET /v2/gamehistory: a page of save points, newest first, and the
 /// account as it is now.
 struct SavePointsPage: Decodable, Equatable {
     var current = SaveStats()
@@ -180,7 +180,7 @@ struct SavePointsPage: Decodable, Equatable {
     }
 }
 
-/// POST /v2/gamehistory.php: a restore that went through.
+/// POST /v2/gamehistory: a restore that went through.
 struct RestoredSave: Decodable, Equatable, Sendable {
     /// The whole account went back, not the Spin Game alone.
     var full = false
@@ -200,7 +200,7 @@ struct RestoredSave: Decodable, Equatable, Sendable {
     }
 }
 
-/// What the player is told when /v2/gamehistory.php says no: gdFailText() in
+/// What the player is told when /v2/gamehistory says no: gdFailText() in
 /// the site's dashboard-v2_2.js.
 enum SavePointsReason {
     static func message(_ reason: String) -> String {

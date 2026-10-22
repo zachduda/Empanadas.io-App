@@ -81,7 +81,7 @@ enum SiteURLs {
     /// The save points behind the dashboard's Spin Progress chart, and
     /// restoring one: the site's own endpoint for its "Manage game data"
     /// dialog, which the app's Manage Game Data screen uses too.
-    static let gameHistory = page("/v2/gamehistory.php")
+    static let gameHistory = page("/v2/gamehistory")
     /// The feedback page in every shape the site links it (v2/dashboard.php's
     /// footer links a bare "feedback"). The app's Send Feedback screen
     /// stands in for it.
