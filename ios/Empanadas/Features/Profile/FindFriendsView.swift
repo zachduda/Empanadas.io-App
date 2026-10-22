@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Find Friends, native: the site's player search (/v2/ios/search.php) as the
+/// Find Friends, native: the site's player search (/v2/ios/search) as the
 /// player types, with Add Friend and Accept on each result. A result opens the
 /// player's profile.
 struct FindFriendsView: View {

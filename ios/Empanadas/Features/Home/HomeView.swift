@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The dashboard, native: what the site's /v2/dashboard shows, read from
-/// /v2/ios/dashboard.php (DashboardModel). Profiles and Find Friends are
+/// /v2/ios/dashboard (DashboardModel). Profiles and Find Friends are
 /// native screens pushed on top (ProfileRoute), and so are the site's
 /// announcements, from the bell (UpdatesRoute), and Manage Game Data, from
 /// the Spin Progress card (GameDataRoute); the parts that are still the web's

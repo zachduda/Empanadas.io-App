@@ -118,7 +118,7 @@ final class AccountAPITests: XCTestCase {
         """
 
     func testReadsTheIOSAccountAnswer() throws {
-        // What /v2/ios/account.php sends (tests/iosapp_test.php on the site).
+        // What /v2/ios/account sends (tests/iosapp_test.php on the site).
         let snap = try snapshot("""
             {"ok":true,"api":1,"account":{"id":42,"username":"tester","email":"t@example.com",
              "email_verified":true,"pending_email":null,"pfp":"/Content/Images/ProfilePics/lg/abc.jpeg",

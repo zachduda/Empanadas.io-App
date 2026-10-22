@@ -210,10 +210,10 @@ private enum Fixtures {
 
     static func answer(for url: URL) -> Data? {
         switch url.path() {
-        case "/v2/ios/dashboard.php": json(dashboard)
-        case "/v2/ios/leaderboard.php": json(leaderboard)
-        case "/v2/ios/account.php": json(account)
-        case "/v2/ios/profile.php": json(profile)
+        case "/v2/ios/dashboard": json(dashboard)
+        case "/v2/ios/leaderboard": json(leaderboard)
+        case "/v2/ios/account": json(account)
+        case "/v2/ios/profile": json(profile)
         case "/v1/updates.php": updates(url)
         case "/v2/gamehistory": json(savePoints)
         default: nil

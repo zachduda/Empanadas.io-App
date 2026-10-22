@@ -1,7 +1,7 @@
 import XCTest
 @testable import Empanadas
 
-/// The native Send Feedback screen: what /v2/ios/feedback.php sends
+/// The native Send Feedback screen: what /v2/ios/feedback sends
 /// (tests/iosapp_test.php on the site), what the form will send (feedback.js's
 /// rules), and the links that open it.
 final class FeedbackTests: XCTestCase {
@@ -149,6 +149,6 @@ final class FeedbackTests: XCTestCase {
         XCTAssertEqual(SiteURLs.feedback(reason: 3).absoluteString, "https://empanadas.io/v2/feedback?reason=3")
         // WebSheetView reads it back to draw the form.
         XCTAssertEqual(NativeRoute.of(SiteURLs.feedback(reason: 3)), .feedback(3))
-        XCTAssertEqual(SiteURLs.iosFeedback.absoluteString, "https://empanadas.io/v2/ios/feedback.php")
+        XCTAssertEqual(SiteURLs.iosFeedback.absoluteString, "https://empanadas.io/v2/ios/feedback")
     }
 }

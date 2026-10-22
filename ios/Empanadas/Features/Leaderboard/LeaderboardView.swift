@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The leaderboards, native: the three boards of the site's /leaderboard,
-/// read from /v2/ios/leaderboard.php (LeaderboardModel). Refreshes while on
+/// read from /v2/ios/leaderboard (LeaderboardModel). Refreshes while on
 /// screen at the pace the site's shared cache rebuilds, and marks the
 /// player's own row. A row opens the player's native profile. The Game
 /// Center button opens the same board there (GameCenter).

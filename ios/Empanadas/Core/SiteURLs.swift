@@ -71,13 +71,13 @@ enum SiteURLs {
     /// The app's own API on the site: JSON in, JSON out (html/v2/ios/ there).
     /// It has to be under /v2/: the session cookie is scoped to /v2, so
     /// AccountAPI sends it nowhere else, and Cloudflare caches the rest.
-    static let iosAccount = page("/v2/ios/account.php")
-    static let iosDashboard = page("/v2/ios/dashboard.php")
-    static let iosLeaderboard = page("/v2/ios/leaderboard.php")
-    static let iosSearch = page("/v2/ios/search.php")
-    static let iosFeedback = page("/v2/ios/feedback.php")
+    static let iosAccount = page("/v2/ios/account")
+    static let iosDashboard = page("/v2/ios/dashboard")
+    static let iosLeaderboard = page("/v2/ios/leaderboard")
+    static let iosSearch = page("/v2/ios/search")
+    static let iosFeedback = page("/v2/ios/feedback")
     /// Where a sign-in run in the browser is redeemed (SignInRequest).
-    static let iosSignIn = page("/v2/ios/signin.php")
+    static let iosSignIn = page("/v2/ios/signin")
     /// The save points behind the dashboard's Spin Progress chart, and
     /// restoring one: the site's own endpoint for its "Manage game data"
     /// dialog, which the app's Manage Game Data screen uses too.
@@ -117,8 +117,8 @@ enum SiteURLs {
 
     /// The signed-in player's own profile, or another player's.
     static func iosProfile(id: String? = nil) -> URL {
-        guard let id, !id.isEmpty else { return page("/v2/ios/profile.php") }
-        var components = URLComponents(url: page("/v2/ios/profile.php"), resolvingAgainstBaseURL: false)!
+        guard let id, !id.isEmpty else { return page("/v2/ios/profile") }
+        var components = URLComponents(url: page("/v2/ios/profile"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "id", value: id.lowercased())]
         return components.url!
     }
@@ -279,7 +279,7 @@ enum SiteURLs {
     // The whole sign-in runs in the system browser (SignInRequest): the
     // browser starts at /v2/auth/app.php with the request's PKCE challenge,
     // and the site hands it back with empanadas-io://signin?code=<code>, which
-    // the app redeems at /v2/ios/signin.php. The site's half is described
+    // the app redeems at /v2/ios/signin. The site's half is described
     // above APP_SIGNIN_TTL in its v2/_lib.php.
 
     /// Where the browser starts: the site's username step, or Pick a Username.
