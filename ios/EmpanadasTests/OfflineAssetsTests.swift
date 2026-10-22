@@ -28,7 +28,8 @@ final class OfflineAssetsTests: XCTestCase {
 
     func testLeavesEverythingElseAlone() {
         XCTAssertFalse(OfflineAssets.isSaved(url("https://empanadas.io/v2/dashboard")), "another page")
-        XCTAssertFalse(OfflineAssets.isSaved(url("https://empanadas.io/v2/getdata.php")), "the save")
+        XCTAssertFalse(OfflineAssets.isSaved(url("https://empanadas.io/v2/getdata")), "the save")
+        XCTAssertFalse(OfflineAssets.isSaved(url("https://empanadas.io/v2/getdata.php")), "the save, by its old name")
         XCTAssertFalse(OfflineAssets.isSaved(url("https://api.empanadas.io/time")), "the clock")
         XCTAssertFalse(OfflineAssets.isSaved(url("https://www.googletagmanager.com/gtag/js?id=G-B50QZ2MPN0")))
         XCTAssertFalse(OfflineAssets.isSaved(url("https://fonts.googleapis.com")), "a preconnect")

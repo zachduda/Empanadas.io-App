@@ -1,8 +1,8 @@
 import Foundation
 
 // What the native profiles and Find Friends read from the site:
-// /v2/ios/profile.php (iosProfile() and iosProfileFriend() in the site's
-// v2/_lib.php) and /v2/ios/search.php (iosSearchResult()). Lenient, as
+// /v2/ios/profile (iosProfile() and iosProfileFriend() in the site's
+// v2/_lib.php) and /v2/ios/search (iosSearchResult()). Lenient, as
 // Dashboard is: a field the site adds or drops later must not cost the player
 // the whole screen. Only the name is required.
 
@@ -47,7 +47,7 @@ enum PlayerID {
     }
 }
 
-/// GET /v2/ios/profile.php: one player, as the site shows them to the viewer.
+/// GET /v2/ios/profile: one player, as the site shows them to the viewer.
 struct PlayerProfile: Decodable, Equatable {
     struct Presence: Decodable, Equatable {
         /// "online", "idle" or "offline".
@@ -399,7 +399,7 @@ struct PlayerProfile: Decodable, Equatable {
     }
 }
 
-/// GET /v2/ios/search.php: one page of players whose name has the search in it.
+/// GET /v2/ios/search: one page of players whose name has the search in it.
 struct PlayerSearch: Decodable, Equatable {
     struct Result: Decodable, Equatable, Identifiable {
         /// Their profile id.

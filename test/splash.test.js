@@ -77,7 +77,7 @@ async function main() {
 			page.on('requestfailed', (r) =>
 				failed.push(r.url() + ' (' + ((r.failure() || {}).errorText || '?') + ')'));
 
-			await ctx.route('https://empanadas.io/v2/ping.php*', (route) =>
+			await ctx.route('https://empanadas.io/v2/ping*', (route) =>
 				route.fulfill({ status: 200, contentType: 'text/plain', body: 'Pong!' }));
 			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
 				dashboard = route.request().url();
@@ -168,7 +168,7 @@ async function main() {
 			const ctx = await browser.newContext();
 			const page = await ctx.newPage();
 			let dashboard = null;
-			await ctx.route('https://empanadas.io/v2/ping.php*', (route) =>
+			await ctx.route('https://empanadas.io/v2/ping*', (route) =>
 				route.fulfill({ status: 200, contentType: 'text/plain', body: 'maintenance' }));
 			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
 				dashboard = route.request().url();
@@ -192,7 +192,7 @@ async function main() {
 			const ctx = await browser.newContext();
 			const page = await ctx.newPage();
 			let dashboard = null;
-			await ctx.route('https://empanadas.io/v2/ping.php*', () => { /* never answers */ });
+			await ctx.route('https://empanadas.io/v2/ping*', () => { /* never answers */ });
 			await ctx.route('https://empanadas.io/v2/dashboard*', (route) => {
 				dashboard = route.request().url();
 				return route.fulfill({ status: 200, body: 'ok' });
@@ -309,7 +309,7 @@ async function main() {
 			const page = await ctx.newPage();
 			let dashboard = null;
 			let fetched = 0;
-			await ctx.route('https://empanadas.io/v2/ping.php*', (route) => {
+			await ctx.route('https://empanadas.io/v2/ping*', (route) => {
 				fetched++;
 				return route.fulfill({ status: 200, contentType: 'text/plain', body: 'Pong!',
 					headers: { 'Access-Control-Allow-Origin': 'https://empanadas.io' } });

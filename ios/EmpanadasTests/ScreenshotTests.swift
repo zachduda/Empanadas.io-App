@@ -210,17 +210,17 @@ private enum Fixtures {
 
     static func answer(for url: URL) -> Data? {
         switch url.path() {
-        case "/v2/ios/dashboard.php": json(dashboard)
-        case "/v2/ios/leaderboard.php": json(leaderboard)
-        case "/v2/ios/account.php": json(account)
-        case "/v2/ios/profile.php": json(profile)
+        case "/v2/ios/dashboard": json(dashboard)
+        case "/v2/ios/leaderboard": json(leaderboard)
+        case "/v2/ios/account": json(account)
+        case "/v2/ios/profile": json(profile)
         case "/v1/updates.php": updates(url)
-        case "/v2/gamehistory.php": json(savePoints)
+        case "/v2/gamehistory": json(savePoints)
         default: nil
         }
     }
 
-    /// /v2/gamehistory.php's answer: the account now (the dashboard's
+    /// /v2/gamehistory's answer: the account now (the dashboard's
     /// numbers), and its save points back over two months, the older ones
     /// from before Flappy, Tower and peppers were kept with them, and the
     /// oldest from before an anti-cheat reset.

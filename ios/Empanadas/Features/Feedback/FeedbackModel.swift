@@ -1,7 +1,7 @@
 import Foundation
 
 /// State behind the native Send Feedback screen: the form as the site
-/// describes it (/v2/ios/feedback.php), what the player has filled in, and
+/// describes it (/v2/ios/feedback), what the player has filled in, and
 /// the one send to account_edit.php.
 @MainActor
 @Observable

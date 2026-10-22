@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Native replacement for the site's /v2/feedback page: the same subjects
-/// (from /v2/ios/feedback.php), sent to the same handler (account_edit.php,
+/// (from /v2/ios/feedback), sent to the same handler (account_edit.php,
 /// account_change=feedback). Pushed from Settings, or in a sheet of its own
 /// when a site page links to the feedback page (Spin's Report a Problem, the
 /// dashboard's footer).
