@@ -1,6 +1,6 @@
 import Foundation
 
-/// GET /v2/ios/feedback: the feedback form the native Send Feedback
+/// GET /v2/ios/feedback.php: the feedback form the native Send Feedback
 /// screen draws (iosFeedbackForm() in the site's v2/_lib.php), and the csrf
 /// token the answer goes back to /v2/account_edit.php with.
 struct FeedbackForm: Decodable, Equatable {
@@ -91,7 +91,7 @@ struct FeedbackForm: Decodable, Equatable {
     }
 
     /// The form as v2/feedback.php has it, for a site without
-    /// /v2/ios/feedback yet. Without the supporters' animated picture
+    /// /v2/ios/feedback.php yet. Without the supporters' animated picture
     /// subject: whether the player may ask for one is the site's to say.
     static let builtIn = FeedbackForm(subjects: [
         Subject(id: 1, key: "general", label: "General Feedback"),

@@ -2,7 +2,7 @@ import Foundation
 
 /// State behind the Manage Game Data screen: the account's save points, as
 /// far down as they have been read, the account as it is now to compare them
-/// with, and putting the account back to one of them (/v2/gamehistory).
+/// with, and putting the account back to one of them (/v2/gamehistory.php).
 /// Not kept for offline: a restore needs the site anyway, and the list is
 /// read afresh each time the screen opens, as a game may have saved since.
 @MainActor

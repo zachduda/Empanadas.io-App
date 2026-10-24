@@ -1,8 +1,8 @@
 import Foundation
 
 // What the native dashboard and leaderboard read from the site:
-// /v2/ios/dashboard (iosDashboard() and iosSpinHistory() in the site's
-// v2/_lib.php) and /v2/ios/leaderboard (leaderboard()). Decoding is
+// /v2/ios/dashboard.php (iosDashboard() and iosSpinHistory() in the site's
+// v2/_lib.php) and /v2/ios/leaderboard.php (leaderboard()). Decoding is
 // lenient throughout, as AccountProfile's is: a field the site adds or drops
 // later must not cost the player the whole screen. Only the name is required.
 

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A player's profile, native: what the site's /v2/profile/<id> shows this
-/// player, read from /v2/ios/profile (ProfileModel). The player's own
+/// player, read from /v2/ios/profile.php (ProfileModel). The player's own
 /// (My Profile) also answers friend requests, lets friends go and edits the
 /// status line; anyone else's has the Add Friend button.
 struct ProfileView: View {

@@ -285,7 +285,7 @@ function showSplash(failedUrl) {
 }
 
 async function pingSite() {
-	const url = offline.SITE + '/v2/ping?usingnativeapp=1&firsthello=1&_=' + Date.now();
+	const url = offline.SITE + '/v2/ping.php?usingnativeapp=1&firsthello=1&_=' + Date.now();
 	const abort = new AbortController();
 	const timer = setTimeout(() => abort.abort(), 8000);
 	try {

@@ -16,7 +16,7 @@ struct AccountSettings: Decodable, Equatable {
     var newsignins: Int
 }
 
-/// Who is signed in: the "account" object of /v2/ios/account
+/// Who is signed in: the "account" object of /v2/ios/account.php
 /// (iosAccountProfile() in the site's v2/_lib.php).
 struct AccountProfile: Decodable, Equatable {
     var id: Int
@@ -86,10 +86,10 @@ struct AccountProfile: Decodable, Equatable {
     }
 }
 
-/// GET /v2/ios/account: the account, its settings, and the csrf token that
+/// GET /v2/ios/account.php: the account, its settings, and the csrf token that
 /// changes to them go back to /v2/account_edit.php with.
 ///
-/// Also reads the older /v2/getdata?type=app_settings answer, which has
+/// Also reads the older /v2/getdata.php?type=app_settings answer, which has
 /// username, email and pfp at the top level instead of an "account" object,
 /// for a site that does not have /v2/ios/ yet.
 struct AccountSnapshot: Decodable {
@@ -154,7 +154,7 @@ enum AccountError: LocalizedError, Equatable {
     }
 }
 
-/// Why /v2/ios/signin would not sign the app in.
+/// Why /v2/ios/signin.php would not sign the app in.
 struct SignInError: LocalizedError, Equatable {
     /// The site's reason: "expired" (the code was used, too old, or not for
     /// this request), "deactivated" (the account was deleted meanwhile), or
@@ -195,7 +195,7 @@ final class AccountAPI {
         cookieStore = WKWebsiteDataStore.default().httpCookieStore
     }
 
-    /// The signed-in account, from /v2/ios/account. A good answer is also
+    /// The signed-in account, from /v2/ios/account.php. A good answer is also
     /// kept for offline use (OfflineStore), without its csrf token.
     func snapshot() async throws -> AccountSnapshot {
         let generation = OfflineStore.generation
@@ -213,19 +213,19 @@ final class AccountAPI {
         return snapshot
     }
 
-    /// GET /v2/ios/dashboard: everything on the native dashboard.
+    /// GET /v2/ios/dashboard.php: everything on the native dashboard.
     func dashboard() async throws -> Dashboard {
         try await iosGet(SiteURLs.iosDashboard, as: Dashboard.self, keep: .dashboard)
     }
 
-    /// GET /v2/ios/leaderboard: the three boards.
+    /// GET /v2/ios/leaderboard.php: the three boards.
     func leaderboard() async throws -> Leaderboard {
         try await iosGet(SiteURLs.iosLeaderboard, as: Leaderboard.self, keep: .leaderboard)
     }
 
     // MARK: - Profiles and friends
 
-    /// GET /v2/ios/profile: a player's profile, or with no id the
+    /// GET /v2/ios/profile.php: a player's profile, or with no id the
     /// player's own, which is also kept for offline use (without its token).
     func profile(id: String? = nil) async throws -> PlayerProfile {
         let generation = OfflineStore.generation
@@ -239,7 +239,7 @@ final class AccountAPI {
         return profile
     }
 
-    /// GET /v2/ios/search: one page of players whose name has `query` in
+    /// GET /v2/ios/search.php: one page of players whose name has `query` in
     /// it. `query` should already be PlayerSearch.term()'s.
     func searchPlayers(_ query: String, page: Int = 0) async throws -> PlayerSearch {
         let (data, response) = try await send(URLRequest(url: SiteURLs.iosSearch(query, page: page)))
@@ -293,7 +293,7 @@ final class AccountAPI {
 
     // MARK: - Feedback
 
-    /// GET /v2/ios/feedback: the Send Feedback form, with the session's
+    /// GET /v2/ios/feedback.php: the Send Feedback form, with the session's
     /// token. A site without the endpoint yet gets the web form's subjects
     /// (FeedbackForm.builtIn) and a token from the account endpoint.
     func feedbackForm() async throws -> FeedbackForm {
@@ -341,7 +341,7 @@ final class AccountAPI {
 
     // MARK: - Save points
 
-    /// GET /v2/gamehistory: the newest save points, or with `before` the
+    /// GET /v2/gamehistory.php: the newest save points, or with `before` the
     /// page older than that one, and the account as it is now. The site's
     /// own endpoint for its dashboard's "Manage game data" dialog, rather
     /// than one of /v2/ios/: it answers {"result": Bool, "reason": String?}.
@@ -350,7 +350,7 @@ final class AccountAPI {
         return try Self.decode(SavePointsPage.self, Self.gameHistoryBody(data, status: response.statusCode))
     }
 
-    /// POST /v2/gamehistory: puts the account's saves back the way save
+    /// POST /v2/gamehistory.php: puts the account's saves back the way save
     /// point `id` had them. The site first keeps what it replaces as a save
     /// point of its own, so the restore can be undone from the same list.
     func restoreSavePoint(_ id: Int) async throws -> RestoredSave {
@@ -364,7 +364,7 @@ final class AccountAPI {
         }
     }
 
-    /// The body of a /v2/gamehistory answer that says it worked, or the
+    /// The body of a /v2/gamehistory.php answer that says it worked, or the
     /// error it stands for. Its reasons are the ones the site's dashboard
     /// explains (SavePointsReason).
     nonisolated static func gameHistoryBody(_ data: Data, status: Int) throws -> Data {
@@ -426,7 +426,7 @@ final class AccountAPI {
     }
 
     /// Runs a change with the session's token: the one last seen, else a
-    /// fresh one from /v2/ios/account. The site clears its token after a
+    /// fresh one from /v2/ios/account.php. The site clears its token after a
     /// mismatch (when a web page issued a new one meanwhile), so on that the
     /// change is tried once more with a fresh one.
     private func withToken<T: Sendable>(_ body: (String) async throws -> T) async throws -> T {
@@ -499,7 +499,7 @@ final class AccountAPI {
         return (ok, object["reason"] as? String)
     }
 
-    /// GET /v2/getdata?type=app_settings, which /v2/ios/account replaced.
+    /// GET /v2/getdata.php?type=app_settings, which /v2/ios/account.php replaced.
     private func legacySnapshot() async throws -> AccountSnapshot {
         let generation = OfflineStore.generation
         let (data, response) = try await send(URLRequest(url: getDataURL("app_settings")))
@@ -563,7 +563,7 @@ final class AccountAPI {
 
     // MARK: - Signing in
 
-    /// POST /v2/ios/signin: signs this session (the web views' cookies)
+    /// POST /v2/ios/signin.php: signs this session (the web views' cookies)
     /// in with the code a sign-in in the browser came back with, and the
     /// verifier of the request it was for (SignInRequest). The site sets the
     /// signed-in session's cookies, which send() copies into WebKit's store.
@@ -599,7 +599,7 @@ final class AccountAPI {
 
     /// Same request as pingSite() in the desktop app.
     func ping() async -> Ping {
-        var components = URLComponents(url: SiteURLs.page("/v2/ping"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: SiteURLs.page("/v2/ping.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "usingnativeapp", value: "1"),
             URLQueryItem(name: "_", value: String(Int(Date().timeIntervalSince1970 * 1000))),
@@ -617,7 +617,7 @@ final class AccountAPI {
     // MARK: - Plumbing
 
     private func getDataURL(_ type: String) -> URL {
-        var components = URLComponents(url: SiteURLs.page("/v2/getdata"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: SiteURLs.page("/v2/getdata.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "type", value: type)]
         return components.url!
     }

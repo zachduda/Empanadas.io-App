@@ -1,7 +1,7 @@
 import XCTest
 @testable import Empanadas
 
-/// Manage Game Data: what /v2/gamehistory sends (tests/gamehistory_test.php
+/// Manage Game Data: what /v2/gamehistory.php sends (tests/gamehistory_test.php
 /// and tests/gamehistory_e2e.php on the site), how a save point compares with
 /// the account now, and what a refusal tells the player.
 final class SavePointsTests: XCTestCase {
@@ -116,9 +116,9 @@ final class SavePointsTests: XCTestCase {
     // MARK: - The endpoint
 
     func testAsksForTheRightPage() {
-        XCTAssertEqual(SiteURLs.gameHistory.absoluteString, "https://empanadas.io/v2/gamehistory")
+        XCTAssertEqual(SiteURLs.gameHistory.absoluteString, "https://empanadas.io/v2/gamehistory.php")
         XCTAssertEqual(SiteURLs.gameHistory(before: 640).absoluteString,
-                       "https://empanadas.io/v2/gamehistory?before=640")
+                       "https://empanadas.io/v2/gamehistory.php?before=640")
         XCTAssertEqual(SiteURLs.gameHistory(before: nil), SiteURLs.gameHistory)
         XCTAssertEqual(SiteURLs.gameHistory(before: 0), SiteURLs.gameHistory)
     }

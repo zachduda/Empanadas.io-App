@@ -1,8 +1,8 @@
 import XCTest
 @testable import Empanadas
 
-/// The native dashboard and leaderboard's data: what /v2/ios/dashboard
-/// and /v2/ios/leaderboard send (tests/iosapp_test.php on the site), the
+/// The native dashboard and leaderboard's data: what /v2/ios/dashboard.php
+/// and /v2/ios/leaderboard.php send (tests/iosapp_test.php on the site), the
 /// Spin Progress chart's arithmetic, and what is kept for offline use.
 final class DashboardTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
@@ -301,8 +301,8 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(SiteURLs.findFriends(id: "").absoluteString, "https://empanadas.io/v2/profile?search=1")
         XCTAssertEqual(SiteURLs.findFriends(id: "AB-12").absoluteString, "https://empanadas.io/v2/profile/ab-12?search=1",
                        "straight to the profile: the site's redirect from /v2/profile dropped ?search=1")
-        XCTAssertEqual(SiteURLs.iosDashboard.path(), "/v2/ios/dashboard", "under /v2/, where the session cookie goes")
-        XCTAssertEqual(SiteURLs.iosLeaderboard.path(), "/v2/ios/leaderboard")
+        XCTAssertEqual(SiteURLs.iosDashboard.path(), "/v2/ios/dashboard.php", "under /v2/, where the session cookie goes")
+        XCTAssertEqual(SiteURLs.iosLeaderboard.path(), "/v2/ios/leaderboard.php")
     }
 
     @MainActor
