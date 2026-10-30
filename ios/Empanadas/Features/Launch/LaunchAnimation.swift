@@ -159,16 +159,16 @@ struct LaunchScene: View {
     }
 
     private static let sparks: [Spark] = [
-        Spark(angle: -100, reach: 0.42, delay: 0.00, size: 5, gold: true),
-        Spark(angle: -62, reach: 0.50, delay: 0.05, size: 4, gold: false),
-        Spark(angle: -28, reach: 0.44, delay: 0.09, size: 6, gold: true),
-        Spark(angle: -12, reach: 0.56, delay: 0.02, size: 3, gold: false),
-        Spark(angle: -168, reach: 0.46, delay: 0.07, size: 4, gold: true),
-        Spark(angle: -140, reach: 0.52, delay: 0.12, size: 3, gold: false),
-        Spark(angle: -82, reach: 0.60, delay: 0.15, size: 3, gold: true),
+        Spark(angle: -100, reach: 0.42, delay: 0.01, size: 10, gold: true),
+        Spark(angle: -62, reach: 0.50, delay: 0.05, size: 8, gold: false),
+        Spark(angle: -28, reach: 0.44, delay: 0.09, size: 12, gold: true),
+        Spark(angle: -12, reach: 0.56, delay: 0.02, size: 9, gold: false),
+        Spark(angle: -168, reach: 0.46, delay: 0.07, size: 8, gold: true),
+        Spark(angle: -140, reach: 0.52, delay: 0.12, size: 6, gold: false),
+        Spark(angle: -82, reach: 0.60, delay: 0.15, size: 6, gold: true),
     ]
     /// How long each spark lives, from when it starts.
-    private static let sparkLife: TimeInterval = 0.9
+    private static let sparkLife: TimeInterval = 1.1
 
     /// 0 until `start`, 1 from `start + duration`, and in between along
     /// `curve`.
@@ -188,7 +188,7 @@ struct LaunchScene: View {
                                startRadius: 0, endRadius: max(proxy.size.width, proxy.size.height) * 0.55)
                     .opacity(progress(0, 0.6))
 
-                VStack(spacing: 24) {
+                VStack(spacing: 95) {
                     mark(in: proxy.size)
                     title
                 }
@@ -218,6 +218,7 @@ struct LaunchScene: View {
                 Image("LaunchLogo")
                     .resizable()
                     .scaledToFit()
+                    .fixedSize()
             }
             .scaleEffect(flight.scale)
             .rotationEffect(.degrees(flight.angle))
