@@ -1,24 +1,11 @@
 import SwiftUI
 
-/// Where the launch animation is. RootView keeps it: the window stays dark
-/// (white status bar on the navy) while it plays, and takes the app's own
-/// style back as it starts to leave.
 enum LaunchPhase {
     case playing
     case leaving
     case done
 }
 
-/// What the app shows as it starts, after the system's launch screen (plain
-/// navy: UILaunchScreen in Info.plist): the desktop app's splash
-/// (download.html and Content/CSS/splash.css), natively. The empanadas fly in
-/// and land with a bounce, a warm glow comes up behind them, a few sparks fly
-/// off as they land, "Empanadas.io" fades in and down underneath, a little
-/// steam rises, and the whole of it fades away into the app, which has been
-/// loading underneath all along. A tap skips it. With Reduce Motion, the logo
-/// and the name only fade in.
-///
-/// Once per launch: a second window (on an iPad or a Mac) opens without it.
 struct LaunchAnimation: View {
     /// Set by the first window's RootView.
     @MainActor static var hasPlayed = false
@@ -26,8 +13,6 @@ struct LaunchAnimation: View {
     @Binding var phase: LaunchPhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start: Date?
-    /// When it starts to leave, in seconds from the start: sooner than
-    /// planned after a tap.
     @State private var leaveAt: TimeInterval?
 
     var body: some View {
@@ -96,9 +81,6 @@ struct LaunchScene: View {
     /// The desktop splash's motion curve, cubic-bezier(.2, .8, .2, 1).
     private static let settle = UnitCurve.bezier(startControlPoint: UnitPoint(x: 0.2, y: 0.8),
                                                  endControlPoint: UnitPoint(x: 0.2, y: 1))
-
-    /// Where the logo is on its way in. Offsets are fractions of the screen,
-    /// so it comes from below the bottom edge on any of them.
     struct Flight {
         var x = -0.45
         var y = 0.62
@@ -106,9 +88,7 @@ struct LaunchScene: View {
         var angle = -40.0
         var opacity = 0.0
     }
-
-    /// Up from the bottom left in an arc, turning upright as it comes, a
-    /// little past where it lands, and back with a bounce.
+    
     @MainActor static let flight = KeyframeTimeline(initialValue: Flight()) {
         KeyframeTrack(\.opacity) {
             LinearKeyframe(0, duration: 0.1)
@@ -146,10 +126,6 @@ struct LaunchScene: View {
     ]
     private static let wispCycle: TimeInterval = 1.8
 
-    /// A spark thrown off as the logo lands: the way it flies (degrees, 0 to
-    /// the right, -90 straight up), how far (as a share of the logo's width),
-    /// when it starts after the landing, how big it is, and whether it is
-    /// gold or white. All of them fly up, so none reach the name below.
     private struct Spark {
         let angle: Double
         let reach: CGFloat
@@ -167,11 +143,9 @@ struct LaunchScene: View {
         Spark(angle: -140, reach: 0.52, delay: 0.12, size: 6, gold: false),
         Spark(angle: -82, reach: 0.60, delay: 0.15, size: 6, gold: true),
     ]
-    /// How long each spark lives, from when it starts.
+    
     private static let sparkLife: TimeInterval = 1.1
-
-    /// 0 until `start`, 1 from `start + duration`, and in between along
-    /// `curve`.
+    
     private func progress(_ start: TimeInterval, _ duration: TimeInterval, _ curve: UnitCurve = .linear) -> Double {
         let linear = min(max((elapsed - start) / duration, 0), 1)
         return curve.value(at: linear)
@@ -313,9 +287,6 @@ struct LaunchScene: View {
             .opacity(opacity)
     }
 
-    // MARK: - The name
-
-    /// "Empanadas.io", fading in and down into place under the logo.
     private var title: some View {
         let shown = reduceMotion
             ? progress(0.15, 0.35, .easeOut)
