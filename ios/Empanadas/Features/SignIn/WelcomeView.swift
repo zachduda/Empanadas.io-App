@@ -1,10 +1,5 @@
 import SwiftUI
 
-/// The screen while signed out: the login page's "Got an account?", drawn
-/// natively, on the launch screen's navy. Either answer opens the sign-in in
-/// the system browser (AppModel.signIn), on the site's username step or its
-/// Pick a Username, where Safari's AutoFill and the player's saved passkeys
-/// work. The login page itself never shows in the app.
 struct WelcomeView: View {
     @Environment(AppModel.self) private var model
 
@@ -40,10 +35,10 @@ struct WelcomeView: View {
             VStack(spacing: 6) {
                 Text("Empanadas.io")
                     .font(.system(.largeTitle, design: .rounded).weight(.heavy))
-                Text("Spin, flap and stack. Your account keeps your progress on every device.")
+                Text("Welcome! Let's get you signed in first.")
                     .font(.subheadline)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.white.opacity(0.8))
             }
         }
     }
@@ -100,7 +95,7 @@ struct WelcomeView: View {
                 .foregroundStyle(.white.opacity(0.85))
                 .transition(.opacity)
         } else {
-            Text("You'll sign in on empanadas.io in a secure browser window, so your passkeys and saved logins are right there.")
+            Text("An account saves your progress on your devices and is free. We also don't share or sell your data.")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.65))
