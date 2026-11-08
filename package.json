@@ -1,6 +1,6 @@
 {
   "name": "empanadas.io",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "The only app for all your Empanada needs!",
   "main": "main.js",
   "publisherName": "Empanadas.io",
@@ -16,8 +16,8 @@
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",
   "devDependencies": {
-    "electron": "^44.7.2",
-    "electron-builder": "^26.16.0"
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "io.empanadas.app",
@@ -78,16 +78,25 @@
       "background": "build/background.png",
       "iconSize": 100,
       "contents": [
-        { "x": 140, "y": 200, "type": "file" },
-        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "win": {
       "target": "nsis",
       "verifyUpdateCodeSignature": true,
-		"signtoolOptions": {
-		  "publisherName": "Empanadas.io"
-		}
+      "signtoolOptions": {
+        "publisherName": "Empanadas.io"
+      }
     },
     "artifactName": "${name}-Setup-${version}.${ext}",
     "nsis": {
@@ -101,8 +110,6 @@
     }
   },
   "postinstall": "electron-builder install-app-deps",
-  "dependencies": {
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zachduda/Empanadas.io-App.git"
