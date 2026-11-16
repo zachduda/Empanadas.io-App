@@ -57,6 +57,15 @@ final class LeaderboardModel {
         board?.pollInterval ?? 30
     }
 
+    /// How long from now the site will have a new build: the rest of
+    /// pollInterval, counted from when the boards were read. Asking sooner
+    /// (coming back to the tab) only gets the same build again.
+    var nextPoll: TimeInterval {
+        guard error == nil, let updatedAt else { return pollInterval }
+        let left = pollInterval - Date().timeIntervalSince(updatedAt)
+        return left > 1 ? left : pollInterval
+    }
+
     func reset() {
         generation += 1
         board = nil

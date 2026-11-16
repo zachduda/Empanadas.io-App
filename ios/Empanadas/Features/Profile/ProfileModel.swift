@@ -27,8 +27,9 @@ extension View {
 /// has rather than a guess.
 ///
 /// The player's own profile opens with the copy saved last time
-/// (OfflineStore), as the other native screens do; other players' are not
-/// kept.
+/// (OfflineStore), as the other native screens do. Other players' open with
+/// the one read earlier this session, if there was one (ProfileCache), and
+/// are not kept beyond it.
 @MainActor
 @Observable
 final class ProfileModel {
@@ -49,7 +50,12 @@ final class ProfileModel {
 
     init(id: String?) {
         self.id = id.flatMap { $0.isEmpty ? nil : $0 }
-        if self.id == nil, let saved = OfflineStore.load(PlayerProfile.self, .profile) {
+        if let id = self.id {
+            if let kept = ProfileCache.entry(for: id) {
+                profile = kept.profile
+                updatedAt = kept.readAt
+            }
+        } else if let saved = OfflineStore.load(PlayerProfile.self, .profile) {
             profile = saved.value
             updatedAt = saved.savedAt
         }
@@ -83,6 +89,7 @@ final class ProfileModel {
             profile = fresh
             updatedAt = Date()
             error = nil
+            if let id { ProfileCache.keep(fresh, for: id) }
         } catch let failure as AccountError {
             // Cancelled (the screen left, or the app went to the back): not
             // a failure, and not one to show until the next refresh.
@@ -132,6 +139,8 @@ final class ProfileModel {
         do {
             try await change()
             Haptics.play(haptic)
+            // Empties ProfileCache: this profile is read again below, and
+            // the others the next time each is opened.
             app.friendsChanged()
             await fetch(app: app)
             return true

@@ -22,6 +22,9 @@ final class FindFriendsModel {
     @ObservationIgnored private var page = 0
     /// Bumped by each new search: an answer to an older one is dropped.
     @ObservationIgnored private var generation = 0
+    /// The first page of each search made lately: typing a letter and taking
+    /// it back, or coming back to an earlier search, asks nothing.
+    @ObservationIgnored private var kept: [String: (found: PlayerSearch, at: Date)] = [:]
 
     /// What the site would search for, or nil while there is too little.
     var term: String? { PlayerSearch.term(query) }
@@ -38,6 +41,14 @@ final class FindFriendsModel {
         }
         if term == searched && error == nil { return }
 
+        if let hit = kept[term], Date().timeIntervalSince(hit.at) < CacheAge.search {
+            // An answer still on its way for another search is dropped.
+            generation += 1
+            show(hit.found, for: term)
+            isSearching = false
+            return
+        }
+
         generation += 1
         let generation = self.generation
         isSearching = true
@@ -53,16 +64,22 @@ final class FindFriendsModel {
         do {
             let found = try await app.account.searchPlayers(term)
             guard generation == self.generation else { return }
-            results = found.results
-            hasMore = found.hasMore
-            page = 0
-            searched = term
-            error = nil
+            if kept.count >= 50 { kept = [:] }
+            kept[term] = (found, Date())
+            show(found, for: term)
         } catch {
             // Cancelled: the player typed on, and the next search is coming.
             guard generation == self.generation, !Task.isCancelled else { return }
             fail(error, app: app)
         }
+    }
+
+    private func show(_ found: PlayerSearch, for term: String) {
+        results = found.results
+        hasMore = found.hasMore
+        page = 0
+        searched = term
+        error = nil
     }
 
     /// The next page, when the list has scrolled to its end.
@@ -122,6 +139,8 @@ final class FindFriendsModel {
             if let index = results.firstIndex(where: { $0.id == result.id }) {
                 results[index].relation = relation
             }
+            // The searches kept say where the player stood before.
+            kept = [:]
             app.friendsChanged()
         } catch {
             Haptics.play("error")

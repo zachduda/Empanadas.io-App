@@ -44,7 +44,7 @@ struct RootView: View {
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             model.saveGamesForOffline()
-            await model.refreshTheme()
+            await model.refreshTheme(maxAge: CacheAge.account)
         }
         .fullScreenCover(item: $model.activeGame) { game in
             GamePlayerView(game: game)

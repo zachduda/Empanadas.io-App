@@ -36,6 +36,9 @@ final class UpdatesModel {
     @ObservationIgnored private var loadedAt: Date?
     @ObservationIgnored private var checkedAt: Date?
     @ObservationIgnored private var isChecking = false
+    /// What the bell last counted, and between which two posts: while both
+    /// are the same, the count is too, and is not asked for again.
+    @ObservationIgnored private var counted: (newest: String, seen: String, unread: Int)?
     /// Bumped by every read from the top: only the answers to the newest
     /// one's requests are kept.
     @ObservationIgnored private var generation = 0
@@ -85,11 +88,17 @@ final class UpdatesModel {
             unread = 0
             return
         }
+        if let counted, counted.newest == latest.id, counted.seen == seen {
+            unread = counted.unread
+            return
+        }
         // How many are newer than the one last seen: where it now sits.
         let reply = try? await app.account.announcement(id: seen)
         // The feed opened meanwhile, and the player has read them.
         guard lastSeen == seen, generation == self.generation else { return }
         unread = Self.unread(newest: latest.id, seen: seen, seenAt: reply.flatMap { $0.post == nil ? nil : $0.page })
+        // Not a guess made because the site could not be asked.
+        if reply != nil { counted = (latest.id, seen, unread) }
     }
 
     /// How many posts are new to the player: given the newest post's id,
@@ -169,6 +178,7 @@ final class UpdatesModel {
         unreadWhenOpened = 0
         loadedAt = nil
         checkedAt = nil
+        counted = nil
     }
 
     /// The next post down, as the end of the feed comes on screen.

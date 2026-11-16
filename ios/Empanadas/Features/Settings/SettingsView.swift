@@ -89,7 +89,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .glassNavigationBar()
             .profileDestinations()
-            .task { await settings.load(app: model, maxAge: 60) }
+            .task { await settings.load(app: model, maxAge: CacheAge.account) }
             .refreshable { await settings.load(app: model) }
             .onChange(of: model.isOnline) { _, online in
                 if online { Task { await settings.load(app: model) } }

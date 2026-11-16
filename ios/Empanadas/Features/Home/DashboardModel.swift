@@ -16,6 +16,14 @@ final class DashboardModel {
     /// request is shown, and none asked for before a sign-out (the last
     /// account's).
     @ObservationIgnored private var generation = 0
+    /// How many answers in a row were the same as the one before: what the
+    /// pace of the refresh goes by (DashboardPace).
+    @ObservationIgnored private var unchanged = 0
+
+    /// How long Home waits before asking again while it is showing.
+    var pollInterval: TimeInterval {
+        DashboardPace.interval(unchanged: unchanged)
+    }
 
     init() {
         restore()
@@ -39,7 +47,11 @@ final class DashboardModel {
     /// again even while a request is under way. That one was sent before the
     /// change, and its answer is dropped; skipped, as load() would, the
     /// dashboard showed the state from before the change.
+    ///
+    /// Also when the player pulls down: something is expected to change, so
+    /// the refresh goes back to once a minute.
     func reload(app: AppModel) async {
+        unchanged = 0
         await fetch(app: app)
     }
 
@@ -54,6 +66,7 @@ final class DashboardModel {
         do {
             let fresh = try await app.account.dashboard()
             guard generation == self.generation else { return }
+            unchanged = fresh == data ? unchanged + 1 : 0
             data = fresh
             updatedAt = Date()
             error = nil
@@ -74,6 +87,7 @@ final class DashboardModel {
     /// Signed out: nothing of the last account may show for the next.
     func reset() {
         generation += 1
+        unchanged = 0
         isLoading = false
         data = nil
         updatedAt = nil

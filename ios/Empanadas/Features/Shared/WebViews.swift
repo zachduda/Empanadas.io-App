@@ -163,6 +163,10 @@ struct WebDestination: View {
         .onAppear {
             if page == nil { page = model.makePage(url, interceptsRoutes: interceptsRoutes) }
         }
+        .onDisappear {
+            // Back from the picture page: the pictures kept may be the old one.
+            if url == SiteURLs.profilePicture { model.pictureMayHaveChanged() }
+        }
     }
 }
 

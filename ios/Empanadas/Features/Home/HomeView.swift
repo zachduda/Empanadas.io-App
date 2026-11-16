@@ -58,7 +58,7 @@ struct HomeView: View {
             .profileDestinations()
             .updatesDestinations()
             .gameDataDestinations()
-            .refreshable { await dashboard.load(app: model) }
+            .refreshable { await dashboard.reload(app: model) }
             .task(id: scenePhase) { await keepFresh() }
             .onChange(of: model.isOnline) { _, online in
                 guard online else { return }
@@ -69,20 +69,22 @@ struct HomeView: View {
     }
 
     /// While the tab is on screen and the app in front: a refresh if the last
-    /// is a little old, then one a minute, as the site's dashboard refreshes
-    /// its friends list. The bell asks whether anything has been posted at
+    /// is a minute old, then one a minute, as the site's dashboard refreshes
+    /// its friends list, and less often the longer nothing has changed
+    /// (DashboardPace). The bell asks whether anything has been posted at
     /// most every ten minutes, the time the site caches the answer for.
     private func keepFresh() async {
         guard scenePhase == .active else { return }
-        await model.dashboard.load(app: model, maxAge: 20)
+        await model.dashboard.load(app: model, maxAge: CacheAge.dashboard)
         await model.updates.check(app: model, maxAge: Self.updatesMaxAge)
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(60))
+            try? await Task.sleep(for: .seconds(model.dashboard.pollInterval))
             guard !Task.isCancelled else { return }
             // Not under a game: the cover does not stop this task, and the
             // game is what the phone should be busy with. Closing the game
-            // reloads the dashboard anyway (AppModel.gameClosed).
-            guard model.isOnline, model.activeGame == nil else { continue }
+            // reloads the dashboard anyway (AppModel.gameClosed). Not in Low
+            // Data Mode either: pulling down still asks.
+            guard model.isOnline, !model.isLowDataMode, model.activeGame == nil else { continue }
             await model.dashboard.load(app: model)
             await model.updates.check(app: model, maxAge: Self.updatesMaxAge)
         }

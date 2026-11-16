@@ -40,7 +40,7 @@ struct GamesView: View {
             // The numbers and places on the cards are whatever Home and the
             // Leaderboard tab last read: brought up to date if that was a
             // while ago.
-            .task { await refresh(maxAge: 60) }
+            .task { await refresh(maxAge: CacheAge.dashboard, boards: CacheAge.gamesLeaderboard) }
             .animation(.smooth, value: model.isOnline)
             .animation(.smooth, value: model.lastPlayed)
         }
@@ -144,10 +144,12 @@ struct GamesView: View {
         model.navigate(to: .game(game))
     }
 
-    private func refresh(maxAge: TimeInterval) async {
+    /// `boards`: how old the leaderboards may be. Only the player's place
+    /// on each is shown here, which moves slowly.
+    private func refresh(maxAge: TimeInterval, boards: TimeInterval? = nil) async {
         guard model.isOnline else { return }
         await model.dashboard.load(app: model, maxAge: maxAge)
-        await model.leaderboard.load(app: model, maxAge: maxAge)
+        await model.leaderboard.load(app: model, maxAge: boards ?? maxAge)
     }
 }
 

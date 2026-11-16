@@ -36,8 +36,7 @@ final class SettingsModel {
     /// The copy saved last time never counts: it has no token to change
     /// anything with.
     func load(app: AppModel, maxAge: TimeInterval = 0) async {
-        if loadError == nil, snapshot?.csrf.isEmpty == false, let updatedAt,
-           Date().timeIntervalSince(updatedAt) < maxAge { return }
+        if isFresh(maxAge) { return }
         let generation = self.generation
         isLoading = true
         defer {
@@ -60,6 +59,22 @@ final class SettingsModel {
             guard generation == self.generation, !Task.isCancelled else { return }
             loadError = .network
         }
+    }
+
+    /// Whether this session's last answer, token and all, is younger than
+    /// `maxAge` seconds.
+    func isFresh(_ maxAge: TimeInterval) -> Bool {
+        guard loadError == nil, snapshot?.csrf.isEmpty == false, let updatedAt else { return false }
+        return Date().timeIntervalSince(updatedAt) < maxAge
+    }
+
+    /// An answer the app read for itself (AppModel.refreshTheme, as it comes
+    /// to the front): the screen takes it rather than ask for its own.
+    func adopt(_ fresh: AccountSnapshot) {
+        guard savingField == nil else { return }
+        snapshot = fresh
+        updatedAt = Date()
+        loadError = nil
     }
 
     /// Signed out: nothing of the last account may show for the next.

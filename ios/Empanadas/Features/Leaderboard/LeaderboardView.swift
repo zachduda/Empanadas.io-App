@@ -139,12 +139,16 @@ struct LeaderboardView: View {
     private func keepFresh() async {
         guard scenePhase == .active else { return }
         let leaderboard = model.leaderboard
-        await leaderboard.load(app: model, maxAge: 10)
+        // The boards in hand are the site's newest until its cache is next
+        // rebuilt: coming back to the tab before then asks nothing.
+        await leaderboard.load(app: model, maxAge: leaderboard.pollInterval)
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(leaderboard.pollInterval))
+            try? await Task.sleep(for: .seconds(leaderboard.nextPoll))
             guard !Task.isCancelled else { return }
-            // Not under a game (see HomeView.keepFresh).
-            if model.isOnline, model.activeGame == nil { await leaderboard.load(app: model) }
+            // Not under a game, nor in Low Data Mode (see HomeView.keepFresh).
+            if model.isOnline, !model.isLowDataMode, model.activeGame == nil {
+                await leaderboard.load(app: model)
+            }
         }
     }
 }

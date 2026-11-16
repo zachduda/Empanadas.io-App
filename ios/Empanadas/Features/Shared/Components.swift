@@ -397,7 +397,8 @@ struct OfflineNotice: View {
 // MARK: - Pictures
 
 /// Pictures from the site (profile pictures), kept in memory and on disk so a
-/// screen shown offline still has its faces.
+/// screen shown offline still has its faces, and so a picture the site was
+/// asked about lately is drawn without asking again (PictureFreshness).
 @MainActor
 final class ImageStore {
     static let shared = ImageStore()
@@ -406,15 +407,27 @@ final class ImageStore {
     private let disk: URLCache
     private let session: URLSession
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
+    /// When each picture was last checked with the site, kept beside them.
+    private var freshness: PictureFreshness
+    private let freshnessFile: URL
+    private var savingFreshness = false
 
     private init() {
         let configuration = URLSessionConfiguration.default
-        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "Pictures", directoryHint: .isDirectory)
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let directory = caches.appending(path: "Pictures", directoryHint: .isDirectory)
         disk = URLCache(memoryCapacity: 8 << 20, diskCapacity: 100 << 20, directory: directory)
         configuration.urlCache = disk
         configuration.timeoutIntervalForRequest = 15
         session = URLSession(configuration: configuration)
+
+        // In Caches with the pictures: emptied by the system together, and
+        // a record without its picture only means the picture is fetched.
+        let file = caches.appending(path: "Pictures.checked.json", directoryHint: .notDirectory)
+        freshnessFile = file
+        freshness = (try? Data(contentsOf: file))
+            .flatMap { try? JSONDecoder().decode(PictureFreshness.self, from: $0) } ?? PictureFreshness()
+
         memory.countLimit = 300
         // By size too: 300 pictures is as much memory as they are large.
         memory.totalCostLimit = 64 << 20
@@ -424,6 +437,18 @@ final class ImageStore {
     func clear() {
         memory.removeAllObjects()
         disk.removeAllCachedResponses()
+        freshness = PictureFreshness()
+        saveFreshness()
+    }
+
+    /// These pictures may have changed on the site (the player's own, after
+    /// the picture page): the next screen that draws one asks the site.
+    func forget(_ urls: [URL]) {
+        for url in urls {
+            memory.removeObject(forKey: url as NSURL)
+            freshness.forget(url)
+        }
+        if !urls.isEmpty { saveFreshness() }
     }
 
     func cached(_ url: URL) -> UIImage? {
@@ -446,21 +471,43 @@ final class ImageStore {
         return image
     }
 
-    /// The network first, so a new picture shows up; the copy on disk when
-    /// that fails.
+    /// The copy on disk, without a word to the site, while it was checked
+    /// lately. Otherwise the network first, so a new picture shows up, and
+    /// the copy on disk when that fails.
     private func fetch(_ url: URL) async -> UIImage? {
-        for policy in [URLRequest.CachePolicy.useProtocolCachePolicy, .returnCacheDataDontLoad] {
-            let request = URLRequest(url: url, cachePolicy: policy)
-            guard let result = try? await session.data(for: request) else { continue }
-            let status = (result.1 as? HTTPURLResponse)?.statusCode ?? 200
-            guard status < 400 else { continue }
-            let data = result.0
-            let image = await Task.detached(priority: .userInitiated) {
-                ImageStore.decode(data)
-            }.value
-            if let image { return image }
+        if freshness.isFresh(url), let image = await load(url, policy: .returnCacheDataDontLoad) {
+            return image
         }
-        return nil
+        if let image = await load(url, policy: .useProtocolCachePolicy) {
+            freshness.mark(url)
+            saveFreshness()
+            return image
+        }
+        return await load(url, policy: .returnCacheDataDontLoad)
+    }
+
+    private func load(_ url: URL, policy: URLRequest.CachePolicy) async -> UIImage? {
+        let request = URLRequest(url: url, cachePolicy: policy)
+        guard let result = try? await session.data(for: request) else { return nil }
+        let status = (result.1 as? HTTPURLResponse)?.statusCode ?? 200
+        guard status < 400 else { return nil }
+        let data = result.0
+        return await Task.detached(priority: .userInitiated) {
+            ImageStore.decode(data)
+        }.value
+    }
+
+    /// Written a moment later, once: a screen of faces marks one after
+    /// another.
+    private func saveFreshness() {
+        guard !savingFreshness else { return }
+        savingFreshness = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            savingFreshness = false
+            guard let data = try? JSONEncoder().encode(freshness) else { return }
+            try? data.write(to: freshnessFile, options: .atomic)
+        }
     }
 
     /// The longest side a picture is kept at, in pixels: more than any
