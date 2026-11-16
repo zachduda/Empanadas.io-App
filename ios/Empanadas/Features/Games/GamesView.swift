@@ -413,6 +413,12 @@ struct GamePlayerView: View {
                             message: "\(game.title) is saved for offline play the next time the app is open with a connection.",
                             systemImage: "icloud.slash"
                         ) { page.reload() }
+                    } else if page.loadError is WebPage.ProcessCrashed {
+                        ConnectionErrorView(
+                            title: "\(game.title) Stopped",
+                            message: "It closed unexpectedly, more than once. Try again.",
+                            systemImage: "exclamationmark.triangle"
+                        ) { page.reload() }
                     } else {
                         ConnectionErrorView { page.reload() }
                     }
@@ -438,10 +444,6 @@ struct GamePlayerView: View {
                                       loadsFromCacheOffline: true)
                 page?.webView.scrollView.bounces = false
             }
-            UIApplication.shared.isIdleTimerDisabled = true
-        }
-        .onDisappear {
-            UIApplication.shared.isIdleTimerDisabled = false
         }
     }
 

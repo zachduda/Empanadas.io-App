@@ -31,6 +31,12 @@ struct RootView: View {
         // everything, and the window should be the game's style at once.
         .onChange(of: model.activeGame, initial: true) { _, game in
             if game != nil, launch != .done { launch = .done }
+            // The screen stays on while a game is up. Here, from the one
+            // thing that says whether one is, rather than in the player's
+            // onAppear and onDisappear: going from one game to another, the
+            // old player's onDisappear could come after the new one's
+            // onAppear and let the screen dim mid-game.
+            UIApplication.shared.isIdleTimerDisabled = game != nil
         }
         // Each time the app comes to the front: the theme may have been
         // changed on the website meanwhile, and the games saved for offline

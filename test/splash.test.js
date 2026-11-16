@@ -176,10 +176,13 @@ async function main() {
 			});
 
 			await page.goto(PAGE);
-			await page.waitForTimeout(12000);
+			await page.waitForTimeout(3000);
 
-			check('an unexpected reply falls through to the 10s timer',
-				Boolean(dashboard) && dashboard.includes('forceapptimeout=1'), String(dashboard));
+			// It used to sit on "Connecting..." until the 10s timer. Something
+			// answered, so the dashboard is tried at once; if that cannot load,
+			// main.js brings the splash back on its offline screen.
+			check('an unexpected reply goes on to the dashboard without waiting for the 10s timer',
+				Boolean(dashboard) && dashboard.includes('unexpectedpong=1'), String(dashboard));
 
 			await ctx.close();
 		}

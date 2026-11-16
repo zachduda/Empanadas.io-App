@@ -66,7 +66,9 @@ const start = Date.now();
 const logo = document.getElementById("logo");
 const msg = document.getElementById("msg");
 const status = document.getElementById("status");
-const minwait = 1500;
+// Long enough for the logo to land (its pop takes .85s); the page is waited
+// for after that, not the clock.
+const minwait = 700;
 let noint = false;
 let leaving = false;
 
@@ -251,10 +253,11 @@ function download() {
 	}, 4000);
 
 	ping().then(function(data) {
-		if(data == "Pong!") {
-			say("");
-			finishedLoading("&sucessfulstart=1");
-		}
+		say("");
+		// Something answered, if not with a Pong (a sign-in page on hotel
+		// Wi-Fi, a proxy): go and see, rather than sit here until the
+		// timeout below. A page that cannot load comes back to this one.
+		finishedLoading(data == "Pong!" ? "&sucessfulstart=1" : "&unexpectedpong=1");
 	}).catch(function() {
 		noInt();
 	}).finally(function() {

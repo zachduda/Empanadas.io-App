@@ -73,10 +73,9 @@ const CHROME_CSS = `
   .bar {
     position: fixed; top: 0; left: 50%; transform: translateX(-50%);
     z-index: 2147483647; display: flex; align-items: stretch; height: 30px;
-    background: rgba(18, 18, 72, .62); color: #fff;
+    background: rgba(18, 18, 72, .8); color: #fff;
     border-radius: 0 0 12px 12px; overflow: hidden;
     box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     opacity: .55; transition: opacity .15s ease;
     font: 12px/1 system-ui, sans-serif; user-select: none;
   }

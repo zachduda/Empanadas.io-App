@@ -143,7 +143,8 @@ struct LeaderboardView: View {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(leaderboard.pollInterval))
             guard !Task.isCancelled else { return }
-            if model.isOnline { await leaderboard.load(app: model) }
+            // Not under a game (see HomeView.keepFresh).
+            if model.isOnline, model.activeGame == nil { await leaderboard.load(app: model) }
         }
     }
 }

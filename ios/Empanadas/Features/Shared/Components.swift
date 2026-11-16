@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -415,6 +416,8 @@ final class ImageStore {
         configuration.timeoutIntervalForRequest = 15
         session = URLSession(configuration: configuration)
         memory.countLimit = 300
+        // By size too: 300 pictures is as much memory as they are large.
+        memory.totalCostLimit = 64 << 20
     }
 
     /// At sign-out: the pictures were the last account's friends and rivals.
@@ -435,7 +438,11 @@ final class ImageStore {
         inFlight[url] = task
         let image = await task.value
         inFlight[url] = nil
-        if let image { memory.setObject(image, forKey: url as NSURL) }
+        if let image {
+            // What it takes up drawn: four bytes a pixel.
+            let pixels = image.size.width * image.scale * image.size.height * image.scale
+            memory.setObject(image, forKey: url as NSURL, cost: Int(pixels) * 4)
+        }
         return image
     }
 
@@ -446,9 +453,35 @@ final class ImageStore {
             let request = URLRequest(url: url, cachePolicy: policy)
             guard let result = try? await session.data(for: request) else { continue }
             let status = (result.1 as? HTTPURLResponse)?.statusCode ?? 200
-            if status < 400, let image = UIImage(data: result.0) { return image }
+            guard status < 400 else { continue }
+            let data = result.0
+            let image = await Task.detached(priority: .userInitiated) {
+                ImageStore.decode(data)
+            }.value
+            if let image { return image }
         }
         return nil
+    }
+
+    /// The longest side a picture is kept at, in pixels: more than any
+    /// screen draws one (a post's picture, the width of a large phone).
+    private nonisolated static let maxPixels = 1600
+
+    /// The picture, decoded here and now, off the main actor, and no larger
+    /// than maxPixels. UIImage(data:) puts the decoding off until the picture
+    /// is first drawn, which is on the main thread, in the middle of a
+    /// scroll; and kept a photo at whatever size it was uploaded.
+    private nonisolated static func decode(_ data: Data) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
 }
 

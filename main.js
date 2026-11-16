@@ -1,4 +1,4 @@
-const {app, BrowserWindow, ipcMain, Menu, net, shell, session, systemPreferences} = require('electron');
+const {app, BrowserWindow, dialog, ipcMain, Menu, net, screen, shell, session, systemPreferences} = require('electron');
 const fs = require('fs');
 const path = require('path');
 const updater = require('./updater');
@@ -6,9 +6,11 @@ const isMac = process.platform === 'darwin';
 
 const {
 	isAppUrl, isAuthUrl, isSsoUrl, isPopupUrl, isHandoffUrl,
-	isBrowserSignInUrl, isAuthDeepLink, authRedeemUrl, browserUserAgent
+	isBrowserSignInUrl, isAuthDeepLink, authRedeemUrl, browserUserAgent,
+	APP_HOST, AUTH_HOSTS
 } = require('./lib/urls');
 const offline = require('./lib/offline');
+const windowState = require('./lib/windowstate');
 
 const SPLASH_URL = require('url').pathToFileURL(path.join(__dirname, 'download.html')).href;
 
@@ -76,6 +78,9 @@ function handleDeepLink(url) {
 		win.webContents.send('deep-link', url);
 	} else {
 		pendingDeepLink = url;
+		// macOS keeps the app running with its window closed: open one, or
+		// the link goes nowhere. It is delivered once the site has loaded.
+		if (app.isReady() && (!win || win.isDestroyed())) createDefaultWindow();
 	}
 }
 
@@ -163,7 +168,11 @@ function reportMissingCsp(details) {
 }
 
 function watchResponses() {
-	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+	// Only the site's own responses say anything here. Unfiltered, every
+	// response of every page (each ad, font and picture) waited on a round
+	// trip through this process.
+	const filter = { urls: ['https://' + APP_HOST + '/*', 'https://*.' + APP_HOST + '/*'] };
+	session.defaultSession.webRequest.onHeadersReceived(filter, (details, callback) => {
 		reportMissingCsp(details);
 		trackSignIn(details);
 		callback({ responseHeaders: details.responseHeaders });
@@ -484,7 +493,9 @@ app.on('web-contents-created', (_event, contents) => {
 function useBrowserUserAgentForAuth() {
 	const clean = browserUserAgent(app.userAgentFallback, app.getName());
 
-	session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+	// The sign-in hosts only, as above.
+	const filter = { urls: [...AUTH_HOSTS].map((host) => 'https://' + host + '/*') };
+	session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
 		if (!isAuthUrl(details.url)) {
 			callback({ requestHeaders: details.requestHeaders });
 			return;
@@ -500,14 +511,27 @@ function useBrowserUserAgentForAuth() {
 
 const WINDOW_BACKGROUND = '#1e1e91';
 
+const WINDOW_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json');
+
 function createDefaultWindow() {
+	// Where and how big it was last time, if that still fits a display that
+	// is plugged in; and never wider or taller than the display, least of all
+	// its minimum size (975 wide is more than a 1366x768 laptop at 150% has).
+	const placed = windowState.place(
+		windowState.load(WINDOW_STATE_FILE()),
+		screen.getAllDisplays().map((d) => d.workArea),
+		screen.getPrimaryDisplay().workArea,
+		{ width: 1100, height: 700, minWidth: 975, minHeight: 480 });
+
 	win = new BrowserWindow({
-    width: 1100,
-    height: 700,
+    width: placed.width,
+    height: placed.height,
+	x: placed.x,
+	y: placed.y,
 	frame: isMac,
 	titleBarStyle: isMac ? 'hidden' : 'default',
-	minWidth: 975,
-	minHeight: 480,
+	minWidth: placed.minWidth,
+	minHeight: placed.minHeight,
 	movable: true,
 	minimizable: true,
 	resizable: true,
@@ -537,9 +561,20 @@ function createDefaultWindow() {
 	win.on('leave-full-screen', hideTrafficLights);
   }
   
+  if (placed.maximized) win.maximize();
+
+  win.on('close', () => {
+	if (!win || win.isDestroyed()) return;
+	windowState.save(WINDOW_STATE_FILE(), Object.assign({}, win.getNormalBounds(), {
+		maximized: win.isMaximized()
+	}));
+  });
+
   win.on('closed', () => {
     win = null;
   })
+
+  watchForCrashes(win);
 
   win.webContents.on('dom-ready', () => {
 	if (!isAppUrl(win.webContents.getURL())) return;
@@ -573,6 +608,55 @@ function createDefaultWindow() {
   win.loadFile('download.html')
   //win.webContents.openDevTools();
   return win;
+}
+
+// The window has no frame and draws its own buttons in the page, so a page
+// that has died or hung leaves nothing to close it with. A dead one goes back
+// to the splash, which has the window bar and tries the site again; a hung
+// one asks.
+function watchForCrashes(w) {
+	let lastCrash = 0;
+	let asking = false;
+
+	w.webContents.on('render-process-gone', (_event, details) => {
+		if (!details || details.reason === 'clean-exit' || w.isDestroyed()) return;
+		console.warn('[window] the page went away: ' + details.reason);
+		// Twice in a few seconds is the splash itself failing: stop, rather
+		// than go round and round.
+		const now = Date.now();
+		const again = now - lastCrash < 10 * 1000;
+		lastCrash = now;
+		if (again) {
+			w.close();
+			return;
+		}
+		w.loadFile('download.html').catch(() => {});
+	});
+
+	w.on('unresponsive', async () => {
+		if (asking || w.isDestroyed()) return;
+		asking = true;
+		try {
+			const { response } = await dialog.showMessageBox(w, {
+				type: 'warning',
+				title: 'Empanadas.io',
+				message: 'Empanadas.io is not responding.',
+				detail: 'You can wait for it, or start it again.',
+				buttons: ['Wait', 'Restart', 'Close'],
+				defaultId: 0,
+				cancelId: 0
+			});
+			if (w.isDestroyed()) return;
+			if (response === 1) {
+				// render-process-gone, above, takes it from there.
+				w.webContents.forcefullyCrashRenderer();
+			} else if (response === 2) {
+				w.destroy();
+			}
+		} finally {
+			asking = false;
+		}
+	});
 }
 
 // The main window, or null once it is closed (macOS keeps the app running).
@@ -737,6 +821,9 @@ function buildAppMenu() {
 			submenu: [
 				{ role: 'minimize' },
 				{ role: 'zoom' },
+				// Cmd+W: the traffic lights are hidden, so without this the
+				// only way to close the window was the page's own button.
+				{ role: 'close' },
 				{ type: 'separator' },
 				{ role: 'front' }
 			]

@@ -184,11 +184,34 @@ test('parses the signature shipped with the 1.10.8 release', () => {
 
 module.exports = { failures: results.filter(Boolean) };
 
-if (require.main === module) {
-	const failed = results.filter(Boolean);
-	if (failed.length) {
-		console.error('\n' + failed.length + ' failed');
-		process.exit(1);
+// What the updater calls: the same check, read as a stream so the app is not
+// held up. Async, so it runs after the tests above and before the verdict.
+async function streamingTests() {
+	const file = path.join(FIXTURES, 'payload.bin');
+	try {
+		const result = await pgp.verifyDetachedFileAsync(file, read('payload.sig'), keys);
+		assert(result.key.fingerprint === SIGNER, 'attributed to the wrong key');
+		console.log('  ok    verifies a file without blocking (verifyDetachedFileAsync)');
+	} catch (err) {
+		results.push('verifyDetachedFileAsync: ' + err.message);
+		console.log('  FAIL  verifies a file without blocking - ' + err.message);
 	}
-	console.log('\nAll signature tests passed.');
+	try {
+		await pgp.verifyDetachedFileAsync(file, read('payload-wrong-key.sig'), keys);
+		results.push('verifyDetachedFileAsync accepted a signature from an unpinned key');
+		console.log('  FAIL  the async check rejects an unpinned key');
+	} catch (err) {
+		console.log('  ok    the async check rejects an unpinned key');
+	}
+}
+
+if (require.main === module) {
+	streamingTests().then(() => {
+		const failed = results.filter(Boolean);
+		if (failed.length) {
+			console.error('\n' + failed.length + ' failed');
+			process.exit(1);
+		}
+		console.log('\nAll signature tests passed.');
+	});
 }
