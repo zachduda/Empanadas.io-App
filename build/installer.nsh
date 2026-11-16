@@ -8,7 +8,7 @@
 
 !macro customWelcomePage
 	!define MUI_WELCOMEPAGE_TITLE "Empanadas.io Application"
-	!define MUI_WELCOMEPAGE_TEXT "Thanks for downloading the Empanadsas.io native desktop application! You'll be able to play games in full resolution, smoother, and without limits! Also sign in once, and never worry again, plus you can play your favorite games offline!$\r$\n$\r$\nClick Next to continue."
+	!define MUI_WELCOMEPAGE_TEXT "Thanks for downloading the Empanadas.io native desktop application! You'll be able to play games in full resolution, smoother, and without limits! Also sign in once, and never worry again, plus you can play your favorite games offline!$\r$\n$\r$\nClick Next to continue."
 	!insertmacro skipPageIfUpdated
 	!insertmacro MUI_PAGE_WELCOME
 !macroend

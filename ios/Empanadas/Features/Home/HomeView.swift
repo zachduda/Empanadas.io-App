@@ -79,7 +79,10 @@ struct HomeView: View {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(60))
             guard !Task.isCancelled else { return }
-            guard model.isOnline else { continue }
+            // Not under a game: the cover does not stop this task, and the
+            // game is what the phone should be busy with. Closing the game
+            // reloads the dashboard anyway (AppModel.gameClosed).
+            guard model.isOnline, model.activeGame == nil else { continue }
             await model.dashboard.load(app: model)
             await model.updates.check(app: model, maxAge: Self.updatesMaxAge)
         }
@@ -527,13 +530,15 @@ private struct ExperienceCard: View {
 
 private struct PumpkinCard: View {
     let pumpkins: Int
+    /// 44 points at the default text size, growing with the player's.
+    @ScaledMetric(relativeTo: .largeTitle) private var countSize: CGFloat = 44
 
     var body: some View {
         Card {
             VStack(spacing: 6) {
                 Text("🎃 Pumpkin Season").font(.headline)
                 Text(pumpkins, format: .number)
-                    .font(.system(size: 44, weight: .heavy, design: .rounded))
+                    .font(.system(size: countSize, weight: .heavy, design: .rounded))
                     .foregroundStyle(Palette.pumpkin)
                 Text("Pumpkins Collected").font(.caption).foregroundStyle(.secondary)
                 Text("Sometimes a pumpkin appears around the site. Tap it quickly and earn even more!")

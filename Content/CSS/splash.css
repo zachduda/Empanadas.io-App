@@ -11,9 +11,31 @@
      offline   "Check Your Internet"
      games     the offline games are on offer (offline, or the answer is slow) */
 
+/* One file per weight the page uses. Poppins.ttf is the Bold cut: declared
+   without a weight it was used for everything, so the status line and the
+   offline note (400 and 300) were drawn bold too. */
 @font-face {
 	font-family: Poppins;
+	font-weight: 300;
+	src: url(../Fonts/Poppins-300.woff2) format("woff2");
+}
+
+@font-face {
+	font-family: Poppins;
+	font-weight: 400;
+	src: url(../Fonts/Poppins-400.woff2) format("woff2");
+}
+
+@font-face {
+	font-family: Poppins;
+	font-weight: 700;
 	src: url(../../Poppins.ttf) format("truetype");
+}
+
+@font-face {
+	font-family: Poppins;
+	font-weight: 800;
+	src: url(../Fonts/Poppins-800.woff2) format("woff2");
 }
 
 :root {

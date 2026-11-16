@@ -278,17 +278,19 @@ private struct SaveStatsGrid: View {
 
 private struct TrendArrow: View {
     let trend: SaveTrend
+    /// 8 points at the default text size, growing with the player's.
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 8
 
     var body: some View {
         switch trend {
         case .higher:
             Image(systemName: "arrowtriangle.up.fill")
-                .font(.system(size: 8))
+                .font(.system(size: size))
                 .foregroundStyle(Palette.flappy)
                 .accessibilityLabel("higher than now")
         case .lower:
             Image(systemName: "arrowtriangle.down.fill")
-                .font(.system(size: 8))
+                .font(.system(size: size))
                 .foregroundStyle(Palette.peppers)
                 .accessibilityLabel("lower than now")
         case .same:

@@ -49,6 +49,11 @@ final class WebPage: NSObject, Identifiable {
     private(set) var isLoading = false
     private(set) var canGoBack = false
     private(set) var hasLoaded = false
+    /// The page has started to draw (its first document has arrived), though
+    /// it may still be loading: when the spinner over it goes. hasLoaded
+    /// waits for everything on the page, a slow ad included, and the spinner
+    /// sat on a page that was already there to read.
+    private(set) var hasContent = false
     private(set) var loadError: Error?
     /// The page's background colour, as it reported it. What the space around
     /// the page is painted, rather than a fixed colour.
@@ -62,6 +67,14 @@ final class WebPage: NSObject, Identifiable {
     /// The cached copy was tried too, and there was none.
     private(set) var offlineCopyMissing = false
     @ObservationIgnored private var triedCache = false
+    /// When the page's process last died, lately (webViewWebContentProcessDidTerminate).
+    @ObservationIgnored private var crashes: [Date] = []
+
+    /// The page's process keeps dying (out of memory, usually). Shown rather
+    /// than loaded again, which only went round and round.
+    struct ProcessCrashed: LocalizedError, Equatable {
+        var errorDescription: String? { "The page stopped unexpectedly." }
+    }
 
     /// The site answered a page with a 5xx. Shown with its status, so a
     /// report says what went wrong, rather than the site's error page (or
@@ -238,7 +251,20 @@ final class WebPage: NSObject, Identifiable {
 
     @objc private func pulledToRefresh(_ sender: UIRefreshControl) {
         reload()
-        sender.endRefreshing()
+        // The spinner stays until the page has answered (endRefreshing):
+        // ended here, it snapped away before the reload had begun. And no
+        // longer than a page may take, should nothing ever answer.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(WebPage.timeout))
+            self?.endRefreshing()
+        }
+    }
+
+    /// The pull-to-refresh spinner, once the page it asked for has loaded or
+    /// failed.
+    private func endRefreshing() {
+        guard let refresh = webView.scrollView.refreshControl, refresh.isRefreshing else { return }
+        refresh.endRefreshing()
     }
 
     /// WebKitErrorFrameLoadInterruptedByPolicyChange: a navigation the policy
@@ -246,6 +272,7 @@ final class WebPage: NSObject, Identifiable {
     private static let frameLoadInterruptedByPolicyChange = 102
 
     private func handle(_ error: Error) {
+        endRefreshing()
         let error = error as NSError
         // A navigation this page cancelled itself, or replaced with another.
         if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled { return }
@@ -397,6 +424,7 @@ extension WebPage: WKNavigationDelegate {
            let url = response.url, Self.isServerError(response, from: url) {
             lastRequestedURL = url
             loadError = ServerError(status: response.statusCode)
+            endRefreshing()
             return .cancel
         }
         return .allow
@@ -415,13 +443,16 @@ extension WebPage: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if firstURL == nil { firstURL = webView.url }
+        hasContent = true
         // A new document: it says again whether it has a close button.
         drawsOwnCloseButton = false
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         hasLoaded = true
+        hasContent = true
         loadError = nil
+        endRefreshing()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -433,6 +464,16 @@ extension WebPage: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        endRefreshing()
+        // Loaded again, as before, but not for ever: a page that dies three
+        // times in a minute is not going to stay up the fourth, and says so
+        // instead (Try Again loads it once more).
+        let now = Date()
+        crashes = crashes.filter { now.timeIntervalSince($0) < 60 } + [now]
+        if crashes.count > 2 {
+            loadError = ProcessCrashed()
+            return
+        }
         reload()
     }
 }

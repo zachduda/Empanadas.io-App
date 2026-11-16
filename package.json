@@ -28,7 +28,12 @@
       "**/*",
       "!test",
       "!scripts",
-      "!ios"
+      "!ios",
+      "!docs",
+      "!dist",
+      "!.github",
+      "!README.md",
+      "!SECURITY.md"
     ],
     "publish": [
       {
@@ -109,7 +114,6 @@
       "include": "build/installer.nsh"
     }
   },
-  "postinstall": "electron-builder install-app-deps",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zachduda/Empanadas.io-App.git"

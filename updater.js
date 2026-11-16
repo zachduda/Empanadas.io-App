@@ -39,6 +39,9 @@ const CONFIG = {
 	firstCheckDelayMs: 8 * 1000,
 	recheckIntervalMs: 6 * 60 * 60 * 1000,
 	requestTimeoutMs: 30 * 1000,
+	// How long a response may go without sending anything before it counts as
+	// stalled. requestTimeoutMs only covers the wait for it to start.
+	stallTimeoutMs: 60 * 1000,
 	manualCheckCooldownMs: 60 * 1000
 };
 
@@ -87,6 +90,10 @@ let busy = false;
 let lastManualCheck = 0;
 let timer = null;
 let declined = null;
+// A download that passed every check and was not installed ("Later"):
+// { version, file, macBundle, stagingDir, size, sha512 }. Offered again by
+// the next check the player asks for, rather than downloaded again.
+let readyUpdate = null;
 
 let windowProvider = () => null;
 
@@ -189,13 +196,38 @@ function request(url, { headers = {}, timeout = CONFIG.requestTimeoutMs } = {}) 
 	});
 }
 
+// Fails a response that stops sending: without it a connection that goes
+// quiet mid-body never ends, and the check it belongs to never finishes.
+// Returns { touch, clear }: touch() on every chunk, clear() once it is over.
+function watchForStall(res, url, onStall, timeout = CONFIG.stallTimeoutMs) {
+	let timer = null;
+	const clear = () => {
+		if (timer) clearTimeout(timer);
+		timer = null;
+	};
+	const touch = () => {
+		clear();
+		timer = setTimeout(() => {
+			timer = null;
+			res.destroy();
+			onStall(new Error('Stalled waiting for ' + url));
+		}, timeout);
+	};
+	touch();
+	return { touch, clear };
+}
+
 async function getText(url, headers) {
 	const res = await request(url, { headers });
 	return new Promise((resolve, reject) => {
 		let body = '';
-		res.on('data', (chunk) => { body += chunk.toString('utf8'); });
-		res.on('end', () => resolve(body));
-		res.on('error', reject);
+		const stall = watchForStall(res, url, reject);
+		res.on('data', (chunk) => {
+			stall.touch();
+			body += chunk.toString('utf8');
+		});
+		res.on('end', () => { stall.clear(); resolve(body); });
+		res.on('error', (err) => { stall.clear(); reject(err); });
 	});
 }
 
@@ -204,17 +236,20 @@ async function getBuffer(url, maxBytes = 64 * 1024) {
 	return new Promise((resolve, reject) => {
 		const chunks = [];
 		let size = 0;
+		const stall = watchForStall(res, url, reject);
 		res.on('data', (chunk) => {
+			stall.touch();
 			size += chunk.length;
 			if (size > maxBytes) {
+				stall.clear();
 				res.destroy();
 				reject(new Error('Response from ' + url + ' is larger than ' + maxBytes + ' bytes'));
 				return;
 			}
 			chunks.push(chunk);
 		});
-		res.on('end', () => resolve(Buffer.concat(chunks)));
-		res.on('error', reject);
+		res.on('end', () => { stall.clear(); resolve(Buffer.concat(chunks)); });
+		res.on('error', (err) => { stall.clear(); reject(err); });
 	});
 }
 
@@ -225,7 +260,7 @@ async function getJson(url) {
 	}));
 }
 
-async function download(url, dest, onProgress, maxBytes = 0) {
+async function download(url, dest, onProgress, maxBytes = 0, stallTimeout = CONFIG.stallTimeoutMs) {
 	const res = await request(url, { headers: { Accept: 'application/octet-stream' } });
 	const total = parseInt(res.headers['content-length'], 10) || 0;
 
@@ -239,12 +274,16 @@ async function download(url, dest, onProgress, maxBytes = 0) {
 
 	await new Promise((resolve, reject) => {
 		const out = fs.createWriteStream(dest);
+		let stall = null;
 		const fail = (err) => {
+			if (stall) stall.clear();
 			out.destroy();
 			reject(err);
 		};
+		stall = watchForStall(res, url, fail, stallTimeout);
 
 		res.on('data', (chunk) => {
+			stall.touch();
 			received += chunk.length;
 			if (maxBytes && received > maxBytes) {
 				res.destroy();
@@ -254,12 +293,20 @@ async function download(url, dest, onProgress, maxBytes = 0) {
 			sha256.update(chunk);
 			sha512.update(chunk);
 			if (!out.write(chunk)) {
+				// The disk is behind, not the network: no stall while paused.
 				res.pause();
-				out.once('drain', () => res.resume());
+				stall.clear();
+				out.once('drain', () => {
+					stall.touch();
+					res.resume();
+				});
 			}
 			if (onProgress && total) onProgress(received / total, received, total);
 		});
-		res.on('end', () => out.end(resolve));
+		res.on('end', () => {
+			stall.clear();
+			out.end(resolve);
+		});
 		res.on('error', fail);
 		out.on('error', fail);
 	});
@@ -440,7 +487,7 @@ async function verifyReleaseSignature(release, asset, file) {
 	}
 
 	const signature = await getBuffer(sigAsset.browser_download_url);
-	const result = pgp.verifyDetachedFile(file, signature, keys);
+	const result = await pgp.verifyDetachedFileAsync(file, signature, keys);
 
 	log('OpenPGP OK: signed by ' + result.key.fingerprint + ' (' + result.hash + ')');
 	return result;
@@ -639,6 +686,86 @@ function cleanCache(keep) {
 	}
 }
 
+// The SHA-512 of a file on disk, base64 as download() reports it.
+function hashFile(file) {
+	return new Promise((resolve, reject) => {
+		const hash = crypto.createHash('sha512');
+		let size = 0;
+		fs.createReadStream(file)
+			.on('data', (chunk) => { size += chunk.length; hash.update(chunk); })
+			.on('end', () => resolve({ size, sha512: hash.digest('base64') }))
+			.on('error', reject);
+	});
+}
+
+// Is the download kept from earlier still the one that was verified? It has
+// sat in a folder the user can write to since then, so it is hashed again and
+// its code signature checked again before anything offers to run it.
+async function readyUpdateStillGood(ready) {
+	try {
+		const now = await hashFile(ready.file);
+		if (now.size !== ready.size || now.sha512 !== ready.sha512) return false;
+		if (ready.macBundle) {
+			if (!fs.existsSync(ready.macBundle)) return false;
+			await verifySignature(ready.macBundle);
+		} else {
+			await verifySignature(ready.file);
+		}
+		return true;
+	} catch (err) {
+		log('the kept download no longer checks out:', err.message);
+		return false;
+	}
+}
+
+function forgetReadyUpdate() {
+	const ready = readyUpdate;
+	readyUpdate = null;
+	if (!ready) return;
+	for (const target of [ready.file, ready.stagingDir]) {
+		if (!target) continue;
+		try {
+			fs.rmSync(target, { recursive: true, force: true });
+		} catch (err) {
+			log('could not delete', target + ':', err.message);
+		}
+	}
+}
+
+// The last step: ask, then hand over to the installer. `ready` is a download
+// that has passed every check. Resolves once the player has answered.
+async function offerInstall(ready) {
+	const latest = ready.version;
+	setState({ status: 'ready', version: latest, progress: 1 });
+
+	const { response } = await showDialog({
+		type: 'info',
+		title: 'Update ready',
+		message: 'Empanadas.io ' + latest + ' is verified and ready to install.',
+		detail: process.platform === 'darwin'
+			? 'The app will close, update itself, and reopen.'
+			: 'The app will close while the installer runs.',
+		buttons: ['Install now', 'Later'],
+		defaultId: 0,
+		cancelId: 1
+	});
+
+	if (response !== 0) {
+		readyUpdate = ready;
+		declined = { version: latest, status: 'ready' };
+		setState({ status: 'ready', version: latest });
+		return;
+	}
+
+	readyUpdate = null;
+	setState({ status: 'installing', version: latest });
+	if (ready.macBundle) {
+		await installMacUpdate(ready.macBundle, ready.stagingDir);
+	} else {
+		await runInstaller(ready.file);
+	}
+}
+
 function isDisabled() {
 	return process.argv.includes('--no-update') || process.env.EMPANADAS_NO_UPDATE === '1';
 }
@@ -771,7 +898,11 @@ async function checkForUpdates({ silent = true } = {}) {
 		if (blocked) {
 			log('update available but not installable here:', blocked);
 			setState({ status: 'available', version: latest });
-			if (!silent) {
+			// Said once a session unasked, or nobody on this platform would
+			// ever hear of a new version; and whenever it is asked for.
+			const told = declined && declined.version === latest;
+			if (!silent || !told) {
+				declined = { version: latest, status: 'available' };
 				const { response } = await showDialog({
 					type: 'info',
 					title: 'Update available',
@@ -791,6 +922,19 @@ async function checkForUpdates({ silent = true } = {}) {
 			log('update ' + latest + ' was declined this session; not asking again');
 			setState({ status: declined.status, version: latest });
 			return state;
+		}
+
+		// Downloaded and verified earlier, then put off: straight to the
+		// install prompt, without fetching it all again.
+		if (readyUpdate && readyUpdate.version !== latest) forgetReadyUpdate();
+		if (readyUpdate) {
+			const ready = readyUpdate;
+			setState({ status: 'verifying', version: latest, progress: 1 });
+			if (await readyUpdateStillGood(ready)) {
+				await offerInstall(ready);
+				return state;
+			}
+			forgetReadyUpdate();
 		}
 
 		const asset = pickAsset(release);
@@ -864,34 +1008,19 @@ async function checkForUpdates({ silent = true } = {}) {
 		}
 
 		// --- install -------------------------------------------------
-		setState({ status: 'ready', version: latest, progress: 1 });
-
-		const { response } = await showDialog({
-			type: 'info',
-			title: 'Update ready',
-			message: 'Empanadas.io ' + latest + ' is verified and ready to install.',
-			detail: process.platform === 'darwin'
-				? 'The app will close, update itself, and reopen.'
-				: 'The app will close while the installer runs.',
-			buttons: ['Install now', 'Later'],
-			defaultId: 0,
-			cancelId: 1
-		});
-
-		if (response !== 0) {
-			declined = { version: latest, status: 'ready' };
-			setState({ status: 'ready', version: latest });
-			return state;
-		}
-
-		setState({ status: 'installing', version: latest });
-		if (macBundle) {
-			const handoff = stagingDir;
-			stagingDir = null;
-			await installMacUpdate(macBundle, handoff);
-		} else {
-			await runInstaller(finalPath);
-		}
+		// From here the files are the kept download's, not this attempt's:
+		// a failure below must not delete what was verified.
+		const ready = {
+			version: latest,
+			file: finalPath,
+			macBundle,
+			stagingDir,
+			size: actual.size,
+			sha512: actual.sha512
+		};
+		downloadPath = null;
+		stagingDir = null;
+		await offerInstall(ready);
 
 		return state;
 	} catch (err) {
@@ -965,5 +1094,6 @@ module.exports = {
 	sha512FromManifest,
 	safeAssetName,
 	isAllowedUrl,
-	download
+	download,
+	hashFile
 };

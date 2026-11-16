@@ -53,9 +53,26 @@ enum LaunchTiming {
 
     /// When it all starts to fade away into the app, and how long that takes:
     /// a moment after everything has landed.
+    /// The first launch plays it through; after that it leaves as soon as
+    /// the logo and the name have settled, half a second sooner. It plays
+    /// on every cold launch, and the app is ready under it well before.
     static func leave(reduceMotion: Bool) -> TimeInterval {
-        reduceMotion ? 1.1 : 1.9
+        if reduceMotion { return 1.1 }
+        return hasLaunchedBefore ? 1.4 : played
     }
+
+    /// When it leaves played through: the first launch, and what a
+    /// LaunchScene drawn by itself goes by (the screenshot tests' frames).
+    static let played: TimeInterval = 1.9
+
+    /// Whether the animation has played on this install before this launch.
+    /// Read, and marked, once.
+    static let hasLaunchedBefore: Bool = {
+        let key = "launch.played"
+        let played = UserDefaults.standard.bool(forKey: key)
+        if !played { UserDefaults.standard.set(true, forKey: key) }
+        return played
+    }()
 
     static func exit(reduceMotion: Bool) -> TimeInterval {
         reduceMotion ? 0.25 : 0.35
@@ -67,7 +84,7 @@ enum LaunchTiming {
 /// tests draw it part way).
 struct LaunchScene: View {
     let elapsed: TimeInterval
-    var leaveAt: TimeInterval = LaunchTiming.leave(reduceMotion: false)
+    var leaveAt: TimeInterval = LaunchTiming.played
     var reduceMotion = false
 
     /// The logo's size on this screen: as wide as the welcome screen's (220

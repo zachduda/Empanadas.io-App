@@ -65,7 +65,7 @@ struct WebScreen: View {
             WebViewContainer(webView: page.webView)
             if let failure {
                 failure
-            } else if !page.hasLoaded {
+            } else if !page.hasContent {
                 ProgressView()
                     .controlSize(.large)
             }
@@ -92,6 +92,13 @@ struct WebScreen: View {
                 title: "Server Error",
                 message: "Empanadas.io had a problem loading this page (error \(server.status)). Try again in a bit.",
                 systemImage: "exclamationmark.icloud"
+            ) { page.reload() }
+        }
+        if error is WebPage.ProcessCrashed {
+            return ConnectionErrorView(
+                title: "This Page Stopped",
+                message: "It closed unexpectedly, more than once. Try again.",
+                systemImage: "exclamationmark.triangle"
             ) { page.reload() }
         }
         if !model.isOnline && (error != nil || !page.hasLoaded) {

@@ -208,10 +208,22 @@ check('the updater still requires a hash and a signature', () => {
 
 check('the updater verifies a release signature before installing', () => {
 	assert(/verifyReleaseSignature\(/.test(updaterSrc), 'no OpenPGP verification call');
+	// The install step is offerInstall(), and nothing else: a fresh download
+	// reaches it after the signature check, and one kept from earlier after
+	// being checked again (readyUpdateStillGood).
 	const order = updaterSrc.indexOf('await verifyReleaseSignature');
-	const install = updaterSrc.indexOf('setState({ status: \'installing\'');
+	const install = updaterSrc.lastIndexOf('await offerInstall(ready)');
 	assert(order > 0 && install > order,
 		'the signature check does not run before the install step');
+	assert(updaterSrc.split('await offerInstall(').length === 3,
+		'offerInstall() is called from somewhere this check does not know');
+	const kept = updaterSrc.indexOf('await readyUpdateStillGood(ready)');
+	assert(kept > 0 && updaterSrc.indexOf('await offerInstall(ready)') > kept,
+		'a kept download is offered without being checked again');
+	const body = updaterSrc.slice(updaterSrc.indexOf('async function offerInstall('));
+	const installing = updaterSrc.split("status: 'installing'").length - 1;
+	assert(installing === 1 && body.indexOf("status: 'installing'") > 0,
+		'something other than offerInstall() starts an install');
 });
 
 // --- release signing status -------------------------------------------
@@ -378,6 +390,15 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'urls.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/urls.js test suite failed');
+}
+
+// --- window placement -------------------------------------------------
+console.log('window placement');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'windowstate.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/windowstate.js test suite failed');
 }
 
 // --- offline games ----------------------------------------------------

@@ -1,3 +1,4 @@
+import UIKit
 import WebKit
 
 /// How every web view in the app is set up. All of them share the default
@@ -46,6 +47,11 @@ enum WebEnvironment {
         return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
     }()
 
+    /// The user agent as last read, and the iOS and app versions it was read
+    /// under (readUserAgent).
+    private static let userAgentKey = "web.userAgent"
+    private static let userAgentStampKey = "web.userAgent.stamp"
+
     /// The one read of the user agent, shared by every request that asks
     /// for it, including those that ask while it is still on its way.
     private static var userAgentRead: Task<String, Never>?
@@ -58,9 +64,25 @@ enum WebEnvironment {
     @discardableResult
     static func readUserAgent() -> Task<String, Never> {
         if let userAgentRead { return userAgentRead }
+        // The one read last time, while it is still the one a web view would
+        // give: it only changes with iOS or with the app (its suffix). That
+        // spares making a web view, and starting its processes, at every
+        // launch, before anything needs one.
+        let defaults = UserDefaults.standard
+        let stamp = UIDevice.current.systemVersion + " " + AppConfig.userAgentSuffix
+        if defaults.string(forKey: userAgentStampKey) == stamp,
+           let saved = defaults.string(forKey: userAgentKey), !saved.isEmpty {
+            let read = Task { saved }
+            userAgentRead = read
+            return read
+        }
         let probe = WKWebView(frame: .zero, configuration: makeConfiguration())
         let read = Task {
             let agent = (try? await probe.evaluateJavaScript("navigator.userAgent")) as? String
+            if let agent, !agent.isEmpty {
+                UserDefaults.standard.set(agent, forKey: userAgentKey)
+                UserDefaults.standard.set(stamp, forKey: userAgentStampKey)
+            }
             return agent ?? "Mozilla/5.0 (iPhone; CPU iPhone OS like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 \(AppConfig.userAgentSuffix)"
         }
         userAgentRead = read
