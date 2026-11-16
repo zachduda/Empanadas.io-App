@@ -52,8 +52,9 @@ struct ProfileView: View {
         .toolbar { toolbar }
         .refreshable { await profile.load(app: model) }
         // Each time it comes back on screen (from a profile picture change,
-        // a friend's profile), unless it is fresh.
-        .task { await profile.load(app: model, maxAge: 15) }
+        // a friend's profile), unless it is fresh. Someone else's, read
+        // earlier this session, shows at once and is good for a minute.
+        .task { await profile.load(app: model, maxAge: profile.id == nil ? 15 : CacheAge.profile) }
         .onChange(of: model.isOnline) { _, online in
             if online { Task { await profile.load(app: model) } }
         }

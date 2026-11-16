@@ -108,8 +108,9 @@ final class AppModel {
     /// The connection has been heard from since launch: until then isOnline
     /// is a guess.
     @ObservationIgnored private var knowsConnection = false
-    /// Low Data Mode is on for the current connection.
-    @ObservationIgnored private var isLowDataMode = false
+    /// Low Data Mode is on for the current connection: the screens stop
+    /// refreshing by themselves (pulling down still asks).
+    @ObservationIgnored private(set) var isLowDataMode = false
 
     /// `account`: the screenshot tests give it one that answers for the site.
     init(account: AccountAPI? = nil) {
@@ -202,6 +203,7 @@ final class AppModel {
             dashboard.reset()
             leaderboard.reset()
             settings.reset()
+            ProfileCache.clear()
             updates.reset()
             gameCenter.reset()
             lastPlayed = [:]
@@ -249,10 +251,35 @@ final class AppModel {
     /// loads, but that may be days away, and the theme can be changed on the
     /// website too: until then the app was light while every site page in
     /// it was dark, or the other way round.
-    func refreshTheme() async {
-        guard session == .signedIn, isOnline else { return }
-        guard let snapshot = try? await account.snapshot(), session == .signedIn else { return }
+    ///
+    /// Not when the account was read within `maxAge` seconds: every return
+    /// to the app (from the system browser, a glance at a notification) asked
+    /// for the whole account again. The answer is Settings' too, so the tab
+    /// does not ask for its own a moment later.
+    func refreshTheme(maxAge: TimeInterval = 0) async {
+        guard session == .signedIn, isOnline, !settings.isFresh(maxAge) else { return }
+        // Signed out meanwhile, and perhaps in again: not this account's.
+        let generation = OfflineStore.generation
+        guard let snapshot = try? await account.snapshot(),
+              session == .signedIn, generation == OfflineStore.generation else { return }
+        settings.adopt(snapshot)
         if theme != snapshot.settings.theme { theme = snapshot.settings.theme }
+    }
+
+    /// The player has been to the site's picture page: their picture may be
+    /// a new one at the same address, so the copies kept are let go
+    /// (ImageStore) and the screens that show it read again.
+    func pictureMayHaveChanged() {
+        guard session == .signedIn else { return }
+        let own = [dashboard.data?.pictureURL, settings.snapshot?.pictureURL,
+                   SiteURLs.resolve(settings.snapshot?.account.pfpSmall),
+                   OfflineStore.load(PlayerProfile.self, .profile)?.value.player.pictureURL]
+        ImageStore.shared.forget(own.compactMap { $0 })
+        Task {
+            guard session == .signedIn, isOnline else { return }
+            await dashboard.reload(app: self)
+            await refreshTheme()
+        }
     }
 
     // MARK: - Navigation
@@ -310,6 +337,8 @@ final class AppModel {
     /// A friend was added, accepted or let go: the dashboard's friends card
     /// and counts should say so.
     func friendsChanged() {
+        // Every profile kept says where the player stands with its owner.
+        ProfileCache.clear()
         Task {
             guard session == .signedIn, isOnline else { return }
             await dashboard.reload(app: self)

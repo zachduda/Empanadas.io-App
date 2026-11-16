@@ -296,19 +296,38 @@ final class AccountAPI {
     /// GET /v2/ios/feedback.php: the Send Feedback form, with the session's
     /// token. A site without the endpoint yet gets the web form's subjects
     /// (FeedbackForm.builtIn) and a token from the account endpoint.
+    ///
+    /// The form is kept for a few minutes (CacheAge.feedbackForm), so opening
+    /// it again (Report a Problem from a game, then from Settings) asks
+    /// nothing: it only changes when the site's subjects or the player's
+    /// address do. The token it goes back with is the session's, which a send
+    /// renews by itself when the site has moved on (withToken).
     func feedbackForm() async throws -> FeedbackForm {
-        let (data, response) = try await send(URLRequest(url: SiteURLs.iosFeedback))
-        let reply = Self.iosReply(data)
-        if response.statusCode == 404 && reply == nil {
-            var form = FeedbackForm.builtIn
-            form.csrf = try await snapshot().csrf
+        if let kept = keptForm, let token, !token.isEmpty,
+           Date().timeIntervalSince(kept.at) < CacheAge.feedbackForm {
+            var form = kept.form
+            form.csrf = token
             return form
         }
-        let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
-        let form = try Self.decode(FeedbackForm.self, body)
-        remember(form.csrf)
+        // Signed out while it was on its way: not the next account's form.
+        let generation = OfflineStore.generation
+        let (data, response) = try await send(URLRequest(url: SiteURLs.iosFeedback))
+        let reply = Self.iosReply(data)
+        var form: FeedbackForm
+        if response.statusCode == 404 && reply == nil {
+            form = FeedbackForm.builtIn
+            form.csrf = try await snapshot().csrf
+        } else {
+            let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
+            form = try Self.decode(FeedbackForm.self, body)
+            remember(form.csrf)
+        }
+        if generation == OfflineStore.generation { keptForm = (form, Date()) }
         return form
     }
+
+    /// The Send Feedback form as last read, and when.
+    private var keptForm: (form: FeedbackForm, at: Date)?
 
     /// Sends feedback (account_change=feedback), as the web form's
     /// feedback.js does: the subject's code, the message, and whether a
@@ -408,6 +427,7 @@ final class AccountAPI {
     /// Local storage is left alone: it holds the games' saves.
     func forgetSession() async {
         token = nil
+        keptForm = nil
         for cookie in await cookieStore.allCookies() where Self.isAccountCookie(cookie) {
             await cookieStore.deleteCookie(cookie)
         }
@@ -423,6 +443,7 @@ final class AccountAPI {
 
     func forgetToken() {
         token = nil
+        keptForm = nil
     }
 
     /// Runs a change with the session's token: the one last seen, else a
