@@ -94,6 +94,7 @@ report-only tells you which without breaking anyone.
 | `localStorage` on the splash page | `AppID`, a random UUID generated on first run and passed to the dashboard as `&appid=` | No |
 | `%APPDATA%\empanadas.io` (Windows) / `~/Library/Application Support/empanadas.io` (macOS) | Chromium profile: cookies, localStorage for empanadas.io, cache | No |
 | `<userData>/updates` | A downloaded installer, deleted once installed or once verification fails | No |
+| `<userData>/background.json` | `{ "enabled": true/false }`, the Keep Spinning When Closed setting (off unless set) | No |
 
 `build.nsis.deleteAppDataOnUninstall` is **false** on purpose: uninstalling
 keeps settings so a reinstall picks up where the user left off. The trade-off is
@@ -113,3 +114,4 @@ coverage than exists.
 | Navigation, window and permission guards in `main.js` | Logic reviewed and unit-checked; **not** exercised in a running Electron window |
 | Windows update flow end to end | Unchanged in shape from the working 1.10.8 flow, but the download path, cache location and OpenPGP step are new |
 | macOS update flow (`ditto`, `codesign`, `spctl`, bundle swap) | **Never run.** Written from the documented behaviour of those tools |
+| Keep Spinning When Closed (`lib/background.js`, tray, priority) | Rules unit-tested — `test/background.test.js`. The hand-off, the minute's save and reopening were run end to end in Electron 45 on Linux against a stand-in site, posing as Windows. **Not yet run** on real Windows or macOS: the tray icon and menu-bar count, the Mac relaunch on reopening, and suspend/resume |

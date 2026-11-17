@@ -1,5 +1,6 @@
-const {app, BrowserWindow, dialog, ipcMain, Menu, net, screen, shell, session, systemPreferences} = require('electron');
+const {app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, Notification, powerMonitor, screen, shell, session, systemPreferences, Tray} = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const updater = require('./updater');
 const isMac = process.platform === 'darwin';
@@ -11,6 +12,7 @@ const {
 } = require('./lib/urls');
 const offline = require('./lib/offline');
 const windowState = require('./lib/windowstate');
+const background = require('./lib/background');
 
 const SPLASH_URL = require('url').pathToFileURL(path.join(__dirname, 'download.html')).href;
 
@@ -46,6 +48,18 @@ if (isMac) systemPreferences.removeUserDefault('NSFullScreenMenuItemEverywhere')
 
 let win;
 
+// Keep Spinning When Closed (lib/background.js). bg is set while the app is in
+// the tray with the game closed: { tray, runner, leaving }.
+let bg = null;
+let backgroundSettings = null;
+let handingOff = false;
+let quitting = false;
+// Windows that are to close the ordinary way, without going to the tray.
+const closingForReal = new WeakSet();
+// A Mac cannot raise a process's priority back once it has lowered it, so it
+// starts again instead, and this tells the new one to open the Spin Game.
+const OPEN_SPIN_ARG = '--open-spin-game';
+
 app.enableSandbox();
 
 if (process.defaultApp) {
@@ -69,6 +83,13 @@ function handleDeepLink(url) {
 
 	if (isAuthDeepLink(url)) {
 		finishBrowserSignIn(url);
+		return;
+	}
+
+	// In the tray: the game opens again, and gets the link once it has loaded.
+	if (bg) {
+		pendingDeepLink = url;
+		leaveBackground({ open: true });
 		return;
 	}
 
@@ -118,6 +139,11 @@ if (!gotTheLock) {
 	app.quit()
 	} else {
 	  app.on('second-instance', (event, commandLine, workingDirectory) => {
+		// Launched again while spinning in the tray: open the game.
+		if (bg && !commandLine.some((arg) => typeof arg === 'string' && arg.startsWith('empanadas-io:'))) {
+			leaveBackground({ open: true });
+			return;
+		}
 		if (win) {
 		  if (win.isMinimized()) win.restore()
 		  win.focus()
@@ -513,7 +539,8 @@ const WINDOW_BACKGROUND = '#1e1e91';
 
 const WINDOW_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json');
 
-function createDefaultWindow() {
+// startUrl: a page on the site to open instead of the splash.
+function createDefaultWindow(startUrl) {
 	// Where and how big it was last time, if that still fits a display that
 	// is plugged in; and never wider or taller than the display, least of all
 	// its minimum size (975 wide is more than a 1366x768 laptop at 150% has).
@@ -563,11 +590,22 @@ function createDefaultWindow() {
   
   if (placed.maximized) win.maximize();
 
-  win.on('close', () => {
-	if (!win || win.isDestroyed()) return;
-	windowState.save(WINDOW_STATE_FILE(), Object.assign({}, win.getNormalBounds(), {
-		maximized: win.isMaximized()
+  const self = win;
+  self.on('close', (event) => {
+	const w = self;
+	if (w.isDestroyed()) return;
+	// Clicked again while the game is being handed to the tray.
+	if (handingOff) {
+		event.preventDefault();
+		return;
+	}
+	windowState.save(WINDOW_STATE_FILE(), Object.assign({}, w.getNormalBounds(), {
+		maximized: w.isMaximized()
 	}));
+	if (shouldKeepSpinning(w)) {
+		event.preventDefault();
+		handOffToBackground(w);
+	}
   });
 
   win.on('closed', () => {
@@ -605,7 +643,12 @@ function createDefaultWindow() {
 	showSplash(url);
   })
 
-  win.loadFile('download.html')
+  if (startUrl && isAppUrl(startUrl)) {
+	// A failure is handled by did-fail-load, which brings the splash back.
+	win.loadURL(startUrl).catch(() => {});
+  } else {
+	win.loadFile('download.html')
+  }
   //win.webContents.openDevTools();
   return win;
 }
@@ -657,6 +700,253 @@ function watchForCrashes(w) {
 			asking = false;
 		}
 	});
+}
+
+// --- Keep Spinning When Closed ------------------------------------------
+// lib/background.js has the rules; this is the Electron half: the hand-over
+// from the page, the save requests, the tray, and the process priority.
+
+function backgroundAvailable() {
+	return background.supported(process.platform) && !!backgroundSettings;
+}
+
+function backgroundStatus() {
+	const available = backgroundAvailable();
+	return { available, enabled: available && backgroundSettings.enabled() };
+}
+
+function setBackgroundEnabled(value) {
+	if (!backgroundAvailable()) return backgroundStatus();
+	backgroundSettings.set(value === true);
+	buildAppMenu();
+	return backgroundStatus();
+}
+
+function shouldKeepSpinning(w) {
+	return backgroundStatus().enabled && !quitting && !bg && !closingForReal.has(w) &&
+		offline.gameOf(w.webContents.getURL()) === 'spin';
+}
+
+function withTimeout(promise, ms) {
+	let timer;
+	return Promise.race([
+		promise,
+		new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); })
+	]).finally(() => clearTimeout(timer));
+}
+
+// window.spinBackgroundHandoff() and spinBackgroundResume() are the Spin
+// Game's (_spin.js in the Empanadas-io repo). A game from before them answers
+// null, and closes as it always has.
+const HANDOFF_SCRIPT = "typeof window.spinBackgroundHandoff === 'function' ? window.spinBackgroundHandoff() : null";
+const RESUME_SCRIPT = "typeof window.spinBackgroundResume === 'function' ? window.spinBackgroundResume() : null";
+
+// One save to updatedata.php, with the window's cookies and user agent (the
+// site ties a session to the browser that signed in). Resolves { status, body }
+// or null for no answer.
+function postSave(fields, userAgent) {
+	return new Promise((resolve) => {
+		let done = false;
+		let timer = null;
+		const finish = (value) => {
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			resolve(value);
+		};
+		let req;
+		try {
+			req = net.request({
+				method: 'POST',
+				url: offline.SITE + '/v2/updatedata.php',
+				session: session.defaultSession,
+				useSessionCookies: true,
+				origin: offline.SITE,
+				redirect: 'error',
+				cache: 'no-store'
+			});
+			req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+			if (userAgent) req.setHeader('User-Agent', userAgent);
+		} catch (err) {
+			finish(null);
+			return;
+		}
+		timer = setTimeout(() => {
+			try { req.abort(); } catch (err) { /* already over */ }
+			finish(null);
+		}, 20 * 1000);
+		req.on('response', (res) => {
+			const chunks = [];
+			let size = 0;
+			res.on('data', (chunk) => {
+				size += chunk.length;
+				if (size <= 256 * 1024) chunks.push(chunk);
+			});
+			res.on('end', () => finish({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+			res.on('error', () => finish(null));
+		});
+		req.on('error', () => finish(null));
+		req.on('abort', () => finish(null));
+		req.end(background.formBody(fields));
+	});
+}
+
+// Closing the Spin Game with the setting on. The page hands over its game and
+// stops; that save is posted, and only once it has landed does the window go
+// and the tray take over. Anything else (an older game, nothing for Auto
+// Spinners to do, offline, a refused save) closes the window as before.
+async function handOffToBackground(w) {
+	handingOff = true;
+	let started = false;
+	try {
+		const handoff = background.cleanHandoff(
+			await withTimeout(w.webContents.executeJavaScript(HANDOFF_SCRIPT, true).catch(() => null), 3000));
+		if (handoff && net.isOnline() && !w.isDestroyed()) {
+			const userAgent = w.webContents.getUserAgent();
+			const first = background.judgeReply(await postSave(background.saveFields(handoff.save), userAgent));
+			if (first.action === 'ok' && !w.isDestroyed() && !quitting) {
+				startBackground(handoff, userAgent);
+				started = true;
+				w.destroy();
+			} else {
+				console.warn('[background] the game was not handed over: ' + (first.why || first.action));
+			}
+		}
+		if (!started && handoff && !w.isDestroyed()) {
+			// The page saves what it has as it closes, as it always has.
+			await withTimeout(w.webContents.executeJavaScript(RESUME_SCRIPT, true).catch(() => null), 1000);
+		}
+	} catch (err) {
+		console.warn('[background] ' + err.message);
+	} finally {
+		handingOff = false;
+	}
+	if (!started && !w.isDestroyed()) {
+		closingForReal.add(w);
+		w.close();
+	}
+}
+
+function trayIcon() {
+	const source = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
+	const icon = source.resize({ width: 16, height: 16, quality: 'best' });
+	icon.addRepresentation({
+		scaleFactor: 2,
+		buffer: source.resize({ width: 32, height: 32, quality: 'best' }).toPNG()
+	});
+	return icon;
+}
+
+function drawTray(view) {
+	if (!bg || !bg.tray || bg.tray.isDestroyed()) return;
+	const spins = background.spinsLabel(view.spins);
+	const status = background.statusLabel(view);
+	bg.tray.setToolTip('Empanadas.io: ' + spins + '\n' + status);
+	if (isMac) bg.tray.setTitle(background.addCommas(view.spins), { fontType: 'monospacedDigit' });
+	bg.tray.setContextMenu(Menu.buildFromTemplate([
+		{ label: spins, enabled: false },
+		{ label: status, enabled: false },
+		{ type: 'separator' },
+		{ label: 'Open Spin Game', click: () => leaveBackground({ open: true }) },
+		{ label: 'Quit Empanadas.io', click: () => leaveBackground({ quit: true }) }
+	]));
+}
+
+// The app's own processes (this one, the GPU and network helpers) at the
+// lowest priority while in the tray, and back to normal after. Returns false
+// when one could not be put back: a Mac only lets a process be made less
+// important, never more, without admin rights.
+function setAppPriority(priority) {
+	let ok = true;
+	const pids = new Set([process.pid]);
+	try {
+		for (const metric of app.getAppMetrics()) if (metric && metric.pid) pids.add(metric.pid);
+	} catch (err) {
+		// The main process alone, then.
+	}
+	for (const pid of pids) {
+		try {
+			os.setPriority(pid, priority);
+		} catch (err) {
+			// A process that has just ended does not count.
+			if (err && err.code !== 'ESRCH') ok = false;
+		}
+	}
+	return ok;
+}
+
+function startBackground(handoff, userAgent) {
+	bg = { tray: new Tray(trayIcon()), runner: null, leaving: false };
+	if (!isMac) {
+		// Windows: a click on the tray icon opens the game; right-click is the menu.
+		bg.tray.on('click', () => leaveBackground({ open: true }));
+	}
+	bg.runner = background.createRunner(handoff, {
+		post: (fields) => postSave(fields, userAgent),
+		wall: () => Date.now(),
+		mono: () => performance.now(),
+		load: background.createLoadMeter(process.platform),
+		online: () => net.isOnline(),
+		onChange: drawTray,
+		onStop: (why) => {
+			if (why === 'won') notifyPrestige();
+		},
+		onOverload: () => {
+			console.warn('[background] the computer has been busy too long: saving and quitting');
+			leaveBackground({ quit: true });
+		}
+	});
+	// Nothing else runs while in the tray: no update checks (a download is
+	// the heaviest thing the app does), and the lowest priority there is.
+	updater.stop();
+	setAppPriority(os.constants.priority.PRIORITY_LOW);
+	if (isMac && app.dock) app.dock.hide();
+}
+
+function notifyPrestige() {
+	try {
+		if (!Notification.isSupported()) return;
+		const note = new Notification({
+			title: 'Ready to Prestige!',
+			body: 'Your Auto Spinners reached 100,000 Spins. Open the Spin Game to Prestige.'
+		});
+		note.on('click', () => leaveBackground({ open: true }));
+		note.show();
+	} catch (err) {
+		// The tray says so too.
+	}
+}
+
+// Out of the tray: { open: true } brings the Spin Game back, { quit: true }
+// quits. Either way what has built up since the last save is saved first, so
+// the game opens to the spins the tray showed.
+async function leaveBackground(opts) {
+	if (!bg || bg.leaving) return;
+	const b = bg;
+	b.leaving = true;
+	try {
+		await withTimeout(b.runner.flush(), opts.quit ? 5000 : 10000);
+	} catch (err) {
+		// At most a minute of spins.
+	}
+	b.runner.stop();
+	if (!b.tray.isDestroyed()) b.tray.destroy();
+	bg = null;
+
+	if (opts.quit) {
+		quitting = true;
+		app.quit();
+		return;
+	}
+	if (!setAppPriority(os.constants.priority.PRIORITY_NORMAL)) {
+		const args = process.argv.slice(1).filter((arg) => arg !== OPEN_SPIN_ARG);
+		app.relaunch({ args: args.concat([OPEN_SPIN_ARG]) });
+		app.exit(0);
+		return;
+	}
+	if (isMac && app.dock) app.dock.show();
+	updater.start();
+	createDefaultWindow(offline.gameUrl('spin'));
 }
 
 // The main window, or null once it is closed (macOS keeps the app running).
@@ -722,6 +1012,9 @@ function registerIpcHandlers() {
 		return true;
 	});
 	handle('app-home', () => goToDashboard());
+
+	handle('background-status', () => backgroundStatus());
+	handle('background-set', (value) => setBackgroundEnabled(value === true));
 }
 
 function buildAppMenu() {
@@ -742,6 +1035,15 @@ function buildAppMenu() {
 				{
 					label: 'Check for Updates…',
 					click: () => updater.checkFromRenderer()
+				},
+				{ type: 'separator' },
+				{
+					// The same setting as the switch in the Spin Game's settings.
+					label: 'Keep Spinning When Closed',
+					type: 'checkbox',
+					checked: backgroundStatus().enabled,
+					enabled: backgroundAvailable(),
+					click: (item) => setBackgroundEnabled(item.checked)
 				},
 				{ type: 'separator' },
 				{ role: 'services' },
@@ -834,18 +1136,27 @@ function buildAppMenu() {
 app.on('ready', function()  {
   if (!gotTheLock) return;
   offlineStore = offline.createStore(path.join(app.getPath('userData'), 'offline.json'));
+  backgroundSettings = background.createSettings(path.join(app.getPath('userData'), 'background.json'));
   lockDownPermissions();
   useBrowserUserAgentForAuth();
   watchResponses();
   registerIpcHandlers();
   buildAppMenu();
-  createDefaultWindow();
+  // Back from the tray on a Mac, which starts the app again (leaveBackground()).
+  createDefaultWindow(process.argv.includes(OPEN_SPIN_ARG) ? offline.gameUrl('spin') : undefined);
   updater.setWindowProvider(() => win);
   updater.start();
+  // Asleep is not playing: no spins for the night a laptop spent shut.
+  powerMonitor.on('suspend', () => { if (bg) bg.runner.pause(); });
+  powerMonitor.on('resume', () => { if (bg) bg.runner.resume(); });
 });
 
 app.on('activate', () => {
   if (!gotTheLock || !app.isReady()) return;
+  if (bg) {
+	  leaveBackground({ open: true });
+	  return;
+  }
   if (!win || win.isDestroyed()) {
 	  createDefaultWindow();
   } else {
@@ -853,8 +1164,20 @@ app.on('activate', () => {
   }
 });
 
+// Quitting from the tray, or Cmd+Q with the game in the menu bar: what the
+// Auto Spinners made since the last save goes first (leaveBackground()).
+app.on('before-quit', (event) => {
+  if (bg && !bg.leaving) {
+	  event.preventDefault();
+	  leaveBackground({ quit: true });
+	  return;
+  }
+  quitting = true;
+});
+
 app.on('window-all-closed', () => {
-  if (!isMac) {
+  // Not while the game is in the tray, or on its way there.
+  if (!isMac && !bg && !handingOff) {
 	  app.quit();
   }
 });

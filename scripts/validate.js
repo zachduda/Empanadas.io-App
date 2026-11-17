@@ -33,7 +33,7 @@ function assert(condition, message) {
 // ever parse them.
 console.log('syntax');
 
-const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/offline.js',
+const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/offline.js', 'lib/background.js',
 	'Content/JS/preload.js', 'Content/JS/auth-preload.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js'];
 
@@ -143,7 +143,7 @@ check('signing out deletes the stored games', () => {
 check('the window zoom is set where Electron reads it', () => {
 	// zoomFactor is a webPreferences option. On the window options it is
 	// silently ignored, which is where it sat while every page drew at 100%.
-	const start = mainSrc.indexOf('function createDefaultWindow()');
+	const start = mainSrc.search(/function createDefaultWindow\([^)]*\)/);
 	assert(start >= 0, 'createDefaultWindow() is gone from main.js');
 	const body = mainSrc.slice(start, mainSrc.indexOf('\n}\n', start));
 	const prefs = body.slice(body.indexOf('webPreferences: {'), body.indexOf('\n\t},', body.indexOf('webPreferences: {')));
@@ -408,6 +408,15 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'offline.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/offline.js test suite failed');
+}
+
+// --- keep spinning when closed ----------------------------------------
+console.log('background spins');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'background.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/background.js test suite failed');
 }
 
 // --- iOS bridge -------------------------------------------------------
