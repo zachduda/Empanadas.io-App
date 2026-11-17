@@ -38,6 +38,14 @@ contextBridge.exposeInMainWorld('electronWindow', {
     status: () => ipcRenderer.invoke('offline-status'),
     play: (game) => ipcRenderer.invoke('offline-play', String(game)),
   },
+  // Keep Spinning When Closed (lib/background.js). status() and set(enabled)
+  // resolve { available, enabled }: available is false where the app has no
+  // tray to go to. With it on, closing the window during the Spin Game hands
+  // the game to the tray through window.spinBackgroundHandoff().
+  background: {
+    status: () => ipcRenderer.invoke('background-status'),
+    set: (enabled) => ipcRenderer.invoke('background-set', enabled === true),
+  },
 });
 
 // Read-only view of the updater. Deliberately no "install" here: the page is
