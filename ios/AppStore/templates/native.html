@@ -8,13 +8,14 @@
   The app's native screens, drawn in HTML for the App Store screenshots:
   Home (HomeView.swift), Home scrolled to Spin Progress and Friends, the
   Games tab (GamesView.swift; on iPad with a card's menu open, GameMenu.swift),
-  the Leaderboard (LeaderboardView.swift), and the Home Screen widgets
+  the Leaderboard (LeaderboardView.swift), Manage Game Data
+  (SavePointsView.swift), and the Home Screen widgets
   (EmpanadasWidget/GamesWidget.swift), with demo data. Sizes, colours and
   wording follow the SwiftUI code and Palette in Components.swift. Rendered by
   render.mjs at 440x956 (iPhone 6.9") and 1032x1376 (iPad 13"); the widgets
   on their own, on a clear background, for the screenshot to float.
 
-  ?screen=home|friends|games|leaderboard|widgets  &device=phone|pad
+  ?screen=home|friends|games|leaderboard|savepoints|widgets  &device=phone|pad
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block" rel="stylesheet">
@@ -182,6 +183,47 @@
   .sum small { font-size: 12px; color: var(--secondary); }
   .sum .gain { text-align: right; }
   .sum .gain b { font-size: 17px; font-weight: 600; color: var(--flappy); }
+  /* Spin Progress's footer: Manage Game Data (SpinChartCard.manageSavesFooter),
+     side by side where they fit, the button under the question where not */
+  .divider { height: 0.5px; background: var(--separator); }
+  .saves { display: flex; align-items: center; gap: 12px; }
+  .saves span { font-size: 15px; color: var(--secondary); white-space: nowrap; }
+  .saves .btn { margin-left: auto; font-size: 15px; font-weight: 600; color: #1F8FE0; background: rgba(79,185,255,0.16);
+    padding: 7px 14px; border-radius: 99px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .saves.stacked { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .saves.stacked .btn { margin-left: 0; }
+  .peppers { flex-direction: row; align-items: flex-start; }
+  .peppers .badge { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: 17px; flex: none; }
+  .peppers b { font-size: 17px; font-weight: 600; display: block; line-height: 22px; }
+  .peppers p { font-size: 15px; color: var(--secondary); line-height: 20px; margin-top: 4px; }
+
+  /* Manage Game Data: an inset grouped list under an inline title */
+  .back { position: absolute; left: 16px; bottom: 6px; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center;
+    font-size: 19px; color: #1c1c1e; background: rgba(255,255,255,0.72); backdrop-filter: blur(10px);
+    box-shadow: 0 1px 6px rgba(0,0,0,0.08), inset 0 0 0 0.5px rgba(0,0,0,0.06); }
+  .pad .back { left: 24px; bottom: auto; top: 41px; }
+  /* With the tabs on top, the inline title sits beside the back button, on their line */
+  .pad .nav.inline .bar .title { position: absolute; left: 80px; top: 41px; line-height: 44px; }
+  .gd .group { background: var(--card); border-radius: 26px; overflow: hidden; margin-bottom: 22px; }
+  .gd .cell { padding: 12px 16px; position: relative; }
+  .gd .cell + .cell::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; height: 0.5px; background: var(--separator); }
+  .gd .intro { font-size: 15px; line-height: 20px; color: var(--secondary); }
+  .gd .sechead { padding-left: 16px; }
+  .gd .secfoot { padding: 0 16px; margin: -15px 0 22px; line-height: 18px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 8px; }
+  .stats small { display: block; font-size: 11px; line-height: 13px; color: var(--secondary); white-space: nowrap; }
+  .stats b { font-size: 15px; font-weight: 600; line-height: 20px; font-variant-numeric: tabular-nums; display: flex; gap: 3px; align-items: center; }
+  .stats b.kept { color: var(--secondary); }
+  .stats .ico { font-size: 8px; }
+  .sp { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+  .sp .when { display: flex; align-items: baseline; gap: 8px; }
+  .sp .when b { display: block; font-size: 15px; font-weight: 600; line-height: 20px; }
+  .sp .when small { font-size: 12px; color: var(--secondary); }
+  .sp .restore { margin-left: auto; font-size: 15px; font-weight: 600; color: var(--accent); display: flex; gap: 8px; align-items: center; }
+  .sp .restore .ico { font-size: 11px; color: var(--tertiary); }
+  .tag { align-self: flex-start; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; color: var(--secondary); background: rgba(60,60,67,0.08); }
+  .pad .gd { max-width: 720px; margin: 0 auto; }  /* readableListWidth() */
+
   .xp { display: flex; gap: 8px; font-size: 20px; font-weight: 600; align-items: center; }
   .xp .e { font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
 
@@ -319,7 +361,7 @@ const statusBar = () => device === 'phone'
       ${wifi}
       <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="3.8" fill="none" stroke="#000" stroke-opacity=".38"/><rect x="2" y="2" width="21" height="9" rx="2.5"/><path d="M26 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill-opacity=".45"/></svg>
     </span></div>`
-  : `<div class="status"><span>9:41<span class="date">Mon Oct 12</span></span><span class="right">
+  : `<div class="status"><span>9:41<span class="date">Mon Nov 16</span></span><span class="right">
       ${wifi}
       <span style="font-size:13px">100%</span>
       <svg width="28" height="13" viewBox="0 0 28 13"><rect x="0.5" y="0.5" width="24" height="12" rx="3.8" fill="none" stroke="#000" stroke-opacity=".38"/><rect x="2" y="2" width="21" height="9" rx="2.5"/><path d="M26 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill-opacity=".45"/></svg>
@@ -332,9 +374,10 @@ const tabs = active => {
 };
 
 // trailing: the toolbar's items on the right, which share one glass capsule.
-const nav = (title, { inline = false, trailing = '' } = {}) => `
+// back: the back button on the left, a glass circle of its own.
+const nav = (title, { inline = false, trailing = '', back = false } = {}) => `
   <div class="nav ${inline ? 'inline' : ''}">
-    <div class="bar">${inline ? `<span class="title">${title}</span>` : ''}${trailing ? `<div class="glass">${trailing}</div>` : ''}</div>
+    <div class="bar">${back ? `<span class="back">${icon('back')}</span>` : ''}${inline ? `<span class="title">${title}</span>` : ''}${trailing ? `<div class="glass">${trailing}</div>` : ''}</div>
     ${inline ? '' : `<h1>${title}</h1>`}
   </div>`;
 
@@ -367,7 +410,6 @@ const tiles = () => `<div class="balanced tiles" data-min="165" data-gap="12">
   ${tile('Flappy Best', 189, 'bird', 'var(--flappy)')}
   ${tile('Tower Best', 31, 'stack', 'var(--tower)')}
   ${tile('Friends Online', 4, 'friends', 'var(--friends)', '/12')}
-  ${tile('Pumpkins', 27, '', 'var(--pumpkin)', '', '🎃')}
 </div>`;
 
 const gameCards = () => `<div class="balanced cards" data-min="250" data-gap="16">
@@ -391,7 +433,7 @@ function spinChart(W) {
     <text x="${W - 62}" y="${y(v) + 4}" font-size="11" fill="rgba(60,60,67,.6)">${(v / 1000).toFixed(1).replace('.0', '')}K</text>`).join('');
   // AxisMarks(preset: .aligned): each date starts at its day's line, so the
   // first isn't cut off at the edge.
-  const labels = ['Sep 13', 'Sep 20', 'Sep 27', 'Oct 4', 'Oct 11'].map((t, i) => `<line x1="${x(i * 7)}" x2="${x(i * 7)}" y1="0" y2="${H - 26}" stroke="rgba(60,60,67,.1)"/>
+  const labels = ['Oct 18', 'Oct 25', 'Nov 1', 'Nov 8', 'Nov 15'].map((t, i) => `<line x1="${x(i * 7)}" x2="${x(i * 7)}" y1="0" y2="${H - 26}" stroke="rgba(60,60,67,.1)"/>
     <text x="${x(i * 7) + 2}" y="${H}" font-size="11" fill="rgba(60,60,67,.6)">${t}</text>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}">
     <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4FB9FF" stop-opacity=".38"/><stop offset="1" stop-color="#4FB9FF" stop-opacity=".02"/></linearGradient></defs>
@@ -409,6 +451,8 @@ const chartCard = () => `
     <div class="seg"><div class="on">Total</div><div>Per Day</div></div>
     <div class="chart"></div>
     <div class="seg"><div>1W</div><div class="on">1M</div><div>3M</div><div>1Y</div><div>All</div></div>
+    <div class="divider"></div>
+    <div class="saves"><span>Missing or overwrote your progress?</span><div class="btn">${icon('history')} Manage Game Data</div></div>
   </div>`;
 
 const friendRow = (who, state, label) => `
@@ -438,6 +482,50 @@ const xpCard = () => `
     <div class="foot"><span>258 XP to Eldest Empanada</span><span>48%</span></div>
     <div class="bordered">View Breakdown</div>
   </div>`;
+
+const peppersCard = () => `
+  <div class="card peppers">
+    <div class="badge" style="background:${deepen('var(--peppers)')}">${icon('flame')}</div>
+    <div><b>You have 1,113 peppers</b><p>As you play games you'll earn peppers. Spend them in the games to unlock neat features.</p></div>
+  </div>`;
+
+// Manage Game Data (SavePointsView): the account now, then its save points,
+// newest first, each against it, higher or lower. Mateo's numbers, as on Home.
+const NOW = [12, 2, 83254, 1113, 189, 31];
+const STAT_LABELS = ['Prestige', 'Ascensions', 'Manual spins', 'Peppers', 'Flappy best', 'Tower best'];
+const statsGrid = (values, { now, spinOnly } = {}) => `<div class="stats">${values.map((v, i) => {
+  const kept = spinOnly && i >= 3, value = kept ? NOW[i] : v;
+  const trend = !now || kept || value === now[i] ? '' : value > now[i]
+    ? `<span style="color:var(--flappy)">${icon('up')}</span>` : `<span style="color:var(--peppers)">${icon('down')}</span>`;
+  return `<div><small>${STAT_LABELS[i]}</small><b class="${kept ? 'kept' : ''}">${value === null ? '—' : fmt(value)}${trend}</b></div>`;
+}).join('')}</div>`;
+
+const savePoint = ([date, ago, values, spinOnly]) => `
+  <div class="cell sp">
+    <div class="when"><div><b>${date}</b><small>${ago}</small></div><span class="restore">Restore ${icon('chevron')}</span></div>
+    ${spinOnly ? '<span class="tag">Spin Only</span>' : ''}
+    ${statsGrid(values, { now: NOW, spinOnly })}
+  </div>`;
+
+const gameData = () => {
+  const points = [
+    ['Nov 15, 2026 at 8:12 PM', 'yesterday', [12, 2, 82640, 1090, 189, 31]],
+    ['Nov 12, 2026 at 6:47 PM', '4 days ago', [11, 2, 80102, 1212, 176, 31]],
+    ['Nov 6, 2026 at 9:05 PM', 'last week', [9, 2, 77415, 980, 176, 28]],
+    ['Oct 29, 2026 at 7:30 PM', '2 weeks ago', [6, 2, 74890, 845, 162, 24]],
+    ['Oct 3, 2026 at 5:58 PM', '6 weeks ago', [92, 1, 68120, null, null, null], true],
+    // The iPad's screen is taller.
+    ...(device === 'pad' ? [['Sep 14, 2026 at 4:21 PM', '2 months ago', [71, 1, 61004, null, null, null], true]] : []),
+  ];
+  return `<div class="gd">
+    <div class="group"><div class="cell intro">Every so often we back up your progress, in case something happens. Pick a save point to put your games back the way they were then.</div></div>
+    <div class="sechead"><span>Your Current Save</span></div>
+    <div class="group"><div class="cell" style="padding:14px 16px">${statsGrid(NOW)}</div></div>
+    <div class="sechead"><span>Save Points</span></div>
+    <div class="group">${points.map(savePoint).join('')}</div>
+    <div class="secfoot">Spin Only save points are older. Restoring one puts back the Spin Game and leaves Flappy, Tower and your peppers as they are.</div>
+  </div>`;
+};
 
 function leaderboard() {
   const rows = [
@@ -572,17 +660,22 @@ if (screen === 'widgets') {
   if (screen === 'home') {
     html += nav('Home', { trailing: homeToolbar });
     html += `<div class="scroll"><div class="stack">${hero()}${tiles()}${gameCards()}${device === 'pad'
-      ? `<div class="masonry">${chartCard()}${friendsCard()}${xpCard()}</div>` : ''}</div></div>`;
+      ? `<div class="masonry">${chartCard()}${friendsCard()}${xpCard()}${peppersCard()}</div>` : ''}</div></div>`;
     html += tabs('Home');
   } else if (screen === 'friends') {
     // Home, scrolled down past the game cards.
     html += nav('Home', { inline: true, trailing: homeToolbar });
-    html += `<div class="scroll" style="top:${device === 'pad' ? 104 : 118}px"><div class="masonry">${chartCard()}${friendsCard()}${xpCard()}</div></div>`;
+    html += `<div class="scroll" style="top:${device === 'pad' ? 104 : 118}px"><div class="masonry">${chartCard()}${friendsCard()}${xpCard()}${peppersCard()}</div></div>`;
     html += tabs('Home');
   } else if (screen === 'games') {
     html += nav('Games');
     html += `<div class="scroll">${gamesTab()}</div>`;
     html += tabs('Games');
+  } else if (screen === 'savepoints') {
+    // Pushed on the Home tab from Spin Progress's Manage Game Data.
+    html += nav('Manage Game Data', { inline: true, back: true });
+    html += `<div class="scroll" style="top:${device === 'pad' ? 104 : 118}px">${gameData()}</div>`;
+    html += tabs('Home');
   } else if (screen === 'leaderboard') {
     html += nav('Leaderboards', { trailing: '<span class="text">Game Center</span>' });
     html += `<div class="scroll">${leaderboard()}</div>`;
@@ -613,6 +706,11 @@ document.querySelectorAll('.masonry').forEach(box => {
     return box.appendChild(column);
   });
   for (const card of cards) columns.reduce((a, b) => (b.offsetHeight < a.offsetHeight ? b : a)).appendChild(card);
+});
+
+// Manage Game Data's footer: the question and button side by side if they fit (ViewThatFits).
+document.querySelectorAll('.saves').forEach(row => {
+  if (row.scrollWidth > row.clientWidth) row.classList.add('stacked');
 });
 
 // The chart is drawn at the width its card ended up, so its labels aren't stretched.
