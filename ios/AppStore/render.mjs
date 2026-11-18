@@ -9,8 +9,8 @@
 //  1. Screens, into screens/iphone/ and screens/ipad/ at the devices' full
 //     resolution. The games are the site's own pages (--site, a checkout of
 //     zachduda/Empanadas-io's html/), played to a good moment with demo
-//     numbers. Home, Friends, Games, Leaderboard and the Home Screen widgets
-//     are templates/native.html.
+//     numbers. Home, Friends, Games, Leaderboard, Manage Game Data and the
+//     Home Screen widgets are templates/native.html.
 //  2. The App Store images: each screen in a device frame under its caption
 //     (templates/shot.html), and the creative assets: the product page header,
 //     the search results image, the universal asset that can be both, and the
@@ -55,7 +55,9 @@ const SHOTS = [
 		title: 'Climb the|*leaderboards*', sub: 'See where you stand in Spin, Flappy and Tower.' },
 	{ name: '07-widgets', screen: 'widgets', tag: 'Widgets', icon: 'widget', tint: '#F08000', art: true,
 		title: 'Right on your|*Home Screen*', sub: 'Your best scores at a glance. Tap a game to jump straight in.' },
-	{ name: '08-friends', screen: 'friends', tag: 'Friends', icon: 'friends', tint: '#7952B3', iphoneOnly: true,
+	{ name: '08-saves', screen: 'savepoints', tag: 'Game Data', icon: 'history', tint: '#1F8FE0',
+		title: 'Never lose|your *progress*', sub: 'Roll back to any save point, and undo it if you change your mind.' },
+	{ name: '09-friends', screen: 'friends', tag: 'Friends', icon: 'friends', tint: '#7952B3', iphoneOnly: true,
 		title: 'Play with|your *friends*', sub: "See who's online and how far your spins have come." },
 ];
 

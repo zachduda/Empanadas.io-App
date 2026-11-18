@@ -30,12 +30,18 @@ three games.
 | 5 | Home | **Every stat in one place.** Peppers, high scores and progress for all three games. |
 | 6 | Leaderboards | **Climb the leaderboards.** See where you stand in Spin, Flappy and Tower. |
 | 7 | Home Screen widgets | **Right on your Home Screen.** Your best scores at a glance. Tap a game to jump straight in. |
-| 8 | Home, scrolled | **Play with your friends.** See who's online and how far your spins have come. (iPhone only) |
+| 8 | Manage Game Data | **Never lose your progress.** Roll back to any save point, and undo it if you change your mind. |
+| 9 | Home, scrolled | **Play with your friends.** See who's online and how far your spins have come. (iPhone only) |
 
 On iPad, the Games tab is held down on Flappy, with its menu open: the tab
 is short there, three cards across, so the iPad is drawn larger and runs off
 the bottom. The widgets float on the backdrop on their own, beside the app's
 icon as on a Home Screen, rather than on a drawing of one.
+
+Home is drawn as it is most of the year: pumpkins are only in season in
+September and October (`pumpkin_season` on the site), so there is no
+Pumpkins tile or card, and Home ends with the Peppers card. Home scrolled
+shows Manage Game Data under the Spin Progress chart, where it opens from.
 
 The captions are in `SHOTS` at the top of `render.mjs`.
 
@@ -88,9 +94,10 @@ boxes used, open `templates/creative.html?kind=universal&guides=1`.
   plays each one to a good moment: Flappy threading a gap in the 40s, under
   the day's sky it starts in, Tower 14 floors high (16 on iPad). Spin's numbers come from the account, so they
   are filled in on the page.
-- **Home, Friends, Games, Leaderboard and the widgets** are
+- **Home, Friends, Games, Leaderboard, Manage Game Data and the widgets** are
   `templates/native.html`, a copy in HTML of the SwiftUI screens (`HomeView`,
-  `SpinChartCard`, `GamesView`, `GameMenu`, `LeaderboardView`, the widget's
+  `SpinChartCard`, `GamesView`, `GameMenu`, `LeaderboardView`,
+  `SavePointsView`, the widget's
   `GamesWidget`, the colours in `Palette`), with demo players. The iPad
   layouts follow `BalancedGrid`, `MasonryColumns` and `readableListWidth`. On a Mac it draws in SF Pro;
   elsewhere in Inter, which is close. The icons are Font Awesome stand-ins for
@@ -103,7 +110,7 @@ App Review asks that screenshots show the app in use. The native screens
 follow the app closely, but they are drawings of it. To use real ones, take
 them in the Simulator (iPhone 16 Pro Max, and iPad Pro 13-inch (M4)), save
 them over the files in `screens/` (`home.png`, `friends.png`, `games.png`,
-`leaderboard.png`, or any of the games) and compose again:
+`leaderboard.png`, `savepoints.png`, or any of the games) and compose again:
 
 ```sh
 xcrun simctl io booted screenshot ios/AppStore/screens/iphone/home.png
