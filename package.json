@@ -17,7 +17,7 @@
   "license": "GPL-3.0",
   "devDependencies": {
     "electron": "^45.2.3",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.1"
   },
   "build": {
     "appId": "io.empanadas.app",
