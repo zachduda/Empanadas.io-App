@@ -204,24 +204,47 @@
   .pad .back { left: 24px; bottom: auto; top: 41px; }
   /* With the tabs on top, the inline title sits beside the back button, on their line */
   .pad .nav.inline .bar .title { position: absolute; left: 80px; top: 41px; line-height: 44px; }
-  .gd .group { background: var(--card); border-radius: 26px; overflow: hidden; margin-bottom: 22px; }
-  .gd .cell { padding: 12px 16px; position: relative; }
-  .gd .cell + .cell::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; height: 0.5px; background: var(--separator); }
-  .gd .intro { font-size: 15px; line-height: 20px; color: var(--secondary); }
-  .gd .sechead { padding-left: 16px; }
-  .gd .secfoot { padding: 0 16px; margin: -15px 0 22px; line-height: 18px; }
-  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; row-gap: 8px; }
-  .stats small { display: block; font-size: 11px; line-height: 13px; color: var(--secondary); white-space: nowrap; }
-  .stats b { font-size: 15px; font-weight: 600; line-height: 20px; font-variant-numeric: tabular-nums; display: flex; gap: 3px; align-items: center; }
-  .stats b.kept { color: var(--secondary); }
-  .stats .ico { font-size: 8px; }
-  .sp { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
-  .sp .when { display: flex; align-items: baseline; gap: 8px; }
+  /* Cards on the grouped background, as SavePointsView draws them */
+  .gd { display: flex; flex-direction: column; gap: 16px; }
+  .gd .ghero { border-radius: 24px; padding: 18px; color: #fff; display: flex; gap: 14px; align-items: flex-start;
+    background: linear-gradient(135deg, var(--brand), #4A5BF0); }
+  .gd .ghero .gi { width: 48px; height: 48px; border-radius: 14px; background: rgba(255,255,255,0.18); display: grid; place-items: center;
+    font-size: 22px; flex: none; }
+  .gd .ghero b { display: block; font-size: 17px; font-weight: 600; line-height: 22px; }
+  .gd .ghero p { font-size: 15px; line-height: 20px; opacity: 0.9; margin-top: 4px; }
+  .gd .gsec { font-size: 20px; font-weight: 700; display: flex; gap: 8px; align-items: center; padding: 4px 4px 0; }
+  .gd .gsec .ico { color: var(--accent); }
+  .gd .gnote { font-size: 13px; line-height: 18px; color: var(--secondary); display: flex; gap: 6px; padding: 0 4px; }
+  .gd .gnote .ico { margin-top: 2px; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .stats > div { border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .stats .sl { display: flex; gap: 5px; align-items: center; font-size: 12px; font-weight: 500; color: var(--secondary); white-space: nowrap; }
+  .stats .si { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; color: #fff; font-size: 10px; flex: none; }
+  .stats b { font-size: 17px; font-weight: 600; line-height: 22px; font-variant-numeric: tabular-nums; }
+  .sp .stats { row-gap: 14px; }
+  .sp .stats > div { padding: 0; background: none !important; }
+  .stats b.kept { color: var(--tertiary); }
+  .stats .note { font-size: 11px; font-weight: 500; color: var(--secondary); line-height: 16px; }
+  .delta { align-self: flex-start; display: inline-flex; gap: 2px; align-items: center; font-size: 11px; font-weight: 700; line-height: 16px;
+    padding: 0 6px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+  .delta .ico { font-size: 9px; }
+  .delta.gain { color: #0B744C; background: rgba(11,116,76,0.14); }
+  .delta.loss { color: #B42318; background: rgba(180,35,24,0.14); }
+  .sp { background: var(--card); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .sp .when { display: flex; align-items: center; gap: 12px; }
   .sp .when b { display: block; font-size: 15px; font-weight: 600; line-height: 20px; }
-  .sp .when small { font-size: 12px; color: var(--secondary); }
-  .sp .restore { margin-left: auto; font-size: 15px; font-weight: 600; color: var(--accent); display: flex; gap: 8px; align-items: center; }
-  .sp .restore .ico { font-size: 11px; color: var(--tertiary); }
-  .tag { align-self: flex-start; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 99px; color: var(--secondary); background: rgba(60,60,67,0.08); }
+  .sp .when small { font-size: 12px; font-weight: 500; color: var(--secondary); }
+  .cal { width: 46px; height: 50px; border-radius: 10px; overflow: hidden; flex: none; display: flex; flex-direction: column;
+    background: #F2F2F7; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08); }
+  .cal i { font-style: normal; font-size: 11px; font-weight: 700; color: #fff; text-align: center; line-height: 17px;
+    background: linear-gradient(135deg, #3756E9, #4A5BF0); }
+  .cal span { flex: 1; display: grid; place-items: center; font-size: 20px; font-weight: 700; }
+  .sp .restore { margin-left: auto; font-size: 15px; font-weight: 600; color: #fff; display: flex; gap: 6px; align-items: center;
+    padding: 8px 12px; border-radius: 99px; background: linear-gradient(135deg, #3756E9, #4A5BF0); white-space: nowrap; }
+  .sp .restore .ico { font-size: 13px; }
+  .sp hr { border: 0; height: 0.5px; background: var(--separator); }
+  .tag { align-self: flex-start; display: inline-flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 600; padding: 4px 8px;
+    border-radius: 99px; color: var(--spin); background: rgba(46,130,239,0.14); }
   .pad .gd { max-width: 720px; margin: 0 auto; }  /* readableListWidth() */
 
   .xp { display: flex; gap: 8px; font-size: 20px; font-weight: 600; align-items: center; }
@@ -492,38 +515,52 @@ const peppersCard = () => `
 // Manage Game Data (SavePointsView): the account now, then its save points,
 // newest first, each against it, higher or lower. Mateo's numbers, as on Home.
 const NOW = [12, 2, 83254, 1113, 189, 31];
-const STAT_LABELS = ['Prestige', 'Ascensions', 'Manual spins', 'Peppers', 'Flappy best', 'Tower best'];
+// SaveStat's label, symbol and tint.
+const STATS = [
+  ['Prestige', 'crown', 'var(--friends)'], ['Ascensions', 'sparkles', '#0E9AA7'], ['Manual spins', 'spin', 'var(--spin)'],
+  ['Peppers', 'flame', 'var(--peppers)'], ['Flappy best', 'bird', 'var(--flappy)'], ['Tower best', 'stack', 'var(--tower)'],
+];
+// DeltaPill: compact, as .compactName writes it.
+const compact = n => n >= 1000 ? `${+(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : String(n);
 const statsGrid = (values, { now, spinOnly } = {}) => `<div class="stats">${values.map((v, i) => {
-  const kept = spinOnly && i >= 3, value = kept ? NOW[i] : v;
-  const trend = !now || kept || value === now[i] ? '' : value > now[i]
-    ? `<span style="color:var(--flappy)">${icon('up')}</span>` : `<span style="color:var(--peppers)">${icon('down')}</span>`;
-  return `<div><small>${STAT_LABELS[i]}</small><b class="${kept ? 'kept' : ''}">${value === null ? '—' : fmt(value)}${trend}</b></div>`;
+  const [label, ic, tint] = STATS[i], kept = spinOnly && i >= 3, value = kept ? NOW[i] : v;
+  const d = (value ?? 0) - (now?.[i] ?? 0);
+  const under = !now ? '' : kept ? '<span class="note">Unchanged</span>' : d === 0 ? ''
+    : `<span class="delta ${d > 0 ? 'gain' : 'loss'}">${icon(d > 0 ? 'arrowup' : 'arrowdown')}${compact(Math.abs(d))}</span>`;
+  const fill = kept ? '#8E8E93' : tint;
+  return `<div style="background:color-mix(in srgb, ${tint} ${kept ? 3 : 8}%, transparent)">
+    <span class="sl"><span class="si" style="background:${deepen(fill)}">${icon(ic)}</span>${label}</span>
+    <b class="${kept ? 'kept' : ''}">${value === null ? '—' : fmt(value)}</b>${under}</div>`;
 }).join('')}</div>`;
 
-const savePoint = ([date, ago, values, spinOnly]) => `
-  <div class="cell sp">
-    <div class="when"><div><b>${date}</b><small>${ago}</small></div><span class="restore">Restore ${icon('chevron')}</span></div>
-    ${spinOnly ? '<span class="tag">Spin Only</span>' : ''}
+const savePoint = ([date, title, ago, values, spinOnly]) => {
+  const [month, day] = date.split(' ');
+  return `
+  <div class="sp">
+    <div class="when"><div class="cal"><i>${month.toUpperCase()}</i><span>${parseInt(day)}</span></div>
+      <div><b>${title}</b><small>${ago[0].toUpperCase() + ago.slice(1)}</small></div>
+      <span class="restore">${icon('rotate')} Restore</span></div>
+    ${spinOnly ? `<span class="tag">${icon('spin')} Spin Only</span>` : ''}
+    <hr>
     ${statsGrid(values, { now: NOW, spinOnly })}
   </div>`;
+};
 
 const gameData = () => {
   const points = [
-    ['Nov 15, 2026 at 8:12 PM', 'yesterday', [12, 2, 82640, 1090, 189, 31]],
-    ['Nov 12, 2026 at 6:47 PM', '4 days ago', [11, 2, 80102, 1212, 176, 31]],
-    ['Nov 6, 2026 at 9:05 PM', 'last week', [9, 2, 77415, 980, 176, 28]],
-    ['Oct 29, 2026 at 7:30 PM', '2 weeks ago', [6, 2, 74890, 845, 162, 24]],
-    ['Oct 3, 2026 at 5:58 PM', '6 weeks ago', [92, 1, 68120, null, null, null], true],
-    // The iPad's screen is taller.
-    ...(device === 'pad' ? [['Sep 14, 2026 at 4:21 PM', '2 months ago', [71, 1, 61004, null, null, null], true]] : []),
+    ['Nov 15', 'Sunday, 8:12 PM', 'yesterday', [12, 2, 82640, 1090, 189, 31]],
+    ['Nov 12', 'Thursday, 6:47 PM', '4 days ago', [11, 2, 80102, 1212, 176, 31]],
+    ['Nov 6', 'Friday, 9:05 PM', 'last week', [9, 2, 77415, 980, 176, 28]],
+    ['Oct 29', 'Thursday, 7:30 PM', '2 weeks ago', [6, 2, 74890, 845, 162, 24]],
+    ['Oct 3', 'Saturday, 5:58 PM', '6 weeks ago', [92, 1, 68120, null, null, null], true],
   ];
   return `<div class="gd">
-    <div class="group"><div class="cell intro">Every so often we back up your progress, in case something happens. Pick a save point to put your games back the way they were then.</div></div>
-    <div class="sechead"><span>Your Current Save</span></div>
-    <div class="group"><div class="cell" style="padding:14px 16px">${statsGrid(NOW)}</div></div>
-    <div class="sechead"><span>Save Points</span></div>
-    <div class="group">${points.map(savePoint).join('')}</div>
-    <div class="secfoot">Spin Only save points are older. Restoring one puts back the Spin Game and leaves Flappy, Tower and your peppers as they are.</div>
+    <div class="ghero"><div class="gi">${icon('history')}</div><div><b>Your Progress, Backed Up</b>
+      <p>Every so often we back up your progress, in case something happens. Pick a save point to put your games back the way they were then.</p></div></div>
+    <div class="card"><div class="card-h"><span style="color:var(--spin)">${icon('gamecontroller')}</span>Your Current Save</div>${statsGrid(NOW)}</div>
+    <div class="gsec">${icon('history')} Save Points</div>
+    ${points.map(savePoint).join('')}
+    <div class="gnote">${icon('info')}<span>Spin Only save points are older. Restoring one puts back the Spin Game and leaves Flappy, Tower and your peppers as they are.</span></div>
   </div>`;
 };
 
