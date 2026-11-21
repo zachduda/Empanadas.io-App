@@ -19,6 +19,15 @@ struct RootView: View {
             case .signedOut: WelcomeView()
             }
         }
+        // A server disruption, over the app wherever the player is.
+        .overlay {
+            ServerStatusAlert(level: serverStatusAlert) {
+                model.serverStatus.dismissAlert()
+                model.showingStatusPage = true
+            } dismiss: {
+                model.serverStatus.dismissAlert()
+            }
+        }
         // The app loads underneath while the launch animation plays over it.
         .overlay {
             if launch != .done {
@@ -46,6 +55,12 @@ struct RootView: View {
             model.saveGamesForOffline()
             await model.refreshTheme(maxAge: CacheAge.account)
         }
+        // Whether the servers are all right, while the app is in front: at
+        // once, then every five minutes.
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await model.watchServerStatus(every: 300)
+        }
         .fullScreenCover(item: $model.activeGame) { game in
             GamePlayerView(game: game)
                 .id(game)
@@ -57,7 +72,19 @@ struct RootView: View {
                 .sheet(item: $model.popup) { PopupView(page: $0) }
             Color.clear
                 .sheet(item: $model.webSheet) { WebSheetView(link: $0) }
+            Color.clear
+                .sheet(isPresented: $model.showingStatusPage) { StatusPageView() }
         }
+    }
+
+    /// The disruption to warn about, once nothing is in the way: not over
+    /// the launch animation, a game, a sign-in in the browser or one of the
+    /// app's sheets (it comes up as they go), and not offline, where the
+    /// trouble is more likely the connection.
+    private var serverStatusAlert: ServerStatus.Level? {
+        guard launch == .done, model.isOnline, model.activeGame == nil, model.popup == nil,
+              model.webSheet == nil, !model.showingStatusPage, model.signInProgress == .idle else { return nil }
+        return model.serverStatus.alertLevel
     }
 }
 

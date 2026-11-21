@@ -138,4 +138,10 @@ enum Preferences {
     static let updatesSeenKey = "updates.lastSeen"
     /// When each game was last played in the app (PlayHistory).
     static let playHistoryKey = "games.lastPlayed"
+    /// How bad the server disruption was when its warning was dismissed
+    /// (ServerStatus.dismissAlert).
+    static let serverStatusDismissedKey = "serverStatus.dismissed"
+    /// The status page's background as last drawn (StatusPage), so its
+    /// sheet opens in it.
+    static let statusPageColorKey = "statusPage.background"
 }
