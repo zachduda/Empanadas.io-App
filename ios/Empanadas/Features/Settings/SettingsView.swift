@@ -1,3 +1,4 @@
+import SafariServices
 import SwiftUI
 
 /// Native replacement for the site's /v2/account page. The everyday settings
@@ -13,6 +14,8 @@ struct SettingsView: View {
     @State private var clearingCache = false
     @State private var cacheCleared = false
     @State private var cacheSize: Int64?
+    @State private var serverStatus = ServerStatus()
+    @State private var showingStatusPage = false
 
     /// The app's, so it is made once (see AppModel.settings).
     private var settings: SettingsModel { model.settings }
@@ -64,6 +67,7 @@ struct SettingsView: View {
                 appSection
                 gameCenterSection
                 aboutSection
+                serverStatusSection
 
                 Section {
                     Button("Sign Out", role: .destructive) { confirmingSignOut = true }
@@ -90,9 +94,19 @@ struct SettingsView: View {
             .glassNavigationBar()
             .profileDestinations()
             .task { await settings.load(app: model, maxAge: CacheAge.account) }
-            .refreshable { await settings.load(app: model) }
+            .refreshable {
+                Task { await serverStatus.refresh(force: true) }
+                await settings.load(app: model)
+            }
             .onChange(of: model.isOnline) { _, online in
-                if online { Task { await settings.load(app: model) } }
+                if online {
+                    Task { await settings.load(app: model) }
+                    Task { await serverStatus.refresh(force: true) }
+                }
+            }
+            .sheet(isPresented: $showingStatusPage) {
+                SafariView(url: ServerStatus.page)
+                    .ignoresSafeArea()
             }
             .navigationDestination(isPresented: $settings.needsCaptcha) {
                 WebDestination(url: SiteURLs.page("/v2/captcha"), title: "Quick Check")
@@ -342,6 +356,75 @@ struct SettingsView: View {
         }
     }
 
+    /// The Server Status card from the site's Updates page: a light that
+    /// says how the servers are, and the full status page behind it.
+    private var serverStatusSection: some View {
+        Section("Server Status") {
+            Button {
+                showingStatusPage = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: statusSymbol)
+                        .font(.body)
+                        .foregroundStyle(statusColor)
+                        .contentTransition(.symbolEffect(.replace))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(statusText)
+                            .foregroundStyle(.primary)
+                        Text("View the full status page")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+                .animation(.easeOut(duration: 0.2), value: serverStatus.level)
+            }
+            .accessibilityLabel("Server status: \(statusText)")
+            .accessibilityHint("Opens the full status page")
+            .task { await serverStatus.refresh() }
+        }
+    }
+
+    private var statusLevel: ServerStatus.Level? {
+        model.isOnline ? serverStatus.level : nil
+    }
+
+    private var statusSymbol: String {
+        switch statusLevel {
+        case nil: "wifi.slash"
+        case .minor?: "exclamationmark.triangle.fill"
+        case .major?, .critical?: "exclamationmark.circle.fill"
+        default: "circle.fill"
+        }
+    }
+
+    private var statusColor: Color {
+        switch statusLevel {
+        case .operational?: .green
+        case .minor?: .yellow
+        case .major?: .orange
+        case .critical?: .red
+        default: .gray
+        }
+    }
+
+    /// The site's own wording.
+    private var statusText: String {
+        switch statusLevel {
+        case nil: "No Connection"
+        case .checking?: "Checking…"
+        case .operational?: "Server Online"
+        case .minor?: "Possible Outage"
+        case .major?: "Partial Outage"
+        case .critical?: "Website Outage"
+        case .unknown?: "Unknown Status"
+        }
+    }
+
     // MARK: - Bindings
 
     private func setting(_ keyPath: WritableKeyPath<AccountSettings, Int>, _ field: String) -> Binding<Int> {
@@ -357,6 +440,18 @@ struct SettingsView: View {
             set: { on in Task { await settings.set(keyPath, field: field, to: on ? 1 : 0, app: model) } }
         )
     }
+}
+
+/// A third-party page (the status page) in an in-app browser: it is not the
+/// site's, so it does not load in one of the app's own web views.
+private struct SafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 /// In-app account deletion, which App Review requires of any app that lets
