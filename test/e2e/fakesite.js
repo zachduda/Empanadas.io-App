@@ -167,7 +167,8 @@ function createFakeSite({ siteDir, certDir }) {
 		const host = (req.headers.host || '').split(':')[0];
 		state.requests.push({ host, method: req.method, path: url.pathname, query: url.search, cookie: req.headers.cookie || '', ua: req.headers['user-agent'] || '', at: Date.now() });
 		const form = new URLSearchParams(body);
-		const p = url.pathname;
+		// /v2/ios/ is an alias of the native API's /v2/app/, as on the site.
+		const p = url.pathname.replace(/^\/v2\/ios\//, '/v2/app/');
 
 		if (host === 'api.empanadas.io') {
 			if (p === '/v1/updates.php') {
@@ -184,7 +185,7 @@ function createFakeSite({ siteDir, certDir }) {
 
 		if (p === '/v2/ping.php') return send(res, 200, 'Pong!', { 'content-type': 'text/plain' });
 
-		if (p === '/v2/ios/signin.php') {
+		if (p === '/v2/app/signin.php') {
 			const entry = state.codes.get(form.get('code'));
 			const verifier = form.get('verifier') || '';
 			if (!entry || entry.used || b64url(crypto.createHash('sha256').update(verifier).digest()) !== entry.challenge) {
@@ -220,27 +221,27 @@ function createFakeSite({ siteDir, certDir }) {
 				return send(res, 200, { result: true });
 			}
 			if (!inSession) {
-				if (p.startsWith('/v2/ios/')) return send(res, 401, { ok: false, api: 1, reason: 'no_session' });
+				if (p.startsWith('/v2/app/')) return send(res, 401, { ok: false, api: 1, reason: 'no_session' });
 				if (p === '/v2/gamehistory.php') return send(res, 200, { result: false, reason: 'no_session' });
 				if (p === '/v2/account_edit.php') return send(res, 200, { result: 0, reason: 'no_session' });
 				res.writeHead(302, { location: '/v2/login' });
 				return res.end();
 			}
 			switch (p) {
-			case '/v2/ios/dashboard.php': return send(res, 200, dashboard());
-			case '/v2/ios/leaderboard.php': return send(res, 200, { ok: true, api: 1, spin: board('spin'), flappy: board('flappy'), tower: board('tower'), you: ME, generated: Math.floor(Date.now() / 1000) - 12, age: 12, ttl: 45 });
-			case '/v2/ios/profile.php': return send(res, 200, profile((url.searchParams.get('id') || '').toLowerCase()));
-			case '/v2/ios/account.php': return send(res, 200, {
+			case '/v2/app/dashboard.php': return send(res, 200, dashboard());
+			case '/v2/app/leaderboard.php': return send(res, 200, { ok: true, api: 1, spin: board('spin'), flappy: board('flappy'), tower: board('tower'), you: ME, generated: Math.floor(Date.now() / 1000) - 12, age: 12, ttl: 45 });
+			case '/v2/app/profile.php': return send(res, 200, profile((url.searchParams.get('id') || '').toLowerCase()));
+			case '/v2/app/account.php': return send(res, 200, {
 				ok: true, api: 1,
 				account: { id: 7, username: 'Empanadero', email: 'empanadero@example.com', email_verified: true, pending_email: null, pfp: pfp('me'), pfp_small: pfp('me'), has_custom_pfp: true, created_at: '2022-07-14', birthday: '2000-07-01', star_sign: 'Cancer', connections: ['google', 'discord'], two_factor: true, passkeys: 2 },
 				has_birthday: true, settings: state.settings, csrf
 			});
-			case '/v2/ios/search.php': {
+			case '/v2/app/search.php': {
 				const q = (url.searchParams.get('q') || '').toLowerCase();
 				const all = [['SpinQueen', FRIENDS[0][0], 'friends'], ['Spinster', 'ab12cd34-5555-4555-8555-555555555555', 'none'], ['SpinDoctor', 'ab12cd34-6666-4666-8666-666666666666', 'none']];
 				return send(res, 200, { ok: true, api: 1, query: q, page: 0, has_more: false, results: all.filter((r) => r[0].toLowerCase().includes(q)).map(([username, id, relation]) => ({ id, username, pfp: pfp(username), default_pfp: false, admin: false, supporter: username === 'Spinster', vip: false, private: false, relation: state.outgoing.has(id) ? 'outgoing' : relation, accepts_requests: true })) });
 			}
-			case '/v2/ios/feedback.php': return send(res, 200, { ok: true, api: 1, subjects: [{ id: 1, key: 'general', label: 'General Feedback', input: 'message', placeholder: "What's on your mind?", reply: true, message_required: true }, { id: 5, key: 'bug_report', label: 'Bug Report', input: 'message', placeholder: 'What went wrong?', reply: true, message_required: true }], default_subject: 1, min_length: 6, max_length: 2000, email: 'empanadero@example.com', email_verified: true, csrf });
+			case '/v2/app/feedback.php': return send(res, 200, { ok: true, api: 1, subjects: [{ id: 1, key: 'general', label: 'General Feedback', input: 'message', placeholder: "What's on your mind?", reply: true, message_required: true }, { id: 5, key: 'bug_report', label: 'Bug Report', input: 'message', placeholder: 'What went wrong?', reply: true, message_required: true }], default_subject: 1, min_length: 6, max_length: 2000, email: 'empanadero@example.com', email_verified: true, csrf });
 			case '/v2/account_edit.php': {
 				if (form.get('csrf') !== csrf) return send(res, 200, { result: 0, reason: 'csrf' });
 				const action = form.get('account_change');

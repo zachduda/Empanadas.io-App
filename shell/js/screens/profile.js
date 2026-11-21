@@ -1,4 +1,4 @@
-// A player's profile, from /v2/ios/profile.php: the player's own (My
+// A player's profile, from /v2/app/profile.php: the player's own (My
 // Profile) without an id, anyone's with one, under the site's rules (a
 // friends-only profile shows a stranger only the name and picture).
 

@@ -1,4 +1,4 @@
-// Settings: the account and its settings from /v2/ios/account.php, changed
+// Settings: the account and its settings from /v2/app/account.php, changed
 // through account_edit.php; the app's own (Keep Spinning When Closed,
 // notifications, the kept games, the cache, updates); sign out and delete.
 // Email and username, connections, passkeys, two-factor and the picture are

@@ -1,4 +1,4 @@
-// Friends: Find Friends (search as you type, /v2/ios/search.php), then the
+// Friends: Find Friends (search as you type, /v2/app/search.php), then the
 // requests to answer, the ones sent, and the friends themselves, online
 // first - all from the player's own profile.
 

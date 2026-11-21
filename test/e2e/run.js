@@ -137,7 +137,9 @@ async function main() {
 		await electronApp.evaluate(({ app }, link) => app.emit('second-instance', {}, ['electron', link], '/'), 'empanadas-io://signin?code=' + code);
 		await win.waitForSelector('.greeting', { timeout: 20000 });
 		assert.strictEqual(site.state.sessions.size, 1);
-		const dash = requests('/v2/ios/dashboard.php').pop();
+		const dash = requests('/v2/app/dashboard.php').pop();
+		assert.ok(dash, 'the dashboard was not asked for at /v2/app/');
+		assert.strictEqual(site.state.requests.filter((r) => r.path.startsWith('/v2/ios/')).length, 0, 'the app used the old /v2/ios/ address');
 		assert.match(dash.cookie, /UAK=sess/, 'the dashboard was asked for without the session');
 		assert.match(dash.ua, /empanadas\.io\/2\.0\.0/i, 'the app does not name itself in its user agent');
 		await win.waitForSelector('.chart');

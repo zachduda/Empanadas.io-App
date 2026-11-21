@@ -1,4 +1,4 @@
-// Send Feedback, from /v2/ios/feedback.php: the site's subjects, its length
+// Send Feedback, from /v2/app/feedback.php: the site's subjects, its length
 // limits, and "I'd like a reply" with the address it goes to. Sent through
 // account_edit.php as the site's form sends it.
 

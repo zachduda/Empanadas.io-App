@@ -118,18 +118,18 @@ check('clearing a sign-in removes it from disk', () => {
 // --- parsing ----------------------------------------------------------
 
 check('an ok answer is returned whole', () => {
-	assert.deepStrictEqual(api.iosBody('{"ok":true,"api":1,"x":2}', 200), { ok: true, api: 1, x: 2 });
+	assert.deepStrictEqual(api.nativeBody('{"ok":true,"api":1,"x":2}', 200), { ok: true, api: 1, x: 2 });
 });
 
 check('no_session is a sign-out, other reasons say what went wrong', () => {
-	assert.throws(() => api.iosBody('{"ok":false,"reason":"no_session"}', 401), (e) => e.code === 'signed_out');
-	assert.throws(() => api.iosBody('{"ok":false,"reason":"not_found"}', 404), (e) => e.code === 'unavailable' && /not_found/.test(e.message));
+	assert.throws(() => api.nativeBody('{"ok":false,"reason":"no_session"}', 401), (e) => e.code === 'signed_out');
+	assert.throws(() => api.nativeBody('{"ok":false,"reason":"not_found"}', 404), (e) => e.code === 'unavailable' && /not_found/.test(e.message));
 });
 
 check('an answer that is not the site\'s JSON is a missing endpoint or a failing server', () => {
-	assert.throws(() => api.iosBody('<html>', 404), (e) => e.code === 'unavailable' && /404/.test(e.message));
-	assert.throws(() => api.iosBody('<html>', 502), (e) => e.code === 'server' && /502/.test(e.message));
-	assert.throws(() => api.iosBody('', 429), (e) => e.code === 'rate_limited');
+	assert.throws(() => api.nativeBody('<html>', 404), (e) => e.code === 'unavailable' && /404/.test(e.message));
+	assert.throws(() => api.nativeBody('<html>', 502), (e) => e.code === 'server' && /502/.test(e.message));
+	assert.throws(() => api.nativeBody('', 429), (e) => e.code === 'rate_limited');
 });
 
 check('player ids are 32 hex digits, with or without dashes', () => {
@@ -160,7 +160,7 @@ check('save point reasons become sentences', () => {
 // --- requests ---------------------------------------------------------
 
 check('requests carry the app\'s user agent and never a cached answer', async () => {
-	const site = fakeFetch([['https://empanadas.io/v2/ios/dashboard.php', () => json({ ok: true, api: 1, spin: {} })]]);
+	const site = fakeFetch([['https://empanadas.io/v2/app/dashboard.php', () => json({ ok: true, api: 1, spin: {} })]]);
 	const client = api.createApi({ fetch: site.fetch, userAgent: () => 'Test empanadas.io/9.9.9' });
 	await client.dashboard();
 	assert.strictEqual(site.calls[0].init.headers['User-Agent'], 'Test empanadas.io/9.9.9');
@@ -170,7 +170,7 @@ check('requests carry the app\'s user agent and never a cached answer', async ()
 
 check('a signed-out answer tells the app', async () => {
 	let told = 0;
-	const site = fakeFetch([[/ios\/account/, () => json({ ok: false, api: 1, reason: 'no_session' }, 401)]]);
+	const site = fakeFetch([[/v2\/app\/account/, () => json({ ok: false, api: 1, reason: 'no_session' }, 401)]]);
 	const client = api.createApi({ fetch: site.fetch, onSignedOut: () => told++ });
 	await assert.rejects(client.account(), (e) => e.code === 'signed_out');
 	assert.strictEqual(told, 1);
@@ -180,7 +180,7 @@ check('a change goes to account_edit.php with the token, and once more with a fr
 	let tokens = 0;
 	const posted = [];
 	const site = fakeFetch([
-		[/ios\/account/, () => json({ ok: true, api: 1, account: { username: 'x' }, csrf: 'token' + (++tokens) })],
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { username: 'x' }, csrf: 'token' + (++tokens) })],
 		[/account_edit\.php/, (url, init) => {
 			const form = new URLSearchParams(init.body);
 			posted.push(Object.fromEntries(form));
@@ -201,7 +201,7 @@ check('a change goes to account_edit.php with the token, and once more with a fr
 
 check('a refused change says why, without the site\'s markup', async () => {
 	const site = fakeFetch([
-		[/ios\/account/, () => json({ ok: true, api: 1, csrf: 't' })],
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, csrf: 't' })],
 		[/account_edit\.php/, () => json({ result: 0, reason: '<b>Verify</b> your email first.' })]
 	]);
 	const client = api.createApi({ fetch: site.fetch });
@@ -241,7 +241,7 @@ check('a GET that fails before an answer is tried once more; a POST is not', asy
 });
 
 check('redeeming a sign-in posts the code and the verifier', async () => {
-	const site = fakeFetch([[/ios\/signin\.php/, (url, init) => {
+	const site = fakeFetch([[/v2\/app\/signin\.php/, (url, init) => {
 		const form = new URLSearchParams(init.body);
 		if (form.get('verifier') !== 'right') return json({ ok: false, api: 1, reason: 'expired' }, 400);
 		return json({ ok: true, api: 1, account: { username: 'tester' } });
@@ -249,6 +249,63 @@ check('redeeming a sign-in posts the code and the verifier', async () => {
 	const client = api.createApi({ fetch: site.fetch });
 	assert.strictEqual((await client.redeemSignIn('c'.repeat(40), 'right')).account.username, 'tester');
 	await assert.rejects(client.redeemSignIn('c'.repeat(40), 'wrong'), (e) => e.code === 'expired');
+});
+
+check('the native API is asked for at /v2/app/', async () => {
+	const site = fakeFetch([[/./, (url) => json({ ok: true, api: 1, url })]]);
+	const client = api.createApi({ fetch: site.fetch });
+	await client.dashboard();
+	await client.profile('ab12cd34-0000-1111-2222-333344445555');
+	await client.search('spin', 2);
+	assert.deepStrictEqual(site.calls.map((c) => new URL(c.url).pathname),
+		['/v2/app/dashboard.php', '/v2/app/profile.php', '/v2/app/search.php']);
+	assert.strictEqual(new URL(site.calls[2].url).search, '?q=spin&p=2');
+	assert.strictEqual(client.nativeApi, '/v2/app/');
+});
+
+check('against a site from before the move, the old address is used, then the new one tried again later', async () => {
+	let clock = 1000;
+	let moved = false;
+	const site = fakeFetch([
+		[/\/v2\/app\//, () => moved ? json({ ok: true, api: 1, at: 'app' }) : new Response('<html>404 Not Found</html>', { status: 404 })],
+		[/\/v2\/ios\//, () => json({ ok: true, api: 1, at: 'ios' })]
+	]);
+	const client = api.createApi({ fetch: site.fetch, now: () => clock });
+	assert.strictEqual((await client.dashboard()).at, 'ios');
+	assert.strictEqual(client.nativeApi, '/v2/ios/');
+	site.calls.length = 0;
+	assert.strictEqual((await client.leaderboard()).at, 'ios');
+	assert.deepStrictEqual(site.calls.map((c) => new URL(c.url).pathname), ['/v2/ios/leaderboard.php'], 'asked /v2/app/ again straight away');
+	moved = true;
+	clock += api.OLD_API_RECHECK + 1;
+	assert.strictEqual((await client.dashboard()).at, 'app');
+	assert.strictEqual(client.nativeApi, '/v2/app/');
+});
+
+check('the API\'s own 404 is an answer, not a missing endpoint', async () => {
+	const site = fakeFetch([[/./, () => json({ ok: false, api: 1, reason: 'not_found' }, 404)]]);
+	const client = api.createApi({ fetch: site.fetch });
+	await assert.rejects(client.profile('ab12cd34-0000-1111-2222-333344445555'), (e) => e.code === 'unavailable' && /not_found/.test(e.message));
+	assert.strictEqual(site.calls.length, 1, 'asked the old address over a real answer');
+	assert.strictEqual(client.nativeApi, '/v2/app/');
+});
+
+check('a site with neither address says so, and keeps trying the new one', async () => {
+	const site = fakeFetch([]);
+	const client = api.createApi({ fetch: site.fetch });
+	await assert.rejects(client.dashboard(), (e) => e.code === 'unavailable' && /404/.test(e.message));
+	assert.strictEqual(client.nativeApi, '/v2/app/');
+});
+
+check('signing in falls back to the old address too, with the same code', async () => {
+	const site = fakeFetch([[/\/v2\/ios\/signin\.php/, (url, init) => {
+		const form = new URLSearchParams(init.body);
+		return json({ ok: true, api: 1, account: { username: form.get('code') === 'c'.repeat(40) ? 'tester' : '?' } });
+	}]]);
+	const client = api.createApi({ fetch: site.fetch });
+	assert.strictEqual((await client.redeemSignIn('c'.repeat(40), 'v')).account.username, 'tester');
+	assert.deepStrictEqual(site.calls.map((c) => new URL(c.url).pathname), ['/v2/app/signin.php', '/v2/ios/signin.php']);
+	assert.ok(site.calls.every((c) => c.init.method === 'POST'));
 });
 
 check('announcements are asked for without cookies', async () => {

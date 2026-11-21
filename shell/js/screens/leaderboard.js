@@ -1,4 +1,4 @@
-// Leaderboards: Spin, Flappy and Tower, from /v2/ios/leaderboard.php. Medals
+// Leaderboards: Spin, Flappy and Tower, from /v2/app/leaderboard.php. Medals
 // for the top three, the player's own row marked, a row opens the profile.
 // Refreshes while showing, at the pace the site's cache rebuilds.
 

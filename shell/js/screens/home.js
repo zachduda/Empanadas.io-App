@@ -1,4 +1,4 @@
-// Home: the dashboard, from /v2/ios/dashboard.php. The stats, a card per
+// Home: the dashboard, from /v2/app/dashboard.php. The stats, a card per
 // game, the Spin Progress chart, experience and rank, and friends online.
 
 import { h, replace, button, icon, avatar } from '../dom.js';
