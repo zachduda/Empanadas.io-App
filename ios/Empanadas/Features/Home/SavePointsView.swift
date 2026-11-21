@@ -260,6 +260,16 @@ private struct SavedWhen {
         point.savedAt?.formatted(date: .abbreviated, time: .shortened) ?? point.label
     }
 
+    /// Beside the calendar badge, which already says the day: "Sunday, 8:12 PM",
+    /// with the year as well when it isn't this one.
+    var title: String {
+        guard let saved = point.savedAt else { return point.label }
+        let thisYear = Calendar.current.isDate(saved, equalTo: .now, toGranularity: .year)
+        return thisYear
+            ? saved.formatted(.dateTime.weekday(.wide).hour().minute())
+            : saved.formatted(date: .abbreviated, time: .shortened)
+    }
+
     var ago: String {
         point.savedAt?.formatted(.relative(presentation: .named)) ?? point.ago
     }
@@ -291,7 +301,7 @@ private struct SavePointCard: View {
             HStack(alignment: .center, spacing: 12) {
                 CalendarBadge(date: point.savedAt, faded: !point.restorable)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(when.date)
+                    Text(when.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
@@ -302,6 +312,9 @@ private struct SavePointCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                // The badge is hidden from VoiceOver, so the whole date here.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Saved \(when.sentence)")
                 Spacer(minLength: 8)
                 if point.restorable {
                     Label("Restore", systemImage: "arrow.counterclockwise")
@@ -403,13 +416,17 @@ private struct Tag: View {
 /// A save's six numbers, three across, each with its colour and symbol.
 /// Against the account's now when `now` is given: how much higher or lower,
 /// and dimmed where restoring `point` would leave the number as it is.
+/// The current save sits on tinted tiles; a save point's numbers don't, so
+/// more of the list fits on screen.
 private struct SaveStatsGrid: View {
     let stats: SaveStats
     var now: SaveStats?
     var point: SavePoint?
 
+    private var tiled: Bool { point == nil }
+
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+        Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: tiled ? 10 : 14) {
             GridRow {
                 cell(.prestige)
                 cell(.ascensions)
@@ -453,15 +470,11 @@ private struct SaveStatsGrid: View {
                     .foregroundStyle(.secondary)
             } else if let delta, delta != 0 {
                 DeltaPill(delta: delta)
-            } else if now != nil {
-                Text("Same")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
             }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(stat.tint.opacity(kept ? 0.03 : 0.08),
+        .padding(tiled ? 10 : 0)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(tiled ? stat.tint.opacity(0.08) : .clear,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityHint(kept ? "Not in this save point, so restoring it leaves this as it is" : "")
