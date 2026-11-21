@@ -120,7 +120,3 @@ session has ended).
 - **The coffee interstitial.** The website's dashboard shows the "buy a
   coffee" page now and then (`seenAd()`); the native Home doesn't, as the iOS
   app's doesn't. If it should, it would be a card on Home or Settings.
-- **The iOS app's address.** It still asks for `/v2/ios/`, which the site
-  keeps answering. Moving it to `/v2/app/` is a change to
-  `ios/Empanadas/Core/SiteURLs.swift` once the site with `/v2/app/` is live
-  (the iOS app has no fallback, so not before).

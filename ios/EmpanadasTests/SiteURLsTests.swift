@@ -165,4 +165,23 @@ final class SiteURLsTests: XCTestCase {
         XCTAssertFalse(SiteURLs.isPath(url("https://empanadas.io/v2/auth/app.php"), in: SiteURLs.loginPaths))
         XCTAssertFalse(SiteURLs.isPath(url("https://example.com/v2/login"), in: SiteURLs.loginPaths))
     }
+
+    // MARK: - The native API's address
+
+    func testTheNativeAPIIsUnderV2App() {
+        XCTAssertEqual(SiteURLs.appAccount.absoluteString, "https://empanadas.io/v2/app/account.php")
+        XCTAssertEqual(SiteURLs.appSignIn.absoluteString, "https://empanadas.io/v2/app/signin.php")
+    }
+
+    func testItsOldAddressIsTheSameRequestUnderV2Ios() {
+        XCTAssertEqual(SiteURLs.oldNativeAPI(SiteURLs.appDashboard)?.absoluteString,
+                       "https://empanadas.io/v2/ios/dashboard.php")
+        XCTAssertEqual(SiteURLs.oldNativeAPI(SiteURLs.appSearch("a b", page: 2))?.absoluteString,
+                       "https://empanadas.io/v2/ios/search.php?q=a%20b&p=2", "the query goes too")
+        XCTAssertEqual(SiteURLs.oldNativeAPI(SiteURLs.appProfile(id: "AB-12"))?.absoluteString,
+                       "https://empanadas.io/v2/ios/profile.php?id=ab-12")
+        XCTAssertNil(SiteURLs.oldNativeAPI(SiteURLs.gameHistory), "not the native API")
+        XCTAssertNil(SiteURLs.oldNativeAPI(url("https://example.com/v2/app/dashboard.php")), "not the site")
+        XCTAssertNil(SiteURLs.oldNativeAPI(url("https://empanadas.io/v2/apps/dashboard.php")), "only /v2/app/ itself")
+    }
 }

@@ -68,16 +68,22 @@ enum SiteURLs {
     static let feedback = page("/v2/feedback")
     static let privacy = page("/privacy.html")
     static let terms = page("/terms.html")
-    /// The app's own API on the site: JSON in, JSON out (html/v2/ios/ there).
-    /// It has to be under /v2/: the session cookie is scoped to /v2, so
-    /// AccountAPI sends it nowhere else, and Cloudflare caches the rest.
-    static let iosAccount = page("/v2/ios/account.php")
-    static let iosDashboard = page("/v2/ios/dashboard.php")
-    static let iosLeaderboard = page("/v2/ios/leaderboard.php")
-    static let iosSearch = page("/v2/ios/search.php")
-    static let iosFeedback = page("/v2/ios/feedback.php")
+    /// The apps' own API on the site: JSON in, JSON out (html/v2/app/ there),
+    /// shared with the desktop app. It has to be under /v2/: the session
+    /// cookie is scoped to /v2, so AccountAPI sends it nowhere else, and
+    /// Cloudflare caches the rest.
+    static let nativeAPIPath = "/v2/app/"
+    /// Where the API was until the desktop app used it too. The site still
+    /// answers there; AccountAPI only asks it of a site from before the move
+    /// (oldNativeAPI(_:)).
+    static let oldNativeAPIPath = "/v2/ios/"
+    static let appAccount = page(nativeAPIPath + "account.php")
+    static let appDashboard = page(nativeAPIPath + "dashboard.php")
+    static let appLeaderboard = page(nativeAPIPath + "leaderboard.php")
+    static let appSearch = page(nativeAPIPath + "search.php")
+    static let appFeedback = page(nativeAPIPath + "feedback.php")
     /// Where a sign-in run in the browser is redeemed (SignInRequest).
-    static let iosSignIn = page("/v2/ios/signin.php")
+    static let appSignIn = page(nativeAPIPath + "signin.php")
     /// The save points behind the dashboard's Spin Progress chart, and
     /// restoring one: the site's own endpoint for its "Manage game data"
     /// dialog, which the app's Manage Game Data screen uses too.
@@ -116,9 +122,9 @@ enum SiteURLs {
     }
 
     /// The signed-in player's own profile, or another player's.
-    static func iosProfile(id: String? = nil) -> URL {
-        guard let id, !id.isEmpty else { return page("/v2/ios/profile.php") }
-        var components = URLComponents(url: page("/v2/ios/profile.php"), resolvingAgainstBaseURL: false)!
+    static func appProfile(id: String? = nil) -> URL {
+        guard let id, !id.isEmpty else { return page(nativeAPIPath + "profile.php") }
+        var components = URLComponents(url: page(nativeAPIPath + "profile.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "id", value: id.lowercased())]
         return components.url!
     }
@@ -132,8 +138,8 @@ enum SiteURLs {
     }
 
     /// One page of a player search.
-    static func iosSearch(_ query: String, page number: Int = 0) -> URL {
-        var components = URLComponents(url: iosSearch, resolvingAgainstBaseURL: false)!
+    static func appSearch(_ query: String, page number: Int = 0) -> URL {
+        var components = URLComponents(url: appSearch, resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "q", value: query)]
         if number > 0 { components.queryItems?.append(URLQueryItem(name: "p", value: String(number))) }
         return components.url!
@@ -141,6 +147,16 @@ enum SiteURLs {
 
     static func page(_ path: String) -> URL {
         site.appending(path: path)
+    }
+
+    /// The same request of the native API at its old address (/v2/ios/
+    /// rather than /v2/app/), query and all, for a site from before the move;
+    /// nil for an address that is not the native API's.
+    static func oldNativeAPI(_ url: URL) -> URL? {
+        guard isAppURL(url), var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.path.hasPrefix(nativeAPIPath) else { return nil }
+        components.path = oldNativeAPIPath + String(components.path.dropFirst(nativeAPIPath.count))
+        return components.url
     }
 
     /// A player's profile page, by the id the site gives it.
@@ -279,7 +295,7 @@ enum SiteURLs {
     // The whole sign-in runs in the system browser (SignInRequest): the
     // browser starts at /v2/auth/app.php with the request's PKCE challenge,
     // and the site hands it back with empanadas-io://signin?code=<code>, which
-    // the app redeems at /v2/ios/signin.php. The site's half is described
+    // the app redeems at /v2/app/signin.php. The site's half is described
     // above APP_SIGNIN_TTL in its v2/_lib.php.
 
     /// Where the browser starts: the site's username step, or Pick a Username.

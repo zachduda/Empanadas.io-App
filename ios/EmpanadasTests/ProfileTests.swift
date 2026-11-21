@@ -1,8 +1,8 @@
 import XCTest
 @testable import Empanadas
 
-/// The native profiles and Find Friends: what /v2/ios/profile.php and
-/// /v2/ios/search.php send (tests/iosapp_test.php on the site), the profile
+/// The native profiles and Find Friends: what /v2/app/profile.php and
+/// /v2/app/search.php send (tests/iosapp_test.php on the site), the profile
 /// ids account_edit.php takes, and the links that open these screens.
 final class ProfileTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
@@ -169,12 +169,12 @@ final class ProfileTests: XCTestCase {
     }
 
     func testSearchURLs() {
-        XCTAssertEqual(SiteURLs.iosSearch("emp").absoluteString, "https://empanadas.io/v2/ios/search.php?q=emp")
-        XCTAssertEqual(SiteURLs.iosSearch("a b", page: 2).absoluteString,
-                       "https://empanadas.io/v2/ios/search.php?q=a%20b&p=2")
-        XCTAssertEqual(SiteURLs.iosProfile().absoluteString, "https://empanadas.io/v2/ios/profile.php")
-        XCTAssertEqual(SiteURLs.iosProfile(id: "").absoluteString, "https://empanadas.io/v2/ios/profile.php")
-        XCTAssertEqual(SiteURLs.iosProfile(id: "AB-12").absoluteString, "https://empanadas.io/v2/ios/profile.php?id=ab-12")
+        XCTAssertEqual(SiteURLs.appSearch("emp").absoluteString, "https://empanadas.io/v2/app/search.php?q=emp")
+        XCTAssertEqual(SiteURLs.appSearch("a b", page: 2).absoluteString,
+                       "https://empanadas.io/v2/app/search.php?q=a%20b&p=2")
+        XCTAssertEqual(SiteURLs.appProfile().absoluteString, "https://empanadas.io/v2/app/profile.php")
+        XCTAssertEqual(SiteURLs.appProfile(id: "").absoluteString, "https://empanadas.io/v2/app/profile.php")
+        XCTAssertEqual(SiteURLs.appProfile(id: "AB-12").absoluteString, "https://empanadas.io/v2/app/profile.php?id=ab-12")
     }
 
     // MARK: - Ids and changes
