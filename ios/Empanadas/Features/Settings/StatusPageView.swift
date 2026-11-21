@@ -3,8 +3,8 @@ import WebKit
 
 /// The full status page, in a sheet that looks like the rest of the app
 /// rather than a browser: the app's own title bar with Done (and Back, once
-/// a link has been followed), no address, the page's own header and
-/// "Powered by" line left out, the system font, and no zooming, selecting
+/// a link has been followed), no address, the page's Subscribe button
+/// and "Powered by" line left out, the system font, and no zooming, selecting
 /// or link previews. Nor any way off it: links stay on the status page
 /// (an incident, the history), and anything else goes nowhere.
 ///
@@ -271,10 +271,13 @@ final class StatusPage: NSObject {
     /// is not there changes nothing.
     private static let nativeLook: WKUserScript = {
         let css = """
-        /* The page's own header (its name and Subscribe to Updates) and the
-           Powered by line: the sheet's title bar is the header. */
-        .masthead-container, .masthead, .updates-dropdown-container, .powered-by,
-        a[href*="atlassian.com"] { display: none !important; }
+        /* Subscribe to Updates (email, text and webhook sign-ups, some of
+           them on other sites) and the Powered by line. The logo stays. */
+        .updates-dropdown-container, .show-updates-dropdown, #show-updates-dropdown,
+        .powered-by, a[href*="atlassian.com"] { display: none !important; }
+        /* The logo links to the website, which the sheet does not go to:
+           not something to tap. */
+        .masthead a, .logo-container a { pointer-events: none !important; }
         /* Taps and holds as on the app's own screens, not a web page's. */
         html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
         body { -webkit-user-select: none !important; -webkit-touch-callout: none !important; }
