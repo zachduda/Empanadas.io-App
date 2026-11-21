@@ -1,11 +1,10 @@
 'use strict';
 
-// What `npm test` runs. There is no runtime test suite here - the app is a
-// thin Electron wrapper around empanadas.io, and almost everything worth
-// asserting needs a running Electron. What this does catch is the class of
-// mistake that actually breaks releases: a syntax error in a main-process
-// file (which only shows up when a user launches the app) and a packaging
-// config that produces broken or unverifiable artifacts.
+// What `npm test` runs: a syntax check of everything Electron loads (which
+// nothing else in CI would ever parse), the hardening settings that silently
+// make the app less safe when they regress, the packaging config, and the
+// test suites of the parts that need no running Electron. The whole app, run
+// against a fake site, is `npm run e2e` (test/e2e/run.js).
 
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -33,8 +32,10 @@ function assert(condition, message) {
 // ever parse them.
 console.log('syntax');
 
-const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/offline.js', 'lib/background.js',
-	'Content/JS/preload.js', 'Content/JS/auth-preload.js',
+const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/background.js',
+	'lib/api.js', 'lib/answers.js', 'lib/signin.js', 'lib/jsonfile.js', 'lib/gamebundle.js', 'lib/gameprotocol.js',
+	'lib/cookiebridge.js', 'lib/imagecache.js', 'lib/routes.js', 'lib/windowstate.js',
+	'Content/JS/shell-preload.js', 'Content/JS/game-preload.js', 'Content/JS/auth-preload.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js'];
 
 for (const file of sources) {
@@ -49,7 +50,7 @@ for (const file of sources) {
 console.log('hardening');
 
 const mainSrc = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-const htmlSrc = fs.readFileSync(path.join(root, 'download.html'), 'utf8');
+const htmlSrc = fs.readFileSync(path.join(root, 'shell', 'index.html'), 'utf8');
 
 check('no invisible characters in main.js', () => {
 	// A zero-width space once hid inside an appendSwitch() name here, which
@@ -124,31 +125,69 @@ check('the sign-in popup does not inherit the preload', () => {
 		'Content/JS/auth-preload.js must expose nothing');
 });
 
-// Offline play opens pages without a connection, so what it may open and when
-// it stops are pinned here. See lib/offline.js.
-check('offline play only opens the listed games, and only while signed in', () => {
-	assert(/const url = offline\.gameUrl\(name\);/.test(mainSrc),
-		"the 'offline-play' handler no longer resolves the game through offline.gameUrl()");
-	// playableOffline() is available plus that game's own worker: a game added
-	// by an update is not stored until the dashboard next loads online.
-	assert(/!offline\.playableOffline\(offlineStore\.get\(\), name\)\) return false;/.test(mainSrc),
-		"the 'offline-play' handler no longer checks that this game is playable offline");
+// The games are served from disk by answering every https request of their
+// session (lib/gameprotocol.js). That must only ever be the games' own
+// session: in the default one it would also answer for the API, the app's
+// screens and the site's account pages.
+check('only the games\' session answers https requests itself', () => {
+	assert(/play\.protocol\.handle\('https'/.test(mainSrc), 'the games\' session no longer serves them from disk');
+	const handlers = mainSrc.match(/\.protocol\.handle\('https'/g) || [];
+	assert(handlers.length === 1, 'https is handled in ' + handlers.length + ' places');
+	assert(/const PLAY_PARTITION = 'persist:play'/.test(mainSrc), 'the games no longer have a session of their own');
+	assert(/bypassCustomProtocolHandlers: true/.test(mainSrc), 'what the games send on to the site would come back to the handler');
 });
 
-check('signing out deletes the stored games', () => {
-	assert(/storages:\s*\['serviceworkers', 'cachestorage'\]/.test(mainSrc),
-		'main.js no longer clears the offline worker and its cache on sign-out');
+check('the games only keep static files, never the saves', () => {
+	const bundleSrc = fs.readFileSync(path.join(root, 'lib', 'gamebundle.js'), 'utf8');
+	assert(/function isEligible\(/.test(bundleSrc), 'lib/gamebundle.js no longer decides what is kept');
+	assert(/p\.startsWith\('\/Content\/'\)/.test(bundleSrc), 'kept files are no longer limited to /Content/');
 });
 
-check('the window zoom is set where Electron reads it', () => {
-	// zoomFactor is a webPreferences option. On the window options it is
-	// silently ignored, which is where it sat while every page drew at 100%.
-	const start = mainSrc.search(/function createDefaultWindow\([^)]*\)/);
-	assert(start >= 0, 'createDefaultWindow() is gone from main.js');
+// The app's own screens get the site's answers, never a cookie or a token.
+check('csrf tokens stay in the main process', () => {
+	assert(/function forShell\(body\)[\s\S]{0,200}delete out\.csrf/.test(mainSrc), 'forShell() no longer drops the csrf token');
+	const answersSrc = fs.readFileSync(path.join(root, 'lib', 'answers.js'), 'utf8');
+	assert(/csrf: ''/.test(answersSrc), 'lib/answers.js writes csrf tokens to disk');
+});
+
+check('every IPC call checks who is asking', () => {
+	assert(/if \(!trusted\(event\)\)/.test(mainSrc), 'handle() no longer checks the sender');
+	assert(/event\.sender === win\.webContents && url\.startsWith\(SHELL_ORIGIN \+ '\/'\)/.test(mainSrc),
+		'isShellSender() no longer requires the app\'s own window and page');
+	assert((mainSrc.match(/ipcMain\.handle\(/g) || []).length === 1, 'an IPC handler bypasses handle()');
+});
+
+check('the games\' preload offers nothing of the account', () => {
+	const gamePreload = fs.readFileSync(path.join(root, 'Content', 'JS', 'game-preload.js'), 'utf8');
+	for (const channel of ["'data:", "'session:", "'site:", "'external:", "'cache:"]) {
+		assert(!gamePreload.includes(channel), 'Content/JS/game-preload.js exposes ' + channel);
+	}
+});
+
+check('signing in to the app happens in the browser, with PKCE', () => {
+	const signinSrc = fs.readFileSync(path.join(root, 'lib', 'signin.js'), 'utf8');
+	assert(/createHash\('sha256'\)/.test(signinSrc), 'lib/signin.js no longer makes an S256 challenge');
+	assert(/api\.redeemSignIn\(code, request\.verifier\)/.test(mainSrc), 'a sign-in code is redeemed without the verifier');
+	assert(/shell\.openExternal\(request\.url\)/.test(mainSrc), 'the sign-in no longer opens in the browser');
+});
+
+check('signing out forgets the account in both sessions', () => {
+	const start = mainSrc.indexOf('async function signOut()');
+	assert(start >= 0, 'signOut() is gone from main.js');
 	const body = mainSrc.slice(start, mainSrc.indexOf('\n}\n', start));
-	const prefs = body.slice(body.indexOf('webPreferences: {'), body.indexOf('\n\t},', body.indexOf('webPreferences: {')));
-	assert(/zoomFactor:/.test(prefs), 'zoomFactor is not inside the main window\'s webPreferences');
-	assert((body.match(/zoomFactor:/g) || []).length === 1, 'zoomFactor is set more than once in createDefaultWindow()');
+	assert(/clearSiteCookies\(session\.defaultSession\.cookies\)/.test(body) && /clearSiteCookies\(play\.cookies\)/.test(body),
+		'signOut() no longer clears the account\'s cookies in both sessions');
+	assert(/api\.signOut\(\)/.test(body), 'signOut() no longer tells the site');
+});
+
+check('the site\'s pages get the zoom where Electron reads it', () => {
+	// zoomFactor is a webPreferences option. On the window options it is
+	// silently ignored.
+	const start = mainSrc.indexOf('function siteWindowOptions()');
+	assert(start >= 0, 'siteWindowOptions() is gone from main.js');
+	const body = mainSrc.slice(start, mainSrc.indexOf('\n}\n', start));
+	const prefs = body.slice(body.indexOf('webPreferences: {'), body.indexOf('\n\t\t},', body.indexOf('webPreferences: {')));
+	assert(/zoomFactor:/.test(prefs), 'zoomFactor is not inside the site window\'s webPreferences');
 });
 
 // Toggle Full Screen showed twice in the macOS View menu, and setting
@@ -162,17 +201,9 @@ check('the macOS View menu leaves Full Screen to macOS', () => {
 		'main.js no longer clears the NSFullScreenMenuItemEverywhere left by older builds');
 });
 
-check('the splash asks the main process whether the site is up', () => {
-	// A fetch() from the file:// splash is dropped by CORS whenever the site
-	// sends its own origin in Access-Control-Allow-Origin.
-	assert(/app\.ping\(\)/.test(htmlSrc), 'download.html no longer uses electronWindow.ping()');
-	assert(/handle\('app-ping'/.test(mainSrc), "main.js no longer answers 'app-ping'");
-});
-
-// The account page's "Clear cache" button must not sign anyone out or lose
-// their saves.
+// Settings' "Clear Cache" must not sign anyone out or lose their saves.
 check('clearing the cache keeps cookies and saves', () => {
-	assert(/handle\('app-clear-cache'/.test(mainSrc), "main.js no longer answers 'app-clear-cache'");
+	assert(/handle\('cache:clear'/.test(mainSrc), "main.js no longer answers 'cache:clear'");
 	const start = mainSrc.indexOf('async function clearAppCache()');
 	assert(start >= 0, 'clearAppCache() is gone from main.js');
 	const body = mainSrc.slice(start, mainSrc.indexOf('\n}\n', start));
@@ -183,15 +214,20 @@ check('clearing the cache keeps cookies and saves', () => {
 		'clearAppCache() calls clearStorageData() without naming storages, which clears everything');
 });
 
-check('the injected window controls are sealed off from the page', () => {
-	const preloadSrc = fs.readFileSync(path.join(root, 'Content', 'JS', 'preload.js'), 'utf8');
-	assert(/attachShadow\(\{ mode: 'closed' \}\)/.test(preloadSrc),
-		'the window controls are no longer in a closed shadow root');
+check('the app\'s screens set a strict Content-Security-Policy', () => {
+	assert(/http-equiv=["']Content-Security-Policy["']/i.test(htmlSrc), 'shell/index.html has no CSP meta tag');
+	assert(/default-src\s+'none'/.test(htmlSrc), "the CSP does not start from default-src 'none'");
+	assert(/script-src 'self'/.test(htmlSrc) && !/unsafe-inline|unsafe-eval/.test(htmlSrc), 'the CSP allows inline or eval\'d script');
+	assert(/\['content-security-policy'\] = SHELL_CSP/.test(mainSrc), 'main.js no longer sends the CSP header with the app\'s page');
 });
 
-check('download.html sets a Content-Security-Policy', () => {
-	assert(/http-equiv=["']Content-Security-Policy["']/i.test(htmlSrc), 'no CSP meta tag');
-	assert(/default-src\s+'none'/.test(htmlSrc), "CSP does not start from default-src 'none'");
+check('the app\'s screens put the site\'s words on the page as text', () => {
+	const files = fs.readdirSync(path.join(root, 'shell', 'js', 'screens')).map((f) => path.join('shell', 'js', 'screens', f))
+		.concat(['shell/js/main.js', 'shell/js/dom.js', 'shell/js/components.js', 'shell/js/chart.js', 'shell/js/friendship.js']);
+	for (const file of files) {
+		const src = fs.readFileSync(path.join(root, file), 'utf8');
+		assert(!/\.innerHTML\s*=|insertAdjacentHTML|outerHTML\s*=|document\.write/.test(src), file + ' writes markup');
+	}
 });
 
 const updaterSrc = fs.readFileSync(path.join(root, 'updater.js'), 'utf8');
@@ -349,7 +385,7 @@ check('the packaged app includes what it needs at runtime and nothing else', () 
 	// lib/ holds the signature verifier; leaving it out would break the updater
 	// only at the moment it matters. test/ ships a public key that is NOT the
 	// release key, which would be confusing to find inside a shipped app.
-	for (const needed of ['lib', 'release-keys.json', 'Content', 'download.html']) {
+	for (const needed of ['lib', 'release-keys.json', 'Content', 'shell']) {
 		assert(!excluded.some((e) => needed === e || needed.startsWith(e + '/')),
 			needed + ' is excluded from the package but is needed at runtime');
 	}
@@ -401,13 +437,31 @@ try {
 	failures.push('lib/windowstate.js test suite failed');
 }
 
-// --- offline games ----------------------------------------------------
-console.log('offline games');
+// --- the native screens' requests and the sign-in ---------------------
+console.log('api and sign-in');
 
 try {
-	execFileSync(process.execPath, [path.join(root, 'test', 'offline.test.js')], { stdio: 'inherit' });
+	execFileSync(process.execPath, [path.join(root, 'test', 'api.test.js')], { stdio: 'inherit' });
 } catch (err) {
-	failures.push('lib/offline.js test suite failed');
+	failures.push('lib/api.js, lib/signin.js and lib/answers.js test suite failed');
+}
+
+// --- the games kept on this computer -------------------------------------
+console.log('games kept on this computer');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'games.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/gamebundle.js, lib/gameprotocol.js and lib/cookiebridge.js test suite failed');
+}
+
+// --- links ----------------------------------------------------------------
+console.log('links');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'routes.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/routes.js test suite failed');
 }
 
 // --- keep spinning when closed ----------------------------------------
@@ -437,16 +491,6 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'updater.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('updater.js test suite failed');
-}
-
-// --- splash page ------------------------------------------------------
-// Needs a browser, and skips itself when there isn't one (see the file).
-console.log('splash page');
-
-try {
-	execFileSync(process.execPath, [path.join(root, 'test', 'splash.test.js')], { stdio: 'inherit' });
-} catch (err) {
-	failures.push('download.html browser test suite failed');
 }
 
 // --- result -----------------------------------------------------------

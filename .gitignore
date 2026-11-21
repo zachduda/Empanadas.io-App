@@ -15,3 +15,6 @@ node_modules/
 xcuserdata/
 DerivedData/
 ios/.DS_Store
+
+# Screenshots from npm run e2e
+/test/e2e/out/
