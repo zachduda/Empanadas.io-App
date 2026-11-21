@@ -14,6 +14,7 @@ import WebKit
 struct StatusPageView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     /// Made once the sheet is up, and once only: as @State's initial value
     /// it would be made (web view and all) every time the view was.
     @State private var page: StatusPage?
@@ -35,6 +36,8 @@ struct StatusPageView: View {
                 } else if page?.hasContent != true {
                     ProgressView()
                         .controlSize(.large)
+                        // Drawn for what it is on: light on the page's blue.
+                        .environment(\.colorScheme, page?.colorScheme ?? colorScheme)
                 }
             }
             .animation(.easeOut(duration: 0.25), value: page?.hasContent)
@@ -158,6 +161,11 @@ final class StatusPage: NSObject {
         observation = webView.observe(\.canGoBack) { [weak self] webView, _ in
             MainActor.assumeIsolated { self?.canGoBack = webView.canGoBack }
         }
+        // The colour it was last time (the page's own blue), so the sheet
+        // opens in it rather than in white and changes once the page draws.
+        if let saved = UserDefaults.standard.string(forKey: Preferences.statusPageColorKey) {
+            paint(saved)
+        }
         load()
     }
 
@@ -200,19 +208,30 @@ final class StatusPage: NSObject {
     }
 
     /// The page's background: the body's, or the document's if that is
-    /// see-through, or the browser's white if both are.
+    /// see-through, or the browser's white if both are. Kept for next time.
     private func readBackground() async {
         let script = """
         [document.body, document.documentElement].filter(Boolean)
             .map(function (element) { return getComputedStyle(element).backgroundColor; }).join('|')
         """
         guard let answer = (try? await webView.evaluateJavaScript(script)) as? String else { return }
-        let css = answer.split(separator: "|").compactMap { CSSColor(String($0)) }.first { !$0.isTransparent }
-            ?? CSSColor(red: 1, green: 1, blue: 1)
-        let color = UIColor(red: css.red, green: css.green, blue: css.blue, alpha: 1)
+        let found = answer.split(separator: "|").map(String.init).first { part in
+            guard let color = CSSColor(part) else { return false }
+            return !color.isTransparent
+        }
+        let css = found ?? "rgb(255, 255, 255)"
+        UserDefaults.standard.set(css, forKey: Preferences.statusPageColorKey)
+        paint(css)
+    }
+
+    /// The space around the page, the bar over it and the overscroll, in
+    /// its colour.
+    private func paint(_ css: String) {
+        guard let parsed = CSSColor(css), !parsed.isTransparent else { return }
+        let color = UIColor(red: parsed.red, green: parsed.green, blue: parsed.blue, alpha: 1)
         guard color != backgroundColor else { return }
         backgroundColor = color
-        colorScheme = css.isDark ? .dark : .light
+        colorScheme = parsed.isDark ? .dark : .light
         webView.underPageBackgroundColor = color
     }
 
