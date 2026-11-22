@@ -1,7 +1,7 @@
 {
   "name": "empanadas.io",
-  "version": "1.12.1",
-  "description": "The only app for all your Empanada needs!",
+  "version": "2.0.0",
+  "description": "Empanadas.io for Mac and Windows: native screens, and the games kept on your computer so they start fast and play offline.",
   "main": "main.js",
   "publisherName": "Empanadas.io",
   "scripts": {
@@ -11,7 +11,8 @@
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
-    "test": "node scripts/validate.js"
+    "test": "node scripts/validate.js",
+    "e2e": "node test/e2e/run.js"
   },
   "author": "Zach Duda (https://zachduda.com)",
   "license": "GPL-3.0",

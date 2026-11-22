@@ -181,7 +181,7 @@ private final class FakeSite: URLProtocol {
     override func stopLoading() {}
 }
 
-/// What the site's /v2/ios/ endpoints would say about a player a few weeks
+/// What the site's /v2/app/ endpoints would say about a player a few weeks
 /// in: friends, a request waiting, scores in all three games, pumpkin season.
 /// And the site's announcements, two of them posted since the player last
 /// looked.
@@ -210,10 +210,10 @@ private enum Fixtures {
 
     static func answer(for url: URL) -> Data? {
         switch url.path() {
-        case "/v2/ios/dashboard.php": json(dashboard)
-        case "/v2/ios/leaderboard.php": json(leaderboard)
-        case "/v2/ios/account.php": json(account)
-        case "/v2/ios/profile.php": json(profile)
+        case "/v2/app/dashboard.php": json(dashboard)
+        case "/v2/app/leaderboard.php": json(leaderboard)
+        case "/v2/app/account.php": json(account)
+        case "/v2/app/profile.php": json(profile)
         case "/v1/updates.php": updates(url)
         case "/v2/gamehistory.php": json(savePoints)
         default: nil

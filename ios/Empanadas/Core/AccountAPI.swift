@@ -16,7 +16,7 @@ struct AccountSettings: Decodable, Equatable {
     var newsignins: Int
 }
 
-/// Who is signed in: the "account" object of /v2/ios/account.php
+/// Who is signed in: the "account" object of /v2/app/account.php
 /// (iosAccountProfile() in the site's v2/_lib.php).
 struct AccountProfile: Decodable, Equatable {
     var id: Int
@@ -86,12 +86,12 @@ struct AccountProfile: Decodable, Equatable {
     }
 }
 
-/// GET /v2/ios/account.php: the account, its settings, and the csrf token that
+/// GET /v2/app/account.php: the account, its settings, and the csrf token that
 /// changes to them go back to /v2/account_edit.php with.
 ///
 /// Also reads the older /v2/getdata.php?type=app_settings answer, which has
 /// username, email and pfp at the top level instead of an "account" object,
-/// for a site that does not have /v2/ios/ yet.
+/// for a site that has neither /v2/app/ nor its old address, /v2/ios/.
 struct AccountSnapshot: Decodable {
     var account: AccountProfile
     let hasBirthday: Bool
@@ -154,7 +154,7 @@ enum AccountError: LocalizedError, Equatable {
     }
 }
 
-/// Why /v2/ios/signin.php would not sign the app in.
+/// Why /v2/app/signin.php would not sign the app in.
 struct SignInError: LocalizedError, Equatable {
     /// The site's reason: "expired" (the code was used, too old, or not for
     /// this request), "deactivated" (the account was deleted meanwhile), or
@@ -195,42 +195,43 @@ final class AccountAPI {
         cookieStore = WKWebsiteDataStore.default().httpCookieStore
     }
 
-    /// The signed-in account, from /v2/ios/account.php. A good answer is also
+    /// The signed-in account, from /v2/app/account.php. A good answer is also
     /// kept for offline use (OfflineStore), without its csrf token.
     func snapshot() async throws -> AccountSnapshot {
         let generation = OfflineStore.generation
-        let (data, response) = try await send(URLRequest(url: SiteURLs.iosAccount))
-        let reply = Self.iosReply(data)
+        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appAccount))
+        let reply = Self.nativeReply(data)
 
-        // A site without /v2/ios/ yet: nginx's own 404 page, not our JSON.
+        // A site without the native API at either address: nginx's own 404
+        // page, not our JSON.
         if response.statusCode == 404 && reply == nil {
             return try await legacySnapshot()
         }
-        let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
+        let body = try Self.nativeBody(data, reply: reply, status: response.statusCode)
         let snapshot = try Self.decode(AccountSnapshot.self, body)
         remember(snapshot.csrf)
         OfflineStore.save(Self.withoutToken(body), as: .settings, generation: generation)
         return snapshot
     }
 
-    /// GET /v2/ios/dashboard.php: everything on the native dashboard.
+    /// GET /v2/app/dashboard.php: everything on the native dashboard.
     func dashboard() async throws -> Dashboard {
-        try await iosGet(SiteURLs.iosDashboard, as: Dashboard.self, keep: .dashboard)
+        try await nativeGet(SiteURLs.appDashboard, as: Dashboard.self, keep: .dashboard)
     }
 
-    /// GET /v2/ios/leaderboard.php: the three boards.
+    /// GET /v2/app/leaderboard.php: the three boards.
     func leaderboard() async throws -> Leaderboard {
-        try await iosGet(SiteURLs.iosLeaderboard, as: Leaderboard.self, keep: .leaderboard)
+        try await nativeGet(SiteURLs.appLeaderboard, as: Leaderboard.self, keep: .leaderboard)
     }
 
     // MARK: - Profiles and friends
 
-    /// GET /v2/ios/profile.php: a player's profile, or with no id the
+    /// GET /v2/app/profile.php: a player's profile, or with no id the
     /// player's own, which is also kept for offline use (without its token).
     func profile(id: String? = nil) async throws -> PlayerProfile {
         let generation = OfflineStore.generation
-        let (data, response) = try await send(URLRequest(url: SiteURLs.iosProfile(id: id)))
-        let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
+        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appProfile(id: id)))
+        let body = try Self.nativeBody(data, reply: Self.nativeReply(data), status: response.statusCode)
         let profile = try Self.decode(PlayerProfile.self, body)
         remember(profile.csrf)
         if id == nil {
@@ -239,11 +240,11 @@ final class AccountAPI {
         return profile
     }
 
-    /// GET /v2/ios/search.php: one page of players whose name has `query` in
+    /// GET /v2/app/search.php: one page of players whose name has `query` in
     /// it. `query` should already be PlayerSearch.term()'s.
     func searchPlayers(_ query: String, page: Int = 0) async throws -> PlayerSearch {
-        let (data, response) = try await send(URLRequest(url: SiteURLs.iosSearch(query, page: page)))
-        let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
+        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appSearch(query, page: page)))
+        let body = try Self.nativeBody(data, reply: Self.nativeReply(data), status: response.statusCode)
         return try Self.decode(PlayerSearch.self, body)
     }
 
@@ -293,7 +294,7 @@ final class AccountAPI {
 
     // MARK: - Feedback
 
-    /// GET /v2/ios/feedback.php: the Send Feedback form, with the session's
+    /// GET /v2/app/feedback.php: the Send Feedback form, with the session's
     /// token. A site without the endpoint yet gets the web form's subjects
     /// (FeedbackForm.builtIn) and a token from the account endpoint.
     ///
@@ -311,14 +312,14 @@ final class AccountAPI {
         }
         // Signed out while it was on its way: not the next account's form.
         let generation = OfflineStore.generation
-        let (data, response) = try await send(URLRequest(url: SiteURLs.iosFeedback))
-        let reply = Self.iosReply(data)
+        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appFeedback))
+        let reply = Self.nativeReply(data)
         var form: FeedbackForm
         if response.statusCode == 404 && reply == nil {
             form = FeedbackForm.builtIn
             form.csrf = try await snapshot().csrf
         } else {
-            let body = try Self.iosBody(data, reply: reply, status: response.statusCode)
+            let body = try Self.nativeBody(data, reply: reply, status: response.statusCode)
             form = try Self.decode(FeedbackForm.self, body)
             remember(form.csrf)
         }
@@ -363,7 +364,7 @@ final class AccountAPI {
     /// GET /v2/gamehistory.php: the newest save points, or with `before` the
     /// page older than that one, and the account as it is now. The site's
     /// own endpoint for its dashboard's "Manage game data" dialog, rather
-    /// than one of /v2/ios/: it answers {"result": Bool, "reason": String?}.
+    /// than one of /v2/app/: it answers {"result": Bool, "reason": String?}.
     func savePoints(before: Int? = nil) async throws -> SavePointsPage {
         let (data, response) = try await send(URLRequest(url: SiteURLs.gameHistory(before: before)))
         return try Self.decode(SavePointsPage.self, Self.gameHistoryBody(data, status: response.statusCode))
@@ -447,7 +448,7 @@ final class AccountAPI {
     }
 
     /// Runs a change with the session's token: the one last seen, else a
-    /// fresh one from /v2/ios/account.php. The site clears its token after a
+    /// fresh one from /v2/app/account.php. The site clears its token after a
     /// mismatch (when a web page issued a new one meanwhile), so on that the
     /// change is tried once more with a fresh one.
     private func withToken<T: Sendable>(_ body: (String) async throws -> T) async throws -> T {
@@ -466,20 +467,20 @@ final class AccountAPI {
         }
     }
 
-    /// One /v2/ios/ endpoint, decoded, and kept in OfflineStore when good.
-    private func iosGet<T: Decodable>(_ url: URL, as type: T.Type, keep key: OfflineStore.Key) async throws -> T {
+    /// One /v2/app/ endpoint, decoded, and kept in OfflineStore when good.
+    private func nativeGet<T: Decodable>(_ url: URL, as type: T.Type, keep key: OfflineStore.Key) async throws -> T {
         let generation = OfflineStore.generation
-        let (data, response) = try await send(URLRequest(url: url))
-        let body = try Self.iosBody(data, reply: Self.iosReply(data), status: response.statusCode)
+        let (data, response) = try await sendNative(URLRequest(url: url))
+        let body = try Self.nativeBody(data, reply: Self.nativeReply(data), status: response.statusCode)
         let value = try Self.decode(T.self, body)
         OfflineStore.save(body, as: key, generation: generation)
         return value
     }
 
-    /// The body of a successful /v2/ios/ answer, or the error it stands for.
+    /// The body of a successful /v2/app/ answer, or the error it stands for.
     /// A 404 that is not our JSON is a site without the endpoint deployed; a
     /// 5xx that is not, the server (or Cloudflare in front of it) failing.
-    nonisolated static func iosBody(_ data: Data, reply: (ok: Bool, reason: String?)?, status: Int) throws -> Data {
+    nonisolated static func nativeBody(_ data: Data, reply: (ok: Bool, reason: String?)?, status: Int) throws -> Data {
         guard let reply else {
             if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
             throw AccountError.unavailable("HTTP \(status)")
@@ -512,15 +513,15 @@ final class AccountAPI {
         return (try? JSONSerialization.data(withJSONObject: object)) ?? data
     }
 
-    /// The answer every /v2/ios/ endpoint gives: {"ok": Bool, "reason": String?}.
+    /// The answer every /v2/app/ endpoint gives: {"ok": Bool, "reason": String?}.
     /// Nil when the body is not that (an HTML error page, a proxy's answer).
-    nonisolated static func iosReply(_ data: Data) -> (ok: Bool, reason: String?)? {
+    nonisolated static func nativeReply(_ data: Data) -> (ok: Bool, reason: String?)? {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let ok = object["ok"] as? Bool else { return nil }
         return (ok, object["reason"] as? String)
     }
 
-    /// GET /v2/getdata.php?type=app_settings, which /v2/ios/account.php replaced.
+    /// GET /v2/getdata.php?type=app_settings, which /v2/app/account.php replaced.
     private func legacySnapshot() async throws -> AccountSnapshot {
         let generation = OfflineStore.generation
         let (data, response) = try await send(URLRequest(url: getDataURL("app_settings")))
@@ -584,19 +585,19 @@ final class AccountAPI {
 
     // MARK: - Signing in
 
-    /// POST /v2/ios/signin.php: signs this session (the web views' cookies)
+    /// POST /v2/app/signin.php: signs this session (the web views' cookies)
     /// in with the code a sign-in in the browser came back with, and the
     /// verifier of the request it was for (SignInRequest). The site sets the
     /// signed-in session's cookies, which send() copies into WebKit's store.
     func redeemSignIn(code: String, verifier: String) async throws {
-        var request = URLRequest(url: SiteURLs.iosSignIn)
+        var request = URLRequest(url: SiteURLs.appSignIn)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.formBody([("code", code), ("verifier", verifier)])
 
-        let (data, response) = try await send(request)
+        let (data, response) = try await sendNative(request)
         if response.statusCode == 429 { throw SignInError(reason: "rate_limited") }
-        guard let reply = Self.iosReply(data) else {
+        guard let reply = Self.nativeReply(data) else {
             throw SignInError(reason: "HTTP \(response.statusCode)")
         }
         guard reply.ok else { throw SignInError(reason: reply.reason ?? "HTTP \(response.statusCode)") }
@@ -641,6 +642,38 @@ final class AccountAPI {
         var components = URLComponents(url: SiteURLs.page("/v2/getdata.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "type", value: type)]
         return components.url!
+    }
+
+    /// Until when the native API's old address is used: set once the site
+    /// turned out to be one from before the move.
+    private var oldAPIUntil: Date?
+
+    /// How long the old address is used before /v2/app/ is tried again.
+    private static let oldAPIRecheck: TimeInterval = 60 * 60
+
+    /// A request to the native API: at /v2/app/, or at its old address,
+    /// /v2/ios/, when the site answers /v2/app/ with nginx's own 404 page
+    /// rather than our JSON (a site from before the move), and then for
+    /// oldAPIRecheck. So the app works whichever of it and the site is updated
+    /// first. The API's own 404 ({"ok": false}) is an answer, never retried.
+    /// Safe for the sign-in's POST too: an address the site does not have
+    /// changed nothing.
+    private func sendNative(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        guard let url = request.url, let oldURL = SiteURLs.oldNativeAPI(url) else {
+            return try await send(request)
+        }
+        var old = request
+        old.url = oldURL
+        if let until = oldAPIUntil, Date() < until {
+            return try await send(old)
+        }
+        let (data, response) = try await send(request)
+        guard response.statusCode == 404, Self.nativeReply(data) == nil else { return (data, response) }
+        let (oldData, oldResponse) = try await send(old)
+        if oldResponse.statusCode != 404 || Self.nativeReply(oldData) != nil {
+            oldAPIUntil = Date().addingTimeInterval(Self.oldAPIRecheck)
+        }
+        return (oldData, oldResponse)
     }
 
     private func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {

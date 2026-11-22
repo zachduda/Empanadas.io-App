@@ -93,6 +93,12 @@ report-only tells you which without breaking anyone.
 | --- | --- | --- |
 | `localStorage` on the splash page | `AppID`, a random UUID generated on first run and passed to the dashboard as `&appid=` | No |
 | `%APPDATA%\empanadas.io` (Windows) / `~/Library/Application Support/empanadas.io` (macOS) | Chromium profile: cookies, localStorage for empanadas.io, cache | No |
+| `<userData>/Partitions/play` | The games' own Chromium profile: their localStorage (saves) and a copy of the account's empanadas.io cookies (`lib/cookiebridge.js`) | No |
+| `<userData>/Games` | The games' files, kept for offline play (`lib/gamebundle.js`): the site's public pages, scripts, pictures and sounds | No |
+| `<userData>/Answers` | The native screens' last answers from the site, for offline (`lib/answers.js`), without csrf tokens; deleted at sign-out | No |
+| `<userData>/Pictures` | Profile pictures, from empanadas.io only (`lib/imagecache.js`) | No |
+| `<userData>/signin.json` | The PKCE verifier of a sign-in under way, for at most 15 minutes, so it survives the browser relaunching the app | No |
+| `<userData>/account.json`, `prefs.json`, `play-history.json` | Whether an account is signed in and its name; theme and notification settings; when each game was last played here | No |
 | `<userData>/updates` | A downloaded installer, deleted once installed or once verification fails | No |
 | `<userData>/background.json` | `{ "enabled": true/false }`, the Keep Spinning When Closed setting (off unless set) | No |
 
@@ -109,7 +115,8 @@ coverage than exists.
 
 | Path | State |
 | --- | --- |
-| `download.html` (CSP, splash, offline, retry) | Tested in real Chromium — `test/splash.test.js` |
+| The native app end to end (sign-in hand-off, every screen, games from disk online and offline, sign-out) | Run in Electron 45 on Linux against a stand-in site serving the site's real game files — `npm run e2e` (`test/e2e/run.js`). **Not yet run** on real Windows or macOS: the title bars (traffic lights, Windows caption buttons, vibrancy), the Dock menu and jump list, and the `empanadas-io://` link coming back from a real browser |
+| Games served from disk (`lib/gameprotocol.js`, `lib/gamebundle.js`, `lib/cookiebridge.js`) | Unit-tested — `test/games.test.js`; cookies, POST bodies, uploads and redirects through the interception were checked in Electron 45 |
 | `lib/pgp.js` signature verification | Tested against GnuPG output — `test/pgp.test.js` |
 | Navigation, window and permission guards in `main.js` | Logic reviewed and unit-checked; **not** exercised in a running Electron window |
 | Windows update flow end to end | Unchanged in shape from the working 1.10.8 flow, but the download path, cache location and OpenPGP step are new |

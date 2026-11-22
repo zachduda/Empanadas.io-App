@@ -99,7 +99,7 @@ final class AccountAPITests: XCTestCase {
         // The site scopes its session cookie to /v2. At /ios/account.php the
         // app was sent no cookie and told it was signed out.
         let session = cookie([.domain: "empanadas.io", .path: "/v2"])
-        XCTAssertTrue(AccountAPI.cookie(session, appliesTo: SiteURLs.iosAccount))
+        XCTAssertTrue(AccountAPI.cookie(session, appliesTo: SiteURLs.appAccount))
         XCTAssertFalse(AccountAPI.cookie(session, appliesTo: URL(string: "https://empanadas.io/ios/account.php")!))
     }
 
@@ -118,7 +118,7 @@ final class AccountAPITests: XCTestCase {
         """
 
     func testReadsTheIOSAccountAnswer() throws {
-        // What /v2/ios/account.php sends (tests/iosapp_test.php on the site).
+        // What /v2/app/account.php sends (tests/iosapp_test.php on the site).
         let snap = try snapshot("""
             {"ok":true,"api":1,"account":{"id":42,"username":"tester","email":"t@example.com",
              "email_verified":true,"pending_email":null,"pfp":"/Content/Images/ProfilePics/lg/abc.jpeg",
@@ -163,11 +163,11 @@ final class AccountAPITests: XCTestCase {
     }
 
     func testIOSRepliesAndEverythingElse() {
-        XCTAssertEqual(AccountAPI.iosReply(Data(#"{"ok":false,"api":1,"reason":"no_session"}"#.utf8))?.reason, "no_session")
-        XCTAssertEqual(AccountAPI.iosReply(Data(#"{"ok":true,"api":1}"#.utf8))?.ok, true)
-        XCTAssertNil(AccountAPI.iosReply(Data("<html>404</html>".utf8)), "nginx's error page")
-        XCTAssertNil(AccountAPI.iosReply(Data("no_type".utf8)))
-        XCTAssertNil(AccountAPI.iosReply(Data(#"{"result":0}"#.utf8)), "not an /ios/ answer")
+        XCTAssertEqual(AccountAPI.nativeReply(Data(#"{"ok":false,"api":1,"reason":"no_session"}"#.utf8))?.reason, "no_session")
+        XCTAssertEqual(AccountAPI.nativeReply(Data(#"{"ok":true,"api":1}"#.utf8))?.ok, true)
+        XCTAssertNil(AccountAPI.nativeReply(Data("<html>404</html>".utf8)), "nginx's error page")
+        XCTAssertNil(AccountAPI.nativeReply(Data("no_type".utf8)))
+        XCTAssertNil(AccountAPI.nativeReply(Data(#"{"result":0}"#.utf8)), "not the native API's answer")
     }
 
     func testLoadErrorsSayWhatWentWrong() {

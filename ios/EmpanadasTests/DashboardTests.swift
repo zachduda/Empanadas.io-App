@@ -1,8 +1,8 @@
 import XCTest
 @testable import Empanadas
 
-/// The native dashboard and leaderboard's data: what /v2/ios/dashboard.php
-/// and /v2/ios/leaderboard.php send (tests/iosapp_test.php on the site), the
+/// The native dashboard and leaderboard's data: what /v2/app/dashboard.php
+/// and /v2/app/leaderboard.php send (tests/iosapp_test.php on the site), the
 /// Spin Progress chart's arithmetic, and what is kept for offline use.
 final class DashboardTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
@@ -225,22 +225,22 @@ final class DashboardTests: XCTestCase {
 
     func testIOSBodiesAndTheErrorsTheyStandFor() throws {
         let ok = Data(#"{"ok":true,"api":1}"#.utf8)
-        XCTAssertEqual(try AccountAPI.iosBody(ok, reply: AccountAPI.iosReply(ok), status: 200), ok)
+        XCTAssertEqual(try AccountAPI.nativeBody(ok, reply: AccountAPI.nativeReply(ok), status: 200), ok)
 
         let signedOut = Data(#"{"ok":false,"api":1,"reason":"no_session"}"#.utf8)
-        XCTAssertThrowsError(try AccountAPI.iosBody(signedOut, reply: AccountAPI.iosReply(signedOut), status: 401)) {
+        XCTAssertThrowsError(try AccountAPI.nativeBody(signedOut, reply: AccountAPI.nativeReply(signedOut), status: 401)) {
             XCTAssertEqual($0 as? AccountError, .signedOut)
         }
         let broken = Data(#"{"ok":false,"api":1,"reason":"server_error"}"#.utf8)
-        XCTAssertThrowsError(try AccountAPI.iosBody(broken, reply: AccountAPI.iosReply(broken), status: 500)) {
+        XCTAssertThrowsError(try AccountAPI.nativeBody(broken, reply: AccountAPI.nativeReply(broken), status: 500)) {
             XCTAssertEqual($0 as? AccountError, .unavailable("server_error"))
         }
         let nginx = Data("<html>404</html>".utf8)
-        XCTAssertThrowsError(try AccountAPI.iosBody(nginx, reply: AccountAPI.iosReply(nginx), status: 404)) {
+        XCTAssertThrowsError(try AccountAPI.nativeBody(nginx, reply: AccountAPI.nativeReply(nginx), status: 404)) {
             XCTAssertEqual($0 as? AccountError, .unavailable("HTTP 404"), "an endpoint not deployed yet")
         }
         let gateway = Data("<html>502 Bad Gateway</html>".utf8)
-        XCTAssertThrowsError(try AccountAPI.iosBody(gateway, reply: AccountAPI.iosReply(gateway), status: 502)) {
+        XCTAssertThrowsError(try AccountAPI.nativeBody(gateway, reply: AccountAPI.nativeReply(gateway), status: 502)) {
             XCTAssertEqual($0 as? AccountError, .server(AccountAPI.serverErrorMessage(502)))
             XCTAssertTrue(($0 as? AccountError)?.localizedDescription.contains("502") == true,
                           "the status is shown, so a report says what went wrong")
@@ -301,8 +301,8 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(SiteURLs.findFriends(id: "").absoluteString, "https://empanadas.io/v2/profile?search=1")
         XCTAssertEqual(SiteURLs.findFriends(id: "AB-12").absoluteString, "https://empanadas.io/v2/profile/ab-12?search=1",
                        "straight to the profile: the site's redirect from /v2/profile dropped ?search=1")
-        XCTAssertEqual(SiteURLs.iosDashboard.path(), "/v2/ios/dashboard.php", "under /v2/, where the session cookie goes")
-        XCTAssertEqual(SiteURLs.iosLeaderboard.path(), "/v2/ios/leaderboard.php")
+        XCTAssertEqual(SiteURLs.appDashboard.path(), "/v2/app/dashboard.php", "under /v2/, where the session cookie goes")
+        XCTAssertEqual(SiteURLs.appLeaderboard.path(), "/v2/app/leaderboard.php")
     }
 
     @MainActor
