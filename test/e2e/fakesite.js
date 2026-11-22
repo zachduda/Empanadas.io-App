@@ -13,6 +13,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
+const resourcesLib = require('../../lib/resources');
 
 const ME = '1a2b3c4d-0000-4000-8000-00000000c0de';
 const FRIENDS = [
@@ -46,8 +47,33 @@ function createFakeSite({ siteDir, certDir }) {
 		outgoing: new Set(),
 		friends: new Set(FRIENDS.map((f) => f[0])),
 		incoming: new Set(['ab12cd34-4444-4444-8444-444444444444']),
-		saves: []
+		saves: [],
+		// The app's screens as the site has them (html/Content/Desktop/), with
+		// these files changed: rel => contents. A deploy since the app shipped.
+		resourceOverrides: new Map(),
+		// How long the list of them takes to come back (ms).
+		resourcesDelay: 0
 	};
+
+	// /v2/app/resources.php, as html/v2/app/_resources.php lists the folder.
+	function desktopFiles(shell) {
+		const dir = path.join(siteDir, 'Content', 'Desktop', 'v' + shell);
+		const files = new Map();
+		const walk = (from, prefix) => {
+			let entries = [];
+			try { entries = fs.readdirSync(from, { withFileTypes: true }); } catch (err) { return; }
+			for (const entry of entries) {
+				const rel = prefix ? prefix + '/' + entry.name : entry.name;
+				if (entry.isDirectory()) walk(path.join(from, entry.name), rel);
+				else if (entry.isFile() && resourcesLib.isSafePath(rel)) files.set(rel, fs.readFileSync(path.join(from, entry.name)));
+			}
+		};
+		walk(dir, '');
+		if (shell === 1) for (const [rel, body] of state.resourceOverrides) files.set(rel, Buffer.from(body));
+		let app = '';
+		try { app = JSON.parse(fs.readFileSync(path.join(dir, '_release.json'), 'utf8')).app || ''; } catch (err) { /* none */ }
+		return { files, app };
+	}
 
 	const csrf = 'csrf-' + crypto.randomBytes(6).toString('hex');
 
@@ -165,7 +191,7 @@ function createFakeSite({ siteDir, certDir }) {
 	function handle(req, res, body) {
 		const url = new URL(req.url, 'https://' + (req.headers.host || 'empanadas.io'));
 		const host = (req.headers.host || '').split(':')[0];
-		state.requests.push({ host, method: req.method, path: url.pathname, query: url.search, cookie: req.headers.cookie || '', ua: req.headers['user-agent'] || '', at: Date.now() });
+		if (!req.delayed) state.requests.push({ host, method: req.method, path: url.pathname, query: url.search, cookie: req.headers.cookie || '', ua: req.headers['user-agent'] || '', at: Date.now() });
 		const form = new URLSearchParams(body);
 		// /v2/ios/ is an alias of the native API's /v2/app/, as on the site.
 		const p = url.pathname.replace(/^\/v2\/ios\//, '/v2/app/');
@@ -184,6 +210,23 @@ function createFakeSite({ siteDir, certDir }) {
 		}
 
 		if (p === '/v2/ping.php') return send(res, 200, 'Pong!', { 'content-type': 'text/plain' });
+
+		if (p === '/v2/app/resources.php' && state.resourcesDelay && !req.delayed) {
+			req.delayed = true;
+			setTimeout(() => handle(req, res, body), state.resourcesDelay);
+			return undefined;
+		}
+		if (p === '/v2/app/resources.php') {
+			const shell = Number(url.searchParams.get('shell'));
+			const { files, app } = desktopFiles(shell);
+			const listed = {};
+			for (const [rel, body] of [...files].sort()) listed[rel] = { sha256: crypto.createHash('sha256').update(body).digest('hex'), size: body.length };
+			return send(res, 200, { ok: true, api: 1, shell, app, revision: resourcesLib.revisionOf(listed), files: listed });
+		}
+		const desktop = /^\/Content\/Desktop\/v1\/(.+)$/.exec(p);
+		if (desktop && state.resourceOverrides.has(desktop[1])) {
+			return send(res, 200, state.resourceOverrides.get(desktop[1]), { 'content-type': TYPES[path.extname(p)] || 'application/octet-stream' });
+		}
 
 		if (p === '/v2/app/signin.php') {
 			const entry = state.codes.get(form.get('code'));
