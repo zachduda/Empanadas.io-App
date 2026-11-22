@@ -4,7 +4,7 @@
 import { h, replace, button, icon, avatar } from '../dom.js';
 import { num, short, plural, greeting, GAMES, GAME_ORDER } from '../format.js';
 import { load, staleBanner, errorState, skeleton, skeletonCards } from '../data.js';
-import { gameArt, numberTile, presenceOf } from '../components.js';
+import { gameArt, numberTile, presenceOf, xpBreakdown } from '../components.js';
 import { spinChart } from '../chart.js';
 import { checkForNew } from './updates.js';
 
@@ -20,6 +20,45 @@ export function mount(container, { app }) {
 	let last = null;
 	let shown = false;
 	let counting = [];
+	let gone = false;
+
+	// What the experience came from, under the rank. The dashboard does not
+	// carry it (the profile does), so it is asked for after the dashboard, and
+	// again whenever the XP has moved since.
+	let parts = null; // [{ label, xp, percent }], or null until there are some
+	let partsFor = null; // the XP total they were asked for at
+	let partsBusy = false;
+	let partsHost = null; // where they go in the card on screen
+	let latestTotal = null;
+
+	function drawParts() {
+		if (!partsHost) return;
+		if (parts && parts.length) replace(partsHost, xpBreakdown(parts));
+		else if (partsBusy && !parts) replace(partsHost, skeleton(3, 12));
+		else if (!parts) replace(partsHost, h('div', { class: 'muted small' }, "The breakdown isn't available right now."));
+		else replace(partsHost);
+	}
+
+	async function loadParts(first) {
+		if (partsBusy || gone) return;
+		partsBusy = true;
+		if (!parts) drawParts(); // the skeleton, not the note for when it fails
+		const total = latestTotal;
+		const result = await load('profile', {}, (r) => {
+			const xp = r && r.data && r.data.xp;
+			if (xp && Array.isArray(xp.breakdown)) {
+				parts = xp.breakdown;
+				drawParts();
+			}
+		}, { cached: first });
+		partsBusy = false;
+		if (result && result.ok) {
+			partsFor = total;
+			// The XP moved while this was on its way: once more, for the new one.
+			if (!gone && latestTotal !== total) return loadParts(false);
+		}
+		drawParts();
+	}
 
 	// A tile's number rolls up from zero, easing out, the first time Home shows.
 	function countUp(el, value) {
@@ -97,7 +136,7 @@ export function mount(container, { app }) {
 			const [line, progress] = gameLine[name];
 			const play = button('Play', () => app.play(name), { kind: 'play small pill', icon: 'play' });
 			const card = h('div', { class: 'card mini-game ' + name },
-				gameArt(name, { label: false }),
+				gameArt(name, { compact: true }),
 				h('div', { class: 'info' },
 					h('div', { class: 'name' }, GAMES[name].full),
 					h('div', { class: 'stat' }, line),
@@ -114,6 +153,15 @@ export function mount(container, { app }) {
 		chart = spinChart(d.spin_history || []);
 		chartCard.appendChild(chart.el);
 
+		// A site that sends the breakdown with the dashboard needs no second ask.
+		latestTotal = xp.total;
+		if (Array.isArray(xp.breakdown)) {
+			parts = xp.breakdown;
+			partsFor = xp.total;
+		}
+		partsHost = h('div', { class: 'xp-parts' });
+		drawParts();
+
 		const xpCard = h('div', { class: 'card soft' },
 			h('div', { class: 'card-title' }, h('span', { class: 'title-chip gold' }, icon('star')), 'Experience', h('span', { class: 'aside' }, num(xp.total) + ' XP')),
 			h('div', { class: 'xp-rank' },
@@ -124,8 +172,7 @@ export function mount(container, { app }) {
 						? num(Math.max(0, xp.next - xp.total)) + ' XP to ' + xp.next_rank
 						: 'Top rank. Nicely done.'),
 					h('div', { class: 'meter gold', style: { marginTop: '8px' } }, h('span', { style: { width: pct(xp.progress) } })))),
-			h('div', { style: { marginTop: '14px' } },
-				button('See What Earned It', () => app.navigate({ screen: 'profile' }), { kind: 'quiet small pill' })));
+			partsHost);
 
 		const list = Array.isArray(friends.list) ? friends.list : [];
 		const friendsCard = h('div', { class: 'card soft' },
@@ -170,6 +217,7 @@ export function mount(container, { app }) {
 				rise(chartCard),
 				h('div', { class: 'grid two' }, rise(xpCard), rise(friendsCard))));
 		if (chart) requestAnimationFrame(() => chart.update(d.spin_history || []));
+		if (partsFor !== xp.total) loadParts(!parts);
 	}
 
 	function refresh() {
@@ -184,6 +232,7 @@ export function mount(container, { app }) {
 		title: 'Home',
 		refresh,
 		destroy() {
+			gone = true;
 			off();
 			counting.forEach(cancelAnimationFrame);
 			if (chart) chart.destroy();
