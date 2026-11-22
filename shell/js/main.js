@@ -476,6 +476,7 @@ async function start() {
 	applySession(session);
 	root.classList.remove('booting');
 	root.removeAttribute('aria-busy');
+	native.ready();
 }
 
 start().catch((err) => {

@@ -45,6 +45,7 @@ const gamebundle = require('./lib/gamebundle');
 const { createGameHandler } = require('./lib/gameprotocol');
 const { createCookieBridge, clearSiteCookies } = require('./lib/cookiebridge');
 const { createImageCache } = require('./lib/imagecache');
+const { createResources } = require('./lib/resources');
 const routes = require('./lib/routes');
 
 const isMac = process.platform === 'darwin';
@@ -55,6 +56,11 @@ const PLAY_PARTITION = 'persist:play';
 const SHELL_ORIGIN = 'app://shell';
 const SHELL_URL = SHELL_ORIGIN + '/index.html';
 const SHELL_ROOT = path.join(__dirname, 'shell');
+// The loading screen: always the app's own copy (Content/Loading/), never one
+// from the site, since it is what shows while the site's copy is checked.
+const LOADING_ORIGIN = 'app://loading';
+const LOADING_URL = LOADING_ORIGIN + '/index.html';
+const LOADING_ROOT = path.join(__dirname, 'Content', 'Loading');
 const SHELL_PRELOAD = path.join(__dirname, 'Content/JS/shell-preload.js');
 const GAME_PRELOAD = path.join(__dirname, 'Content/JS/game-preload.js');
 const AUTH_PRELOAD = path.join(__dirname, 'Content/JS/auth-preload.js');
@@ -71,6 +77,21 @@ const BUNDLE_RESYNC = 6 * 60 * 60 * 1000;
 const BUNDLE_FRESH_FOR_PLAY = 30 * 60 * 1000;
 // Home is kept fresh while the app is open: friend requests, presence.
 const DASHBOARD_POLL = 3 * 60 * 1000;
+
+// The screens' own files can come from the site (lib/resources.js). SHELL_API
+// is the contract between them and this main process and its preload: bump
+// it whenever the screens need something new of either (an IPC channel, a
+// field of one), and publish the screens to the site's new folder for it.
+const SHELL_API = 1;
+// How long the loading screen waits for the site's list of the screens'
+// files, and for any that changed, before carrying on with what is on disk
+// (the check finishes in the background, for the next launch).
+const RESOURCES_WAIT = 6000;
+// Long enough for the logo to land; the check is waited for after that.
+const LOADING_MIN = 900;
+// How long screens from the site get to say they are up (native.ready())
+// before the app gives up on them and shows its own.
+const SHELL_READY_WAIT = 15000;
 
 // The app's own screens, served from disk. Standard and secure, so they are
 // an origin of their own with the modern web platform (modules, fetch).
@@ -117,6 +138,15 @@ let playHistory = null;
 let userAgent = '';
 let lastPending = null;
 let pendingRoute = null;
+let pendingPlay = null;
+let resources = null;
+// The launch's check of the screens' files, once per run.
+let startup = null;
+let loadingState = { phase: 'starting' };
+// Whether the screens in the window have said they are up, and the watchdog
+// for screens from the site that do not.
+let shellReady = false;
+let readyTimer = null;
 
 const authContents = new WeakSet();
 const siteContents = new WeakSet();
@@ -257,21 +287,27 @@ const SHELL_CSP = [
 	"font-src 'self'", "connect-src 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"
 ].join('; ');
 
-// app://shell/...: shell/, its fonts and pictures from Content/, and the
-// picture cache at /__img?u=<address>.
-function shellFile(pathname) {
+// app://shell/...: shell/ (or the site's copy of it, lib/resources.js), its
+// fonts and pictures from Content/, and the picture cache at /__img?u=. And
+// app://loading/...: the loading screen, only ever the app's own.
+function decodePath(pathname) {
 	let decoded;
 	try {
 		decoded = decodeURIComponent(pathname);
 	} catch (err) {
 		return null;
 	}
+	if (decoded === '/' || decoded === '') decoded = '/index.html';
+	if (decoded.includes('\0') || decoded.includes('\\')) return null;
+	return decoded;
+}
+
+function bundledFile(decoded, ownRoot) {
 	const roots = [
 		['/fonts/', path.join(__dirname, 'Content', 'Fonts')],
 		['/images/', path.join(__dirname, 'Content', 'Images')],
-		['/', SHELL_ROOT]
+		['/', ownRoot]
 	];
-	if (decoded === '/' || decoded === '') decoded = '/index.html';
 	if (decoded === '/icon.png') return path.join(__dirname, 'icon.png');
 	for (const [prefix, root] of roots) {
 		if (!decoded.startsWith(prefix)) continue;
@@ -281,22 +317,36 @@ function shellFile(pathname) {
 	return null;
 }
 
+function shellFile(pathname) {
+	const decoded = decodePath(pathname);
+	if (!decoded) return null;
+	const fromSite = resources ? resources.resolve(decoded.slice(1)) : null;
+	return fromSite || bundledFile(decoded, SHELL_ROOT);
+}
+
+function loadingFile(pathname) {
+	const decoded = decodePath(pathname);
+	return decoded ? bundledFile(decoded, LOADING_ROOT) : null;
+}
+
 async function shellProtocol(request) {
 	const url = new URL(request.url);
-	if (url.host !== 'shell') return new Response('Not found', { status: 404 });
+	if (url.host !== 'shell' && url.host !== 'loading') return new Response('Not found', { status: 404 });
 
-	if (url.pathname === '/__img') {
+	if (url.host === 'shell' && url.pathname === '/__img') {
 		const picture = await images.get(url.searchParams.get('u'));
 		if (!picture) return new Response('', { status: 404 });
 		return new Response(picture.body, { headers: { 'content-type': picture.type, 'cache-control': 'max-age=600' } });
 	}
 
-	const file = shellFile(url.pathname);
-	const type = file && CONTENT_TYPES[path.extname(file).toLowerCase()];
+	const file = url.host === 'shell' ? shellFile(url.pathname) : loadingFile(url.pathname);
+	// The type from the address: a file from the site is kept under its hash.
+	const decoded = decodePath(url.pathname) || '';
+	const type = file && CONTENT_TYPES[path.extname(decoded).toLowerCase()];
 	if (!file || !type) return new Response('Not found', { status: 404 });
 	try {
 		const body = await fs.promises.readFile(file);
-		const headers = { 'content-type': type, 'x-content-type-options': 'nosniff' };
+		const headers = { 'content-type': type, 'x-content-type-options': 'nosniff', 'cache-control': 'no-cache' };
 		if (type.startsWith('text/html')) headers['content-security-policy'] = SHELL_CSP;
 		return new Response(body, { headers });
 	} catch (err) {
@@ -357,6 +407,20 @@ function setUpSessions() {
 	});
 
 	answers = createAnswers(path.join(userData, 'Answers'));
+
+	// The screens' files from the site. Off when running from source unless
+	// asked for, so shell/ is what a developer sees; EMPANADAS_RESOURCES=off
+	// turns it off in the installed app too.
+	const resourcesSetting = String(process.env.EMPANADAS_RESOURCES || '').toLowerCase();
+	resources = createResources({
+		dir: path.join(userData, 'Resources'),
+		fetch: (url, init) => main.fetch(url, init),
+		api: SHELL_API,
+		appVersion: app.getVersion(),
+		userAgent: () => userAgent,
+		enabled: resourcesSetting === 'off' ? false : (app.isPackaged || resourcesSetting === 'on'),
+		log
+	});
 	api = createApi({
 		fetch: (url, init) => main.fetch(url, Object.assign({ bypassCustomProtocolHandlers: true }, init)),
 		userAgent: () => userAgent,
@@ -715,6 +779,11 @@ async function playGame(name) {
 	if (!isSignedIn()) return { ok: false, error: { code: 'signed_out', message: 'Sign in to play.' } };
 	showWindow();
 	if (!win) return { ok: false };
+	if (!showingShell() && !shellReady) {
+		// Still on the loading screen: it starts once the screens are up.
+		pendingPlay = name;
+		return { ok: true, pending: true };
+	}
 	if (game && game.name === name) {
 		showGame();
 		return { ok: true };
@@ -1261,10 +1330,90 @@ function windowBackground() {
 	return nativeTheme.shouldUseDarkColors ? '#17172b' : '#f6f6fb';
 }
 
+// The loading screen's blue (Content/Loading/loading.css --bg), under the
+// Windows caption buttons too while it shows.
+const LOADING_BACKGROUND = '#1e1e91';
+
+function loadingTitleBarOverlay() {
+	return { color: LOADING_BACKGROUND, symbolColor: '#ffffff', height: TITLEBAR_HEIGHT };
+}
+
+function showingShell() {
+	return !!win && !win.isDestroyed() && !win.webContents.isLoading() && win.webContents.getURL().startsWith(SHELL_ORIGIN + '/');
+}
+
 function sendToShell(channel, payload) {
-	if (!win || win.isDestroyed() || win.webContents.isLoading()) return false;
+	if (!showingShell()) return false;
 	win.webContents.send('native:' + channel, payload);
 	return true;
+}
+
+// --- The loading screen -------------------------------------------------------
+// What the window shows at launch while the screens' files are checked
+// against the site's (lib/resources.js): Content/Loading/, the splash of the
+// 1.x app. It is told how the check goes ('native:loading'), and the screens
+// load once the check is done, or has had RESOURCES_WAIT.
+
+function setLoading(state) {
+	loadingState = Object.assign({}, state);
+	if (win && !win.isDestroyed() && win.webContents.getURL().startsWith(LOADING_ORIGIN + '/')) {
+		win.webContents.send('native:loading', loadingState);
+	}
+}
+
+function startupCheck() {
+	if (!startup) {
+		startup = (async () => {
+			const began = Date.now();
+			let result = null;
+			if (resources.status().enabled) {
+				setLoading({ phase: 'checking' });
+				const check = resources.check((p) => setLoading(p));
+				result = await Promise.race([check, wait(RESOURCES_WAIT).then(() => null)]);
+			}
+			if (!result) {
+				setLoading({ phase: resources.status().enabled ? 'slow' : 'done' });
+			} else if (result.status === 'failed' && !net.isOnline()) {
+				setLoading({ phase: 'offline' });
+			} else {
+				setLoading({ phase: 'done', status: result.status });
+			}
+			resources.begin();
+			await wait(Math.max(0, LOADING_MIN - (Date.now() - began)));
+		})().catch((err) => {
+			console.warn('[resources] ' + err.message);
+			resources.begin();
+		});
+	}
+	return startup;
+}
+
+// Leaves the loading screen for the screens.
+async function loadShell(target) {
+	if (!target || target.isDestroyed()) return;
+	if (target.webContents.getURL().startsWith(LOADING_ORIGIN + '/')) {
+		setLoading({ phase: 'leaving' });
+		await wait(280);
+		if (target.isDestroyed()) return;
+	}
+	if (isWindows) target.setTitleBarOverlay(titleBarOverlay());
+	if (!isMac) target.setBackgroundColor(windowBackground());
+	shellReady = false;
+	clearTimeout(readyTimer);
+	const fromSite = resources.begin();
+	if (fromSite) {
+		// Screens from the site that never say they are up (a bad deploy, a
+		// file missing): the app's own, and that set is never tried again.
+		readyTimer = setTimeout(() => {
+			if (shellReady || target.isDestroyed() || target !== win) return;
+			if (resources.markBad(fromSite)) target.loadURL(SHELL_URL).catch(() => {});
+		}, SHELL_READY_WAIT);
+	}
+	target.loadURL(SHELL_URL).catch(() => {});
+}
+
+function wait(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function showWindow() {
@@ -1279,6 +1428,8 @@ function showWindow() {
 }
 
 function createShellWindow({ playOnLoad } = {}) {
+	if (playOnLoad) pendingPlay = playOnLoad;
+	const firstLoad = !startup;
 	const placed = windowState.place(
 		windowState.load(WINDOW_STATE_FILE()),
 		screen.getAllDisplays().map((d) => d.workArea),
@@ -1294,7 +1445,7 @@ function createShellWindow({ playOnLoad } = {}) {
 		minHeight: placed.minHeight,
 		title: 'Empanadas.io',
 		show: false,
-		backgroundColor: windowBackground(),
+		backgroundColor: firstLoad ? LOADING_BACKGROUND : windowBackground(),
 		icon: path.join(__dirname, 'icon.png'),
 		webPreferences: {
 			preload: SHELL_PRELOAD,
@@ -1323,7 +1474,7 @@ function createShellWindow({ playOnLoad } = {}) {
 	} else if (isWindows) {
 		// The system's own minimize, maximize and close (with Snap Layouts),
 		// drawn over the app's title bar.
-		Object.assign(options, { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay() });
+		Object.assign(options, { titleBarStyle: 'hidden', titleBarOverlay: firstLoad ? loadingTitleBarOverlay() : titleBarOverlay() });
 	} else {
 		options.autoHideMenuBar = true;
 	}
@@ -1373,24 +1524,32 @@ function createShellWindow({ playOnLoad } = {}) {
 	win.on('blur', () => sendToShell('window', { focused: false }));
 
 	win.webContents.on('did-finish-load', () => {
+		if (!self.webContents.getURL().startsWith(SHELL_ORIGIN + '/')) return;
 		if (pendingRoute) {
 			const route = pendingRoute;
 			pendingRoute = null;
 			setTimeout(() => goTo(route), 50);
 		}
-		if (playOnLoad) {
-			const name = playOnLoad;
-			playOnLoad = undefined;
+		if (pendingPlay) {
+			const name = pendingPlay;
+			pendingPlay = null;
 			setTimeout(() => playGame(name), 50);
 		}
 	});
 	win.webContents.on('render-process-gone', (_event, details) => {
 		if (!details || details.reason === 'clean-exit' || self.isDestroyed()) return;
 		console.warn('[window] the app\'s page went away: ' + details.reason);
-		self.loadURL(SHELL_URL).catch(() => {});
+		// Screens from the site that crash before they are up are not tried again.
+		if (!shellReady && resources.status().serving) resources.markBad();
+		loadShell(self);
 	});
 
-	win.loadURL(SHELL_URL).catch(() => {});
+	if (firstLoad) {
+		win.loadURL(LOADING_URL).catch(() => {});
+		startupCheck().then(() => loadShell(self));
+	} else {
+		startup.then(() => loadShell(self));
+	}
 	return win;
 }
 
@@ -1714,6 +1873,23 @@ function registerIpcHandlers() {
 	};
 	const either = (event) => isShellSender(event) || isGameSender(event);
 
+	const isLoadingSender = (event) => {
+		try {
+			const url = (event.senderFrame && event.senderFrame.url) || '';
+			return !!win && !win.isDestroyed() && event.sender === win.webContents && url.startsWith(LOADING_ORIGIN + '/');
+		} catch (err) {
+			return false;
+		}
+	};
+	handle('loading:state', () => Object.assign({ version: app.getVersion() }, loadingState), isLoadingSender);
+	handle('shell:ready', () => {
+		shellReady = true;
+		clearTimeout(readyTimer);
+		readyTimer = null;
+		return true;
+	});
+	handle('resources:status', () => resources.status());
+
 	handle('app:info', () => ({
 		version: app.getVersion(), platform: process.platform, isMac, isWindows,
 		packaged: app.isPackaged, titlebar: TITLEBAR_HEIGHT
@@ -1968,7 +2144,7 @@ app.on('ready', () => {
 	updateQuickPlay();
 
 	nativeTheme.on('updated', () => {
-		if (win && !win.isDestroyed()) {
+		if (win && !win.isDestroyed() && !win.webContents.getURL().startsWith(LOADING_ORIGIN + '/')) {
 			if (isWindows) win.setTitleBarOverlay(titleBarOverlay());
 			if (!isMac) win.setBackgroundColor(windowBackground());
 		}

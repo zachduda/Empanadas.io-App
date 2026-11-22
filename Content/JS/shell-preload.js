@@ -13,12 +13,22 @@ const { contextBridge, ipcRenderer } = require('electron');
 const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 
 const EVENTS = new Set([
-	'session', 'signin', 'data', 'games', 'game', 'route', 'refresh', 'back', 'toast', 'theme', 'window', 'background'
+	'session', 'signin', 'data', 'games', 'game', 'route', 'refresh', 'back', 'toast', 'theme', 'window', 'background',
+	'loading'
 ]);
 
 contextBridge.exposeInMainWorld('native', {
 	platform: process.platform,
 	info: () => invoke('app:info'),
+	// The screens are drawn and working. Screens from the site
+	// (lib/resources.js) that never say so are replaced with the app's own.
+	ready: () => invoke('shell:ready'),
+
+	// The loading screen (Content/Loading/, on app://loading): how the check
+	// of the screens' files is going. Its updates come as on('loading').
+	loading: { state: () => invoke('loading:state') },
+	// Which copy of the screens is showing, and when the site was last asked.
+	resources: { status: () => invoke('resources:status') },
 
 	session: {
 		get: () => invoke('session:get'),

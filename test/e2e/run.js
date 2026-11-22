@@ -69,6 +69,13 @@ async function main() {
 	const site = createFakeSite({ siteDir, certDir: tmp });
 	await site.listen(port);
 
+	// A change to the screens deployed on the site since the app shipped: the
+	// app should fetch it behind the loading screen and show it.
+	const siteCss = fs.readFileSync(path.join(siteDir, 'Content', 'Desktop', 'v1', 'app.css'), 'utf8');
+	site.state.resourceOverrides.set('app.css', siteCss + '\n:root { --e2e-over-the-air: deployed; }\n');
+	// Slow enough to see the loading screen at work.
+	site.state.resourcesDelay = 2000;
+
 	const userData = path.join(tmp, 'userData');
 	const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 	const electronApp = await _electron.launch({
@@ -76,7 +83,7 @@ async function main() {
 		// Electron will not start as root with its sandbox on, which is how
 		// it runs in a container. Never in the app itself.
 		args: [...(asRoot ? ['--no-sandbox'] : []), path.join(__dirname, 'app'), '--no-update'],
-		env: Object.assign({}, process.env, { E2E_PORT: String(port), E2E_USER_DATA: userData, ELECTRON_ENABLE_LOGGING: '1' })
+		env: Object.assign({}, process.env, { E2E_PORT: String(port), E2E_USER_DATA: userData, ELECTRON_ENABLE_LOGGING: '1', EMPANADAS_RESOURCES: 'on' })
 	});
 
 	const consoleErrors = [];
@@ -101,6 +108,32 @@ async function main() {
 
 	const requests = (p) => site.state.requests.filter((r) => r.path === p);
 	const nav = (label) => win.click('.sidebar .nav-item:has-text("' + label + '")');
+
+	await step('the loading screen shows while the screens are checked against the site', async () => {
+		assert.match(win.url(), /^app:\/\/loading\//, 'the window did not open on the loading screen');
+		await win.waitForSelector('#logo');
+		await win.waitForSelector('#status:has-text("Checking for updates")');
+		await wait(900);
+		await win.screenshot({ path: path.join(out, '00-loading.png') });
+		site.state.resourcesDelay = 0;
+		await win.waitForURL(/^app:\/\/shell\//, { timeout: 20000 });
+		const listed = requests('/v2/app/resources.php');
+		assert.strictEqual(listed.length, 1, 'the site was asked ' + listed.length + ' times for the list');
+		assert.strictEqual(listed[0].query, '?shell=1');
+		const fetched = site.state.requests.filter((r) => r.path.startsWith('/Content/Desktop/v1/'));
+		assert.ok(fetched.length >= 15, 'only ' + fetched.length + ' files fetched');
+		assert.ok(fetched.every((r) => /^\?v=[0-9a-f]{64}$/.test(r.query)), 'a file was fetched without its hash');
+	});
+
+	await step('the screens are the site\'s copy, with its change', async () => {
+		await win.waitForSelector('.welcome', { timeout: 20000 });
+		const marker = await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--e2e-over-the-air').trim());
+		assert.strictEqual(marker, 'deployed', 'the stylesheet deployed on the site is not the one showing');
+		const status = await win.evaluate(() => window.native.resources.status());
+		assert.ok(status.serving && status.serving === status.kept, 'not serving the kept set: ' + JSON.stringify(status));
+		// The loading screen asks nothing of the app but how it is going.
+		assert.strictEqual(await win.evaluate(() => typeof window.native.ready), 'function');
+	});
 
 	await step('opens on the welcome screen when signed out', async () => {
 		await win.waitForSelector('.welcome', { timeout: 20000 });
@@ -311,6 +344,28 @@ async function main() {
 
 	if (consoleErrors.length) console.log('\n  console errors in the app\'s window:\n    ' + consoleErrors.join('\n    '));
 	await electronApp.close();
+
+	await step('a broken deploy of the screens: the app falls back to its own, and skips that one', async () => {
+		site.state.resourceOverrides.set('js/main.js', 'throw new Error("a bad deploy");\n');
+		const again = await _electron.launch({
+			executablePath: require(path.join(root, 'node_modules', 'electron')),
+			args: [...(asRoot ? ['--no-sandbox'] : []), path.join(__dirname, 'app'), '--no-update'],
+			env: Object.assign({}, process.env, { E2E_PORT: String(port), E2E_USER_DATA: userData, EMPANADAS_RESOURCES: 'on' })
+		});
+		try {
+			const w = await again.firstWindow();
+			await w.waitForURL(/^app:\/\/shell\//, { timeout: 20000 });
+			// The broken screens never say they are up; the app's own replace them.
+			await w.waitForSelector('.welcome', { timeout: 40000 });
+			const status = await w.evaluate(() => window.native.resources.status());
+			assert.strictEqual(status.serving, '', 'still serving the broken set');
+			const marker = await w.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--e2e-over-the-air').trim());
+			assert.strictEqual(marker, '', 'not the app\'s own stylesheet');
+			await w.screenshot({ path: path.join(out, '13-fallback-to-bundled.png') });
+		} finally {
+			await again.close();
+		}
+	});
 	await site.close();
 	fs.rmSync(tmp, { recursive: true, force: true });
 

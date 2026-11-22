@@ -31,6 +31,7 @@ export function mount(container, { app }) {
 	let bg = { available: false, enabled: false };
 	let update = { status: 'idle' };
 	let cacheBytes = null;
+	let looks = null;
 	let prefs = { notifications: true };
 	const offs = [];
 
@@ -205,6 +206,7 @@ export function mount(container, { app }) {
 					btn.disabled = true;
 					await window.native.updater.check();
 				}, { kind: 'small', disabled: ['checking', 'downloading', 'verifying', 'installing'].includes(update.status) }), 'download'),
+				looks ? setting('App Design', looksText(looks), null) : null,
 				setting('Send Feedback', 'Ideas, problems, questions.', button('Write', () => app.navigate({ screen: 'feedback' }), { kind: 'small' }), 'message'),
 				setting('Website', null, button('Open', () => window.native.external.open('website'), { kind: 'small', icon: 'external' })),
 				setting('Privacy Policy', null, button('Open', () => window.native.external.open('privacy'), { kind: 'small', icon: 'external' })),
@@ -232,6 +234,14 @@ export function mount(container, { app }) {
 				}, { kind: 'small danger' })))));
 	}
 
+	// Which copy of the screens this is (lib/resources.js in the app).
+	function looksText(r) {
+		const checked = r.checkedAt ? ' Checked ' + ago(r.checkedAt) + '.' : '';
+		if (r.serving) return 'The latest from empanadas.io, updated ' + ago(r.updatedAt) + '.' + checked;
+		if (!r.enabled) return 'Built into this version of the app.';
+		return 'Built into this version of the app.' + checked;
+	}
+
 	function render(result) {
 		if (!result || (!result.data && last && last.data)) return;
 		last = result;
@@ -246,8 +256,10 @@ export function mount(container, { app }) {
 	load('account', {}, render);
 	Promise.all([
 		window.native.info(), window.native.background.status(), window.native.updater.state(),
-		window.native.cache.size(), window.native.prefs.get(), window.native.games.status()
-	]).then(([i, b, u, c, p, g]) => {
+		window.native.cache.size(), window.native.prefs.get(), window.native.games.status(),
+		window.native.resources ? window.native.resources.status().catch(() => null) : null
+	]).then(([i, b, u, c, p, g, r]) => {
+		looks = r || null;
 		info = i || info;
 		bg = b || bg;
 		update = u || update;

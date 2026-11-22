@@ -23,6 +23,7 @@ computer. The games themselves are still the site's.
 | **Games** (playing) | The site's own pages, in a view over the window below the title bar, which keeps **Home** (closes the game; ⌘W / Ctrl+W too) and a full-screen button. A game's own close button closes it. A game's link to one of the app's screens (a profile, Report a Problem) shows that screen with **Return to Spin** in the title bar; any other page of the site opens in a site window, anything else in the browser. |
 | **Offline** | Home, Leaderboards, your profile and Settings open with their last answer and say when it was saved. The games start from the computer without a connection, from their own saves, and sync when it's back (the games already do this). |
 | **System** | Native menus with shortcuts (⌘1–5 / Ctrl+1–5 for the sections, ⌘F Find Friends, ⇧⌘1–3 to play), Play Spin / Flappy / Tower in the Dock menu and the Windows jump list (last played first), the Dock badge for friend requests, a notification for a new one while the app is in the background, and native context menus. `empanadas-io://` links open screens: `://home`, `://games`, `://leaderboard`, `://friends`, `://profile[/<id>]`, `://settings`, `://feedback[?reason=]`, `://updates[/<id>]`, `://play/<game>`. |
+| **Loading screen** | At launch, the 1.x splash is back (`Content/Loading/`, on `app://loading`): the logo, steam and a progress bar while the app checks the site for a newer copy of its screens and fetches what changed. Always the app's own copy. |
 | **Keep Spinning When Closed** | As before: closing the window during Spin with it on hands the game to the tray or menu bar (`lib/background.js`). |
 
 ## How it fits together
@@ -75,6 +76,48 @@ from its own save at once rather than waiting on a dead connection. This
 replaces the site's service worker, which the 1.x app registered for offline
 play.
 
+**The screens over the air.** The screens (`shell/`) ship in the app, and
+that copy always works, but the site can have a newer one:
+`html/Content/Desktop/v<SHELL_API>/` in the site's repo, the same files at
+the same paths (and `images/` or `fonts/` to replace the app's own). At
+launch, behind the loading screen, `lib/resources.js` asks
+`/v2/app/resources.php?shell=<SHELL_API>` for the SHA-256 of each file there,
+fetches only the ones whose hash it doesn't already have (from
+`/Content/Desktop/v1/<path>?v=<hash>`, so no cache hands back an old one),
+keeps a file only if it hashes to what the list said, and switches to the
+new set in one rename once all of it is on disk. They are kept in
+`<userData>/Resources`, by hash, like the games. The check gets six seconds;
+after that the app starts with what it has and the check finishes for the
+next launch. Offline, it starts with what it has at once.
+
+The site's copy is used only when:
+
+- it is for this app's `SHELL_API` (in `main.js`): the contract between the
+  screens and the native half. Bump it whenever the screens need a new IPC
+  channel or preload function; the new screens then go in a new folder, so
+  older apps never get screens they can't run.
+- it was published from this app's version or a later one (`_release.json`,
+  written by `scripts/publish-resources.js`). After an app update, the
+  bundled screens are at least as new as an older set, so they win.
+- it starts: the screens call `native.ready()` once drawn. A set from the
+  site that doesn't within 15 seconds (a bad deploy, a file missing), or
+  whose page crashes first, is replaced by the app's own at once and never
+  tried again; the next revision on the site is.
+
+What never comes from the site: `main.js`, the preloads (the only code that
+can reach the main process, and every IPC call is still checked there), the
+loading screen, and the content security policy, which `main.js` sets on
+every page whatever the page says. The files only ever come from
+`https://empanadas.io`. Settings → About shows which copy is showing.
+
+To publish: `node scripts/publish-resources.js ../Empanadas-io` copies
+`shell/` into the site's folder (`--with-content` adds the pictures and
+fonts), then commit and deploy the site. After that, editing the files on
+the site is enough: the list is worked out from the folder on each request.
+Run it again after every app release. Running from source the site's copy
+is off unless `EMPANADAS_RESOURCES=on`; `EMPANADAS_RESOURCES=off` turns it off
+in an installed app.
+
 **Two sessions.** The games play in a session of their own so that
 interception never touches the API, the app's screens or the site's account
 pages. The account's empanadas.io cookies are kept the same in both
@@ -93,17 +136,20 @@ session has ended).
 - `npm test`: syntax of everything Electron loads, the hardening settings,
   the packaging config, and the unit tests: `test/api.test.js` (the API
   client, PKCE, the offline answers), `test/games.test.js` (finding, syncing
-  and serving the games, the cookie bridge), `test/routes.test.js`, and the
-  existing updater, signature, URL policy, window and background suites.
+  and serving the games, the cookie bridge), `test/routes.test.js`,
+  `test/resources.test.js` (the screens over the air), and the existing updater, signature, URL policy, window and background suites.
 - `npm run e2e` (`test/e2e/run.js`): the real app, driven by Playwright,
   against a stand-in for empanadas.io (`test/e2e/fakesite.js`) that serves the
   site's real game files from a checkout of the Empanadas-io repo
   (`EMPANADAS_SITE_DIR`, default `../Empanadas-io/html`) and answers the API
   for a made-up account. It signs in through the browser hand-off (and checks
-  a code minted for someone else's challenge is refused), visits every screen,
+  a code minted for someone else's challenge is refused), checks the loading screen
+  fetches a change deployed to the site's copy of the screens and shows it,
+  visits every screen,
   plays Spin from the copy on disk (checking the page and its scripts were not
   fetched and the saves reached the site with the account's session), plays
-  Flappy with the site unreachable, and signs out. Screenshots of each step go
+  Flappy with the site unreachable, and signs out, then launches again with
+  a broken deploy of the screens and checks the app falls back to its own. Screenshots of each step go
   to `test/e2e/out/`. Needs a display (`xvfb-run` on Linux) and
   `npm install --no-save playwright`.
 

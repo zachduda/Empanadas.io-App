@@ -34,9 +34,10 @@ console.log('syntax');
 
 const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/background.js',
 	'lib/api.js', 'lib/answers.js', 'lib/signin.js', 'lib/jsonfile.js', 'lib/gamebundle.js', 'lib/gameprotocol.js',
-	'lib/cookiebridge.js', 'lib/imagecache.js', 'lib/routes.js', 'lib/windowstate.js',
+	'lib/cookiebridge.js', 'lib/imagecache.js', 'lib/routes.js', 'lib/windowstate.js', 'lib/resources.js',
 	'Content/JS/shell-preload.js', 'Content/JS/game-preload.js', 'Content/JS/auth-preload.js',
-	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js'];
+	'Content/Loading/loading.js',
+	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js', 'scripts/publish-resources.js'];
 
 for (const file of sources) {
 	check(file, () => {
@@ -135,6 +136,29 @@ check('only the games\' session answers https requests itself', () => {
 	assert(handlers.length === 1, 'https is handled in ' + handlers.length + ' places');
 	assert(/const PLAY_PARTITION = 'persist:play'/.test(mainSrc), 'the games no longer have a session of their own');
 	assert(/bypassCustomProtocolHandlers: true/.test(mainSrc), 'what the games send on to the site would come back to the handler');
+});
+
+// The screens' files can come from the site (lib/resources.js). What must
+// never: the code that can talk to the main process, and the page's policy.
+check('screens from the site cannot replace the preloads, the loading screen or the policy', () => {
+	assert(/const SHELL_PRELOAD = path\.join\(__dirname, 'Content\/JS\/shell-preload\.js'\)/.test(mainSrc),
+		'the screens\' preload is no longer the bundled file');
+	assert(/headers\['content-security-policy'\] = SHELL_CSP/.test(mainSrc),
+		'the screens\' content security policy is no longer set by main.js');
+	assert(/function loadingFile\(pathname\) \{[^}]*bundledFile\(decoded, LOADING_ROOT\)/.test(mainSrc),
+		'the loading screen can be served from somewhere other than the app');
+	const resourcesSrc = fs.readFileSync(path.join(root, 'lib', 'resources.js'), 'utf8');
+	assert(/const SITE = 'https:\/\/empanadas\.io'/.test(resourcesSrc), 'the screens can come from another host');
+	assert(/sha256\(body\) !== entry\.sha256/.test(resourcesSrc), 'a fetched file is no longer checked against its hash');
+	assert(!/['"]js['"],\s*['"]node['"]|\.node['"]/.test(resourcesSrc), 'native modules in the list of types');
+});
+
+check('the loading screen is packaged and has no inline script', () => {
+	const html = fs.readFileSync(path.join(root, 'Content', 'Loading', 'index.html'), 'utf8');
+	assert(!/<script(?![^>]*\ssrc=)[^>]*>/.test(html), 'inline script (the policy refuses it)');
+	for (const file of ['index.html', 'loading.css', 'loading.js']) {
+		assert(fs.existsSync(path.join(root, 'Content', 'Loading', file)), 'Content/Loading/' + file + ' is missing');
+	}
 });
 
 check('the games only keep static files, never the saves', () => {
@@ -453,6 +477,15 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'games.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/gamebundle.js, lib/gameprotocol.js and lib/cookiebridge.js test suite failed');
+}
+
+// --- the screens over the air ----------------------------------------------
+console.log('screens over the air');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'resources.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/resources.js test suite failed');
 }
 
 // --- links ----------------------------------------------------------------
