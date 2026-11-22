@@ -1,4 +1,3 @@
-import SafariServices
 import SwiftUI
 
 /// Native replacement for the site's /v2/account page. The everyday settings
@@ -14,8 +13,6 @@ struct SettingsView: View {
     @State private var clearingCache = false
     @State private var cacheCleared = false
     @State private var cacheSize: Int64?
-    @State private var serverStatus = ServerStatus()
-    @State private var showingStatusPage = false
 
     /// The app's, so it is made once (see AppModel.settings).
     private var settings: SettingsModel { model.settings }
@@ -95,18 +92,11 @@ struct SettingsView: View {
             .profileDestinations()
             .task { await settings.load(app: model, maxAge: CacheAge.account) }
             .refreshable {
-                Task { await serverStatus.refresh(force: true) }
+                Task { await model.serverStatus.refresh(force: true) }
                 await settings.load(app: model)
             }
             .onChange(of: model.isOnline) { _, online in
-                if online {
-                    Task { await settings.load(app: model) }
-                    Task { await serverStatus.refresh(force: true) }
-                }
-            }
-            .sheet(isPresented: $showingStatusPage) {
-                SafariView(url: ServerStatus.page)
-                    .ignoresSafeArea()
+                if online { Task { await settings.load(app: model) } }
             }
             .navigationDestination(isPresented: $settings.needsCaptcha) {
                 WebDestination(url: SiteURLs.page("/v2/captcha"), title: "Quick Check")
@@ -357,72 +347,59 @@ struct SettingsView: View {
     }
 
     /// The Server Status card from the site's Updates page: a light that
-    /// says how the servers are, and the full status page behind it.
+    /// says how the servers are, pulsing while it is kept up to date, and
+    /// the full status page behind it (StatusPageView).
     private var serverStatusSection: some View {
         Section("Server Status") {
             Button {
-                showingStatusPage = true
+                model.showingStatusPage = true
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: statusSymbol)
-                        .font(.body)
-                        .foregroundStyle(statusColor)
-                        .contentTransition(.symbolEffect(.replace))
+                    statusLight
+                        .frame(width: 24, height: 24)
                     VStack(alignment: .leading, spacing: 2) {
+                        // Colours of their own, not the hierarchical
+                        // .primary and .secondary: inside a button those are
+                        // the button's tint, which drew the row in blue.
                         Text(statusText)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(Color.primary)
                         Text("View the full status page")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.secondary)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color(uiColor: .tertiaryLabel))
                 }
                 .contentShape(Rectangle())
-                .animation(.easeOut(duration: 0.2), value: serverStatus.level)
+                .animation(.easeOut(duration: 0.2), value: statusLevel)
             }
             .accessibilityLabel("Server status: \(statusText)")
             .accessibilityHint("Opens the full status page")
-            .task { await serverStatus.refresh() }
+            // Every minute while the row is showing, so the light is live.
+            .task { await model.watchServerStatus(every: ServerStatus.maxAge) }
         }
     }
 
+    /// Nil offline.
     private var statusLevel: ServerStatus.Level? {
-        model.isOnline ? serverStatus.level : nil
+        model.isOnline ? model.serverStatus.level : nil
     }
 
-    private var statusSymbol: String {
-        switch statusLevel {
-        case nil: "wifi.slash"
-        case .minor?: "exclamationmark.triangle.fill"
-        case .major?, .critical?: "exclamationmark.circle.fill"
-        default: "circle.fill"
+    @ViewBuilder
+    private var statusLight: some View {
+        if let level = statusLevel {
+            StatusDot(color: level.color, pulses: level.isLive)
+        } else {
+            Image(systemName: "wifi.slash")
+                .font(.subheadline)
+                .foregroundStyle(Color.secondary)
         }
     }
 
-    private var statusColor: Color {
-        switch statusLevel {
-        case .operational?: .green
-        case .minor?: .yellow
-        case .major?: .orange
-        case .critical?: .red
-        default: .gray
-        }
-    }
-
-    /// The site's own wording.
     private var statusText: String {
-        switch statusLevel {
-        case nil: "No Connection"
-        case .checking?: "Checking…"
-        case .operational?: "Server Online"
-        case .minor?: "Possible Outage"
-        case .major?: "Partial Outage"
-        case .critical?: "Website Outage"
-        case .unknown?: "Unknown Status"
-        }
+        statusLevel?.title ?? "No Connection"
     }
 
     // MARK: - Bindings
@@ -440,18 +417,6 @@ struct SettingsView: View {
             set: { on in Task { await settings.set(keyPath, field: field, to: on ? 1 : 0, app: model) } }
         )
     }
-}
-
-/// A third-party page (the status page) in an in-app browser: it is not the
-/// site's, so it does not load in one of the app's own web views.
-private struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        SFSafariViewController(url: url)
-    }
-
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 /// In-app account deletion, which App Review requires of any app that lets

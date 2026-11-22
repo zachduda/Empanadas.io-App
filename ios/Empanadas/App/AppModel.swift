@@ -72,6 +72,13 @@ final class AppModel {
     let gameCenter: GameCenter
     /// Every game, saved for playing offline (saveGamesForOffline).
     let offlineGames: OfflineGames
+    /// How the site's servers are, from its status page: Settings' Server
+    /// Status row, and the warning RootView puts up over the app when
+    /// something is wrong (watchServerStatus).
+    let serverStatus: ServerStatus
+    /// The full status page is up, in a sheet of its own (StatusPageView),
+    /// from Settings or the warning.
+    var showingStatusPage = false
 
     /// The account's theme setting: 0 follows the device, 1 light, 2 dark.
     var theme: Int {
@@ -126,6 +133,7 @@ final class AppModel {
         updates = UpdatesModel()
         gameCenter = GameCenter()
         offlineGames = OfflineGames()
+        serverStatus = ServerStatus()
 
         // A sign-out the site never heard about (no connection, and the app
         // was closed before there was one).
@@ -623,12 +631,32 @@ final class AppModel {
         saveGamesForOffline()
     }
 
+    // MARK: - Server status
+
+    /// Keeps the server status fresh for as long as the caller runs (a
+    /// .task: RootView's while the app is in front, Settings' more often
+    /// while its row is showing): asked now, unless the last answer is under
+    /// a minute old, then every `interval` seconds. Not offline, and in Low
+    /// Data Mode only the once.
+    func watchServerStatus(every interval: TimeInterval) async {
+        var asked = false
+        while !Task.isCancelled {
+            if isOnline, !asked || !isLowDataMode {
+                await serverStatus.refresh()
+                asked = true
+            }
+            try? await Task.sleep(for: .seconds(interval))
+        }
+    }
+
     // MARK: - Connection
 
     /// The screens' first requests go out at launch, before the connection
     /// has been heard from, and may have failed while it was coming up: once
     /// it is confirmed, whichever did are asked again.
     private func retryLaunchFailures() {
+        // Signed in or not: the welcome screen warns about an outage too.
+        if serverStatus.level == .unknown { Task { await serverStatus.refresh() } }
         guard session == .signedIn else { return }
         if dashboard.error != nil { Task { await dashboard.load(app: self) } }
         if leaderboard.error != nil { Task { await leaderboard.load(app: self) } }
@@ -652,6 +680,9 @@ final class AppModel {
                     if online, let page = self.signOutPage, page.loadError != nil {
                         page.reload()
                     }
+                    // What was asked offline failed, and the servers may
+                    // have changed meanwhile.
+                    if online { Task { await self.serverStatus.refresh(force: true) } }
                 } else if firstAnswer && online {
                     // isOnline was a guess until now, and a right one, so the
                     // screens see no change to retry on.
