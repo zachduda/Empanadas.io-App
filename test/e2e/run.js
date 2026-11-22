@@ -143,7 +143,16 @@ async function main() {
 		assert.match(dash.cookie, /UAK=sess/, 'the dashboard was asked for without the session');
 		assert.match(dash.ua, /empanadas\.io\/2\.0\.0/i, 'the app does not name itself in its user agent');
 		await win.waitForSelector('.chart');
+		await wait(1800); // let Home's entrance animation settle
 		await shot('03-home');
+		if (process.env.E2E_DARK) { // E2E_DARK=1: Home again in dark mode
+			await win.emulateMedia({ colorScheme: 'dark' });
+			await nav('Games');
+			await nav('Home');
+			await wait(1800);
+			await shot('03-home-dark');
+			await win.emulateMedia({ colorScheme: 'light' });
+		}
 	});
 
 	await step('the games are downloaded to this computer', async () => {

@@ -135,6 +135,7 @@ export const app = {
 	setPendingFriends(count) {
 		state.pendingFriends = Math.max(0, Number(count) || 0);
 		drawSidebar();
+		drawTitlebar();
 	},
 
 	setHasNewUpdates(value) {
@@ -167,6 +168,10 @@ function show(route) {
 	state.title = '';
 	clear(content);
 	content.scrollTop = 0;
+	// Each screen eases in; restart the animation for this one.
+	content.classList.remove('screen-in');
+	void content.offsetWidth;
+	content.classList.add('screen-in');
 	const screen = SCREENS[route.screen];
 	state.current = screen.mount(content, { params: route, app }) || null;
 	if (state.current && state.current.title) state.title = state.current.title;
@@ -190,9 +195,14 @@ function sectionOf(route) {
 	return below ? sectionOf(below) : null;
 }
 
+// The highlight behind the current section slides from one to the next
+// rather than jumping, so it is kept between redraws.
+const navIndicator = h('span', { class: 'nav-indicator', 'aria-hidden': 'true' });
+
 function drawSidebar() {
 	const nav = $('sidebar');
 	const current = sectionOf(state.route);
+	let active = null;
 	const item = (section) => {
 		const b = h('button', {
 			type: 'button',
@@ -201,6 +211,7 @@ function drawSidebar() {
 		}, icon(section.icon), h('span', null, section.label),
 		section.screen === 'friends' && state.pendingFriends ? h('span', { class: 'count', title: state.pendingFriends + ' friend requests' }, String(state.pendingFriends)) : null);
 		b.addEventListener('click', () => app.navigate({ screen: section.screen }));
+		if (current === section.screen) active = b;
 		return b;
 	};
 
@@ -213,10 +224,34 @@ function drawSidebar() {
 			h('div', { class: 'sub' }, navigator.onLine ? 'Settings' : 'Offline')));
 	who.addEventListener('click', () => app.navigate({ screen: 'settings' }));
 
-	replace(nav,
-		SECTIONS.map(item),
-		h('div', { class: 'nav-spacer' }),
-		who);
+	for (const child of [...nav.childNodes]) if (child !== navIndicator) nav.removeChild(child);
+	if (!navIndicator.parentNode) nav.appendChild(navIndicator);
+	for (const el of [...SECTIONS.map(item), h('div', { class: 'nav-spacer' }), who]) nav.appendChild(el);
+
+	const previous = nav.dataset.current || '';
+	nav.dataset.current = current || '';
+	if (!active) {
+		navIndicator.classList.remove('shown');
+		return;
+	}
+	const place = () => {
+		navIndicator.style.transform = 'translateY(' + active.offsetTop + 'px)';
+		navIndicator.style.height = active.offsetHeight + 'px';
+	};
+	if (!navIndicator.classList.contains('shown')) {
+		// First time (or back from no section): appear in place, no slide.
+		navIndicator.classList.add('instant');
+		place();
+		void navIndicator.offsetWidth;
+		navIndicator.classList.remove('instant');
+		navIndicator.classList.add('shown');
+	} else {
+		place();
+	}
+	if (previous !== current) {
+		active.classList.add('just-selected');
+		setTimeout(() => active.classList.remove('just-selected'), 500);
+	}
 }
 
 // --- The title bar ----------------------------------------------------------
@@ -262,6 +297,23 @@ function drawTitlebar() {
 	const bell = iconButton('bell', 'Updates', () => app.navigate({ screen: 'updates' }));
 	if (state.hasNewUpdates) bell.appendChild(h('span', { class: 'dot' }));
 	trail.appendChild(bell);
+	trail.appendChild(titlebarAvatar());
+}
+
+// Your picture at the top right, beside the bell: opens My Profile.
+function titlebarAvatar() {
+	const account = state.dashboard && state.dashboard.account;
+	const name = (account && account.username) || state.session.username || 'You';
+	const onProfile = state.route.screen === 'profile' && !state.route.id;
+	const b = h('button', {
+		type: 'button',
+		class: 'titlebar-avatar' + (onProfile ? ' current' : ''),
+		title: name + ' · My Profile',
+		'aria-label': 'My Profile'
+	}, avatar(account && account.pfp, 'sm'),
+	h('span', { class: 'presence ' + (navigator.onLine ? 'online' : 'offline') }));
+	b.addEventListener('click', () => app.navigate({ screen: 'profile' }));
+	return b;
 }
 
 // --- Signed in or out -----------------------------------------------------
@@ -331,8 +383,8 @@ async function start() {
 	native.on('background', (status) => app.emit('background', status));
 	native.on('theme', (t) => app.emit('theme', t));
 
-	window.addEventListener('online', () => { native.online(); drawSidebar(); app.toast("You're back online.", 'success'); refreshScreen(); });
-	window.addEventListener('offline', () => { drawSidebar(); app.toast("You're offline. Games you've downloaded still work.", 'info'); });
+	window.addEventListener('online', () => { native.online(); drawSidebar(); drawTitlebar(); app.toast("You're back online.", 'success'); refreshScreen(); });
+	window.addEventListener('offline', () => { drawSidebar(); drawTitlebar(); app.toast("You're offline. Games you've downloaded still work.", 'info'); });
 
 	document.addEventListener('keydown', (e) => {
 		if (e.key === 'Escape' && state.stack.length && !$('modal-root').firstChild && !/INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName)) {

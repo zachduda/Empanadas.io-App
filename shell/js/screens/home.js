@@ -8,13 +8,34 @@ import { gameArt, numberTile, presenceOf } from '../components.js';
 import { spinChart } from '../chart.js';
 import { checkForNew } from './updates.js';
 
+const pct = (value) => Math.max(0, Math.min(100, Number(value) || 0)) + '%';
+const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 export function mount(container, { app }) {
-	const inner = h('div', { class: 'content-inner' });
+	const inner = h('div', { class: 'content-inner home' });
 	replace(container, inner);
 	replace(inner, skeleton(2, 26), h('div', { style: { height: '20px' } }), skeletonCards(3, 90));
 
 	let chart = null;
 	let last = null;
+	let shown = false;
+	let counting = [];
+
+	// A tile's number rolls up from zero, easing out, the first time Home shows.
+	function countUp(el, value) {
+		const target = Number(value);
+		if (!el || !Number.isFinite(target) || target === 0 || calm()) return;
+		const started = performance.now();
+		const duration = 900 + Math.min(500, Math.log10(Math.abs(target) + 1) * 90);
+		const frame = (now) => {
+			const t = Math.min(1, (now - started) / duration);
+			const eased = 1 - Math.pow(1 - t, 4);
+			el.textContent = short(t < 1 ? Math.round(target * eased) : target);
+			if (t < 1) counting.push(requestAnimationFrame(frame));
+		};
+		el.textContent = short(0);
+		counting.push(requestAnimationFrame(frame));
+	}
 
 	function render(result) {
 		if (!result) return;
@@ -23,6 +44,8 @@ export function mount(container, { app }) {
 			return;
 		}
 		last = result;
+		counting.forEach(cancelAnimationFrame);
+		counting = [];
 		const d = result.data;
 		app.state.dashboard = d;
 		app.setPendingFriends(d.friends && d.friends.pending);
@@ -34,15 +57,35 @@ export function mount(container, { app }) {
 		const tower = d.tower || {};
 		const friends = d.friends || { list: [] };
 
-		const tiles = [
-			numberTile('Lifetime Spins', spin.lifetime, 'refresh'),
-			numberTile('Prestige', spin.prestige, 'star'),
-			numberTile('Ascensions', spin.ascends, 'spark'),
-			numberTile('Flappy Best', flappy.high, 'trophy'),
-			numberTile('Tower Best', tower.high, 'trophy'),
-			numberTile('Peppers', d.peppers, 'pepper')
+		// The first picture of Home rises in, card by card, and its numbers
+		// count up. Later refreshes just swap the numbers in.
+		const entering = !shown;
+		shown = true;
+		inner.classList.toggle('entering', entering);
+		let order = 0;
+		const rise = (el) => {
+			if (el) {
+				el.classList.add('rise');
+				el.style.setProperty('--i', String(order++));
+			}
+			return el;
+		};
+
+		const tileDefs = [
+			['Lifetime Spins', spin.lifetime, 'refresh'],
+			['Prestige', spin.prestige, 'star'],
+			['Ascensions', spin.ascends, 'spark'],
+			['Flappy Best', flappy.high, 'trophy'],
+			['Tower Best', tower.high, 'trophy'],
+			['Peppers', d.peppers, 'pepper']
 		];
-		if (d.pumpkin_season || d.pumpkins) tiles.push(numberTile('Pumpkins 🎃', d.pumpkins, null));
+		if (d.pumpkin_season || d.pumpkins) tileDefs.push(['Pumpkins 🎃', d.pumpkins, null]);
+		const tiles = tileDefs.map(([label, value, iconName], i) => {
+			const t = numberTile(label, value, iconName);
+			t.classList.add('bubble-tile', 'hue-' + (i % 3));
+			if (entering) countUp(t.querySelector('.value'), value);
+			return t;
+		});
 
 		const gameLine = {
 			spin: ['Prestige ' + num(spin.prestige) + ' · ' + plural(spin.ascends, 'ascension'), spin.progress],
@@ -52,27 +95,27 @@ export function mount(container, { app }) {
 
 		const miniGames = h('div', { class: 'home-games' }, GAME_ORDER.map((name) => {
 			const [line, progress] = gameLine[name];
-			const play = button('Play', () => app.play(name), { kind: 'play small', icon: 'play' });
-			const card = h('div', { class: 'card mini-game' },
+			const play = button('Play', () => app.play(name), { kind: 'play small pill', icon: 'play' });
+			const card = h('div', { class: 'card mini-game ' + name },
 				gameArt(name, { label: false }),
 				h('div', { class: 'info' },
 					h('div', { class: 'name' }, GAMES[name].full),
 					h('div', { class: 'stat' }, line),
-					h('div', { class: 'meter' + (name === 'spin' ? ' gold' : '') }, h('span', { style: { width: Math.max(0, Math.min(100, Number(progress) || 0)) + '%' } }))),
+					h('div', { class: 'meter' + (name === 'spin' ? ' gold' : '') }, h('span', { style: { width: pct(progress) } }))),
 				play);
 			card.addEventListener('dblclick', () => app.play(name));
-			return card;
+			return rise(card);
 		}));
 
-		const chartCard = h('div', { class: 'card' },
-			h('div', { class: 'card-title' }, 'Spin Progress',
+		const chartCard = h('div', { class: 'card soft' },
+			h('div', { class: 'card-title' }, h('span', { class: 'title-chip' }, icon('refresh')), 'Spin Progress',
 				h('a', { class: 'aside', href: '#', onclick: (e) => { e.preventDefault(); app.navigate({ screen: 'savepoints' }); } }, 'Missing or overwrote your progress?')));
 		if (chart) chart.destroy();
 		chart = spinChart(d.spin_history || []);
 		chartCard.appendChild(chart.el);
 
-		const xpCard = h('div', { class: 'card' },
-			h('div', { class: 'card-title' }, 'Experience', h('span', { class: 'aside' }, num(xp.total) + ' XP')),
+		const xpCard = h('div', { class: 'card soft' },
+			h('div', { class: 'card-title' }, h('span', { class: 'title-chip gold' }, icon('star')), 'Experience', h('span', { class: 'aside' }, num(xp.total) + ' XP')),
 			h('div', { class: 'xp-rank' },
 				h('div', { class: 'xp-icon' }, xp.icon || '⭐'),
 				h('div', { style: { flex: '1', minWidth: '0' } },
@@ -80,17 +123,17 @@ export function mount(container, { app }) {
 					h('div', { class: 'muted small' }, xp.next_rank && xp.next
 						? num(Math.max(0, xp.next - xp.total)) + ' XP to ' + xp.next_rank
 						: 'Top rank. Nicely done.'),
-					h('div', { class: 'meter gold', style: { marginTop: '8px' } }, h('span', { style: { width: Math.max(0, Math.min(100, Number(xp.progress) || 0)) + '%' } })))),
+					h('div', { class: 'meter gold', style: { marginTop: '8px' } }, h('span', { style: { width: pct(xp.progress) } })))),
 			h('div', { style: { marginTop: '14px' } },
-				button('See What Earned It', () => app.navigate({ screen: 'profile' }), { kind: 'quiet small' })));
+				button('See What Earned It', () => app.navigate({ screen: 'profile' }), { kind: 'quiet small pill' })));
 
 		const list = Array.isArray(friends.list) ? friends.list : [];
-		const friendsCard = h('div', { class: 'card' },
-			h('div', { class: 'card-title' }, 'Friends',
+		const friendsCard = h('div', { class: 'card soft' },
+			h('div', { class: 'card-title' }, h('span', { class: 'title-chip' }, icon('users')), 'Friends',
 				h('span', { class: 'aside' }, num(friends.online) + ' online · ' + num(friends.total) + ' total')),
 			friends.pending ? h('div', { class: 'banner', style: { marginBottom: '10px' } },
 				icon('userPlus'), plural(friends.pending, 'friend request') + ' waiting',
-				h('div', { class: 'actions' }, button('Review', () => app.navigate({ screen: 'friends' }), { kind: 'small primary' }))) : null,
+				h('div', { class: 'actions' }, button('Review', () => app.navigate({ screen: 'friends' }), { kind: 'small primary pill' }))) : null,
 			list.length
 				? h('div', null, list.map((f) => {
 					const chip = h('button', { type: 'button', class: 'friend-chip' },
@@ -100,25 +143,32 @@ export function mount(container, { app }) {
 					return chip;
 				}))
 				: h('div', { class: 'muted', style: { padding: '8px 0' } }, 'No friends yet. Find some!'),
-			h('div', { style: { marginTop: '10px' } }, button('Find Friends', () => app.navigate({ screen: 'friends', search: true }), { kind: 'quiet small', icon: 'search' })));
+			h('div', { style: { marginTop: '10px' } }, button('Find Friends', () => app.navigate({ screen: 'friends', search: true }), { kind: 'quiet small pill', icon: 'search' })));
+
+		const hero = h('section', { class: 'home-hero greeting' },
+			h('div', { class: 'bubbles', 'aria-hidden': 'true' }, [0, 1, 2, 3, 4].map((n) => h('span', { class: 'bubble b' + n }))),
+			h('div', { class: 'hero-avatar' }, avatar(account.pfp, 'lg')),
+			h('div', { class: 'hero-text' },
+				h('div', { class: 'hero-eyebrow' }, greeting()),
+				h('h1', null, (account.username || 'friend') + '!', h('span', { class: 'wave', 'aria-hidden': 'true' }, '👋')),
+				h('div', { class: 'sub' },
+					xp.rank ? h('span', { class: 'badge gold' }, (xp.icon ? xp.icon + ' ' : '') + xp.rank) : null,
+					account.days !== undefined ? h('span', { class: 'badge sky' }, icon('clock'), 'Playing for ' + plural(account.days, 'day')) : null,
+					h('span', { class: 'badge sky' }, h('span', { class: 'live-dot' }), plural(friends.online, 'friend') + ' online'))),
+			h('div', { class: 'hero-cta' },
+				button('Play Spin', () => app.play('spin'), { kind: 'primary pill large', icon: 'play' })));
 
 		replace(inner,
 			staleBanner(result, refresh),
-			h('div', { class: 'greeting' },
-				avatar(account.pfp, 'md'),
-				h('div', null,
-					h('h1', null, greeting() + ', ' + (account.username || 'friend') + '!'),
-					h('div', { class: 'sub' },
-						xp.rank ? h('span', { class: 'badge gold' }, (xp.icon ? xp.icon + ' ' : '') + xp.rank) : null,
-						account.days !== undefined ? h('span', null, 'Playing for ' + plural(account.days, 'day')) : null))),
-			account.email_verified === false ? h('div', { class: 'banner warn' }, icon('mail'),
+			rise(hero),
+			account.email_verified === false ? rise(h('div', { class: 'banner warn' }, icon('mail'),
 				'Verify your email address to unlock your bio, friend requests and more.',
-				h('div', { class: 'actions' }, button('Verify', () => window.native.site.open('verifyEmail'), { kind: 'small' }))) : null,
-			h('div', { class: 'grid tiles', style: { marginBottom: '18px' } }, tiles),
+				h('div', { class: 'actions' }, button('Verify', () => window.native.site.open('verifyEmail'), { kind: 'small' })))) : null,
+			h('div', { class: 'grid tiles home-tiles' }, tiles.map(rise)),
 			h('div', { class: 'stack' },
 				miniGames,
-				chartCard,
-				h('div', { class: 'grid two' }, xpCard, friendsCard)));
+				rise(chartCard),
+				h('div', { class: 'grid two' }, rise(xpCard), rise(friendsCard))));
 		if (chart) requestAnimationFrame(() => chart.update(d.spin_history || []));
 	}
 
@@ -135,6 +185,7 @@ export function mount(container, { app }) {
 		refresh,
 		destroy() {
 			off();
+			counting.forEach(cancelAnimationFrame);
 			if (chart) chart.destroy();
 		}
 	};
