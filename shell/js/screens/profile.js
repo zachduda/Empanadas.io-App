@@ -5,7 +5,7 @@
 import { h, replace, button, icon, avatar } from '../dom.js';
 import { num, plural, dayLabel } from '../format.js';
 import { load, staleBanner, errorState, skeleton } from '../data.js';
-import { badges, presenceOf, playerRow } from '../components.js';
+import { badges, presenceOf, playerRow, xpBreakdown } from '../components.js';
 import { relationButtons } from '../friendship.js';
 
 // Someone else's profile, kept for the session: opening it again shows it at
@@ -96,9 +96,7 @@ export function mount(container, { app, params }) {
 						h('div', { style: { fontWeight: '700', fontSize: '15px' } }, xp.rank),
 						h('div', { class: 'muted small' }, xp.next_rank && xp.next ? num(Math.max(0, xp.next - xp.total)) + ' XP to ' + xp.next_rank : 'Top rank'),
 						h('div', { class: 'meter gold', style: { marginTop: '8px' } }, h('span', { style: { width: Math.min(100, Number(xp.progress) || 0) + '%' } })))),
-				Array.isArray(xp.breakdown) && xp.breakdown.length ? h('div', { class: 'breakdown' }, xp.breakdown.map((b) =>
-					h('div', { class: 'item' }, h('span', null, b.label), h('span', { class: 'muted num' }, num(b.xp) + ' XP'),
-						h('div', { class: 'meter' }, h('span', { style: { width: Math.min(100, Number(b.percent) || 0) + '%' } }))))) : null));
+				Array.isArray(xp.breakdown) && xp.breakdown.length ? xpBreakdown(xp.breakdown) : null));
 		}
 		if (stats) {
 			const cells = [];

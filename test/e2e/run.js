@@ -145,6 +145,21 @@ async function main() {
 		await win.waitForSelector('.chart');
 		await wait(1800); // let Home's entrance animation settle
 		await shot('03-home');
+
+		// Experience shows what earned it right there, with no button to
+		// open it. The dashboard does not carry it: Home asks for the profile.
+		await win.waitForSelector('.home .xp-parts .breakdown .item');
+		assert.deepStrictEqual(
+			await win.locator('.home .xp-parts .item > span:first-child').allTextContents(),
+			['Spin Game', 'Flappy', 'Tower', 'Account age'], 'the breakdown on Home is not the profile\'s');
+		assert.strictEqual(await win.locator('.home :text("See What Earned It")').count(), 0, 'the See What Earned It button is back');
+		assert.ok(requests('/v2/app/profile.php').length >= 1, 'Home did not ask for the breakdown');
+		// The games are symbols on their colours, not the one picture.
+		assert.strictEqual(await win.locator('.home .mini-game .game-art svg.game-glyph').count(), 3, 'a game has no symbol');
+		assert.strictEqual(await win.locator('.home .game-art img').count(), 0, 'a game still shows a picture');
+		await win.evaluate(() => { document.getElementById('content').scrollTop = 1e6; });
+		await shot('03-home-experience');
+		await win.evaluate(() => { document.getElementById('content').scrollTop = 0; });
 		if (process.env.E2E_DARK) { // E2E_DARK=1: Home again in dark mode
 			await win.emulateMedia({ colorScheme: 'dark' });
 			await nav('Games');
@@ -168,6 +183,8 @@ async function main() {
 		await nav('Games');
 		await win.waitForSelector('.game-card');
 		await win.waitForSelector('text=Offline ready');
+		assert.strictEqual(await win.locator('.game-card .game-art svg.game-glyph').count() >= 3, true, 'the games have no symbols');
+		assert.strictEqual(await win.locator('.game-art img').count(), 0, 'a game still shows a picture');
 		await shot('04-games');
 	});
 
@@ -241,6 +258,9 @@ async function main() {
 		await win.click('.titlebar button:has-text("Home")');
 		await until('the game to close', () => win.evaluate(() => window.native.games.state()).then((s) => s === null));
 		assert.ok(!electronApp.context().pages().some((p) => p.url().startsWith('https://empanadas.io/spin')));
+		// Games now offers to jump back in to the game just played.
+		await win.waitForSelector('.hero .game-art.spin svg.game-glyph');
+		await shot('04-games-jump-back-in');
 	});
 
 	await step('offline, Flappy still starts from the copy on disk', async () => {
