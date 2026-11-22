@@ -636,7 +636,7 @@ select.field { cursor: default; }
 }
 .welcome .glow { position: absolute; width: 520px; height: 520px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 190, 80, .35), transparent 65%); top: 50%; left: 50%; transform: translate(-50%, -62%); pointer-events: none; }
 .welcome .panel { position: relative; width: min(420px, calc(100vw - 48px)); text-align: center; }
-.welcome .logo { width: 112px; height: 112px; margin: 0 auto 10px; display: block; filter: drop-shadow(0 12px 24px rgba(0, 0, 0, .35)); animation: land .9s cubic-bezier(.2, 1.4, .4, 1) both; }
+.welcome .logo { width: 112px; margin: 0 auto 10px; display: block; filter: drop-shadow(0 12px 24px rgba(0, 0, 0, .35)); animation: land .9s cubic-bezier(.2, 1.4, .4, 1) both; }
 @keyframes land { from { transform: translateY(80px) scale(.8); opacity: 0; } }
 .welcome h1 { font: 800 34px/1.1 var(--font-brand); letter-spacing: -.02em; }
 .welcome .lead { margin: 10px 0 26px; color: rgba(255, 255, 255, .78); font-size: 15px; }
