@@ -121,6 +121,13 @@ export const app = {
 		});
 	},
 
+	// Asks first, then signs out (the session event shows the welcome screen).
+	async signOut() {
+		const sure = await app.confirm({ title: 'Sign out of Empanadas.io?', message: 'Your games stay downloaded on this computer.', confirm: 'Sign Out', danger: true });
+		if (sure) await native.session.signOut();
+		return sure;
+	},
+
 	// A native context menu: items [{ id, label, enabled }], run(id).
 	async contextMenu(items, run) {
 		const id = await native.menu.popup(items);
@@ -160,6 +167,7 @@ export const app = {
 // --- Showing a screen -----------------------------------------------------
 
 function show(route) {
+	closeAccountMenu();
 	const content = $('content');
 	if (state.current && state.current.destroy) {
 		try { state.current.destroy(); } catch (err) { console.error(err); }
@@ -300,20 +308,87 @@ function drawTitlebar() {
 	trail.appendChild(titlebarAvatar());
 }
 
-// Your picture at the top right, beside the bell: opens My Profile.
+// Your picture at the top right, beside the bell: a menu with My Profile,
+// Settings and Sign Out.
+let accountMenu = null;
+
 function titlebarAvatar() {
 	const account = state.dashboard && state.dashboard.account;
 	const name = (account && account.username) || state.session.username || 'You';
-	const onProfile = state.route.screen === 'profile' && !state.route.id;
 	const b = h('button', {
 		type: 'button',
-		class: 'titlebar-avatar' + (onProfile ? ' current' : ''),
-		title: name + ' · My Profile',
-		'aria-label': 'My Profile'
+		class: 'titlebar-avatar' + (accountMenu ? ' open' : ''),
+		'aria-label': 'Account: ' + name,
+		'aria-haspopup': 'menu',
+		'aria-expanded': accountMenu ? 'true' : 'false'
 	}, avatar(account && account.pfp, 'sm'),
 	h('span', { class: 'presence ' + (navigator.onLine ? 'online' : 'offline') }));
-	b.addEventListener('click', () => app.navigate({ screen: 'profile' }));
+	b.addEventListener('click', (e) => {
+		e.stopPropagation();
+		if (accountMenu) closeAccountMenu();
+		else openAccountMenu(b, e.detail === 0);
+	});
 	return b;
+}
+
+function openAccountMenu(anchor, fromKeyboard) {
+	closeAccountMenu();
+	const item = (label, iconName, run, kind) => {
+		const el = h('button', { type: 'button', role: 'menuitem', class: 'menu-item' + (kind ? ' ' + kind : ''), tabindex: '-1' }, icon(iconName), h('span', null, label));
+		el.addEventListener('click', () => { closeAccountMenu(); run(); });
+		return el;
+	};
+	const menu = h('div', { class: 'account-menu', role: 'menu', 'aria-label': 'Account' },
+		item('My Profile', 'user', () => app.navigate({ screen: 'profile' })),
+		item('Settings', 'settings', () => app.navigate({ screen: 'settings' })),
+		h('div', { class: 'menu-divider', role: 'separator' }),
+		item('Sign Out', 'logout', () => app.signOut(), 'danger'));
+	const r = anchor.getBoundingClientRect();
+	menu.style.top = Math.round(r.bottom + 8) + 'px';
+	menu.style.right = Math.round(window.innerWidth - r.right) + 'px';
+	document.body.appendChild(menu);
+
+	const items = [...menu.querySelectorAll('.menu-item')];
+	const focusAt = (i) => items[(i + items.length) % items.length].focus();
+	const onKey = (e) => {
+		const at = items.indexOf(document.activeElement);
+		if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAccountMenu(); anchor.isConnected && anchor.focus(); }
+		else if (e.key === 'ArrowDown') { e.preventDefault(); focusAt(at + 1); }
+		else if (e.key === 'ArrowUp') { e.preventDefault(); focusAt(at < 0 ? -1 : at - 1); }
+		else if (e.key === 'Home') { e.preventDefault(); focusAt(0); }
+		else if (e.key === 'End') { e.preventDefault(); focusAt(-1); }
+		else if (e.key === 'Tab') closeAccountMenu();
+	};
+	const onDown = (e) => { if (!menu.contains(e.target) && !e.target.closest('.titlebar-avatar')) closeAccountMenu(); };
+	document.addEventListener('keydown', onKey, true);
+	document.addEventListener('mousedown', onDown, true);
+	window.addEventListener('blur', closeAccountMenu);
+	window.addEventListener('resize', closeAccountMenu);
+	accountMenu = {
+		menu,
+		close() {
+			document.removeEventListener('keydown', onKey, true);
+			document.removeEventListener('mousedown', onDown, true);
+			window.removeEventListener('blur', closeAccountMenu);
+			window.removeEventListener('resize', closeAccountMenu);
+			menu.classList.add('closing');
+			setTimeout(() => menu.remove(), 120);
+		}
+	};
+	anchor.classList.add('open');
+	anchor.setAttribute('aria-expanded', 'true');
+	if (fromKeyboard) focusAt(0);
+}
+
+function closeAccountMenu() {
+	if (!accountMenu) return;
+	accountMenu.close();
+	accountMenu = null;
+	const b = document.querySelector('.titlebar-avatar');
+	if (b) {
+		b.classList.remove('open');
+		b.setAttribute('aria-expanded', 'false');
+	}
 }
 
 // --- Signed in or out -----------------------------------------------------
@@ -324,6 +399,7 @@ function applySession(session) {
 	const root = $('app');
 	root.classList.toggle('signed-out', !state.session.signedIn);
 	if (!state.session.signedIn) {
+		closeAccountMenu();
 		state.stack = [];
 		state.dashboard = null;
 		if (state.current && state.current.destroy) state.current.destroy();
