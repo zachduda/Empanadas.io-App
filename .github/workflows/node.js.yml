@@ -54,6 +54,10 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     needs: validate
+    # Merging a PR pushes to main, which would rebuild installers the PR run
+    # just built and double the artifact storage. Pushes only validate; PRs and
+    # manual runs build.
+    if: github.event_name != 'push'
     runs-on: ${{ matrix.os }}
 
     strategy:
