@@ -257,9 +257,28 @@ async function main() {
 		site.state.down = false;
 	});
 
-	await step('Sign Out goes back to the welcome screen', async () => {
-		await win.click('.nav-account');
-		await win.click('.setting:has-text("Sign Out") button');
+	await step('the account menu under your picture opens My Profile and Settings', async () => {
+		await win.click('.titlebar-avatar');
+		await win.waitForSelector('.account-menu');
+		const labels = await win.$$eval('.account-menu .menu-item', (els) => els.map((e) => e.textContent.trim()));
+		assert.deepStrictEqual(labels, ['My Profile', 'Settings', 'Sign Out']);
+		assert.ok(await win.$('.account-menu .menu-divider'), 'no divider above Sign Out');
+		await wait(300);
+		await shot('12-account-menu');
+		await win.click('.account-menu .menu-item:has-text("My Profile")');
+		await win.waitForSelector('.account-menu', { state: 'detached' });
+		await until('My Profile', () => win.$('.nav-item[aria-current="page"]:has-text("My Profile")'));
+		await win.click('.titlebar-avatar');
+		await win.keyboard.press('Escape');
+		await win.waitForSelector('.account-menu', { state: 'detached' });
+		await win.click('.titlebar-avatar');
+		await win.click('.account-menu .menu-item:has-text("Settings")');
+		await win.waitForSelector('.setting:has-text("Sign Out")');
+	});
+
+	await step('Sign Out, from the account menu, goes back to the welcome screen', async () => {
+		await win.click('.titlebar-avatar');
+		await win.click('.account-menu .menu-item.danger:has-text("Sign Out")');
 		await win.click('.modal button:has-text("Sign Out")');
 		await win.waitForSelector('.welcome', { timeout: 15000 });
 		assert.ok(requests('/v2/auth/logout.php').length >= 1, 'the site was not told');
