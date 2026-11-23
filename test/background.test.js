@@ -306,6 +306,45 @@ check('runner: flush() waits for a save already on its way', async () => {
 	assert.strictEqual(t.timers.length, 0, 'the tick did not schedule another');
 });
 
+check('handoff file: taken once, with the save, the user agent and the time since', () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bgtest-'));
+	const file = path.join(dir, 'background-handoff.json');
+	const now = 1_700_000_000_000;
+	bg.writeHandoffFile(file, { save: save(), carry: 0.25 }, 'UA/1', now);
+	if (process.platform !== 'win32') assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600, 'only the user can read it');
+	const taken = bg.takeHandoffFile(file, now + 1500);
+	assert.strictEqual(taken.handoff.save.Spins, 1000);
+	assert.strictEqual(taken.handoff.carry, 0.25);
+	assert.strictEqual(taken.ua, 'UA/1');
+	assert.strictEqual(taken.elapsed, 1500);
+	assert.strictEqual(fs.existsSync(file), false, 'removed once read');
+	assert.strictEqual(bg.takeHandoffFile(file, now), null, 'and not taken twice');
+});
+
+check('handoff file: stale, from the future, broken or not a save is refused and removed', () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bgtest-'));
+	const file = path.join(dir, 'background-handoff.json');
+	const now = 1_700_000_000_000;
+	bg.writeHandoffFile(file, { save: save() }, 'UA', now);
+	assert.strictEqual(bg.takeHandoffFile(file, now + bg.HANDOFF_FILE_MAX_AGE_MS + 1), null, 'stale');
+	assert.strictEqual(fs.existsSync(file), false);
+	bg.writeHandoffFile(file, { save: save() }, 'UA', now + 60_000);
+	assert.strictEqual(bg.takeHandoffFile(file, now), null, 'written in the future');
+	fs.writeFileSync(file, '{not json');
+	assert.strictEqual(bg.takeHandoffFile(file, now), null, 'broken');
+	assert.strictEqual(fs.existsSync(file), false);
+	bg.writeHandoffFile(file, { save: save({ Auto_Spinners: 0 }) }, 'UA', now);
+	assert.strictEqual(bg.takeHandoffFile(file, now), null, 'nothing for the background to do');
+	bg.writeHandoffFile(file, { save: save() }, 'x'.repeat(5000), now);
+	assert.strictEqual(bg.takeHandoffFile(file, now).ua, '', 'an oversized user agent is dropped');
+});
+
+check('lean switches: no GPU process, the network service in process', () => {
+	const names = bg.LEAN_SWITCHES.map(([name]) => name);
+	for (const name of ['disable-gpu', 'in-process-gpu', 'enable-features']) assert.ok(names.includes(name), name);
+	assert.ok(bg.LEAN_ARG.startsWith('--'));
+});
+
 (async () => {
 	for (const run of pending) await run();
 	if (failures.length) {
