@@ -104,6 +104,17 @@ protocol.registerSchemesAsPrivileged([{
 app.commandLine.appendSwitch('disable-webgl');
 app.commandLine.appendSwitch('disable-webgl2');
 
+// Keep Spinning When Closed's tray-only process (lib/background.js): no
+// window, no GPU process, and the network service in this process.
+const LEAN_BACKGROUND = process.argv.includes(background.LEAN_ARG);
+if (LEAN_BACKGROUND) {
+	app.disableHardwareAcceleration();
+	for (const [name, value] of background.LEAN_SWITCHES) {
+		if (value === undefined) app.commandLine.appendSwitch(name);
+		else app.commandLine.appendSwitch(name, value);
+	}
+}
+
 // Older builds set NSFullScreenMenuItemEverywhere on every launch, which
 // stays in the app's preferences. macOS adds its own Enter Full Screen to the
 // View menu once it is gone.
@@ -204,6 +215,11 @@ function handleDeepLink(url) {
 	}
 	if (isAuthDeepLink(url)) {
 		finishBrowserConnect(url);
+		return;
+	}
+	if (LEAN_BACKGROUND) {
+		// The app proper takes the link once it is started again.
+		if (bg) leaveBackground({ open: true, link: url });
 		return;
 	}
 	const route = routes.deepLinkRoute(url);
@@ -702,6 +718,10 @@ function notify(title, body, route) {
 		if (!Notification.isSupported()) return;
 		const note = new Notification({ title, body, silent: false });
 		note.on('click', () => {
+			if (bg) {
+				leaveBackground({ open: true });
+				return;
+			}
 			showWindow();
 			if (route) goTo(route);
 		});
@@ -1971,6 +1991,9 @@ async function handOffToBackground() {
 			const ua = contents.getUserAgent();
 			const first = background.judgeReply(await postSave(background.saveFields(handoff.save), ua));
 			if (first.action === 'ok' && !quitting) {
+				// The tray-only process, if the app can be started again as
+				// one; otherwise this process goes to the tray as it is.
+				if (await relaunchIntoTray(handoff, ua)) return;
 				startBackground(handoff, ua);
 				started = true;
 			} else {
@@ -1999,6 +2022,57 @@ async function handOffToBackground() {
 		closingForReal = true;
 		if (win && !win.isDestroyed()) win.close();
 	}
+}
+
+function handoffFile() {
+	return path.join(app.getPath('userData'), 'background-handoff.json');
+}
+
+// Starts the app again with these arguments, and ends this process. Links
+// and the background's own arguments are this launch's, not the next one's.
+function relaunchApp(extra) {
+	const args = process.argv.slice(1).filter((arg) => arg !== OPEN_SPIN_ARG && arg !== background.LEAN_ARG &&
+		!(typeof arg === 'string' && arg.startsWith('empanadas-io:')));
+	app.relaunch({ args: args.concat(extra) });
+	app.exit(0);
+}
+
+// The first save has landed: the window, the game and the GPU go with this
+// process, and a tray-only one takes the hand-over. app.exit() skips
+// before-quit and Chromium's own writes on the way out, so the cookies the
+// next process saves with, the games' saves and the kept games' index are
+// written first. False (nothing changed) when the hand-over could not be.
+async function relaunchIntoTray(handoff, ua) {
+	try {
+		background.writeHandoffFile(handoffFile(), handoff, ua, Date.now());
+	} catch (err) {
+		console.warn('[background] could not start the tray on its own: ' + err.message);
+		return false;
+	}
+	const sessions = [session.defaultSession, play].filter(Boolean);
+	await withTimeout(Promise.allSettled(sessions.map((ses) => ses.cookies.flushStore())), 3000);
+	for (const ses of sessions) ses.flushStorageData();
+	if (bundle) bundle.flush();
+	quitting = true;
+	relaunchApp([background.LEAN_ARG]);
+	return true;
+}
+
+// The ready of a launch with LEAN_ARG: the hand-over and the tray, nothing
+// else. Without a hand-over to take, the app starts as usual, with the game.
+function startLeanBackground() {
+	if (isMac && app.dock) app.dock.hide();
+	backgroundSettings = background.createSettings(path.join(app.getPath('userData'), 'background.json'));
+	const taken = background.takeHandoffFile(handoffFile(), Date.now());
+	if (!taken || !backgroundStatus().enabled) {
+		relaunchApp([OPEN_SPIN_ARG]);
+		return;
+	}
+	// The spins of the second or two the relaunch took.
+	background.advance(taken.handoff, taken.elapsed, Date.now());
+	startBackground(taken.handoff, taken.ua);
+	powerMonitor.on('suspend', () => { if (bg) bg.runner.pause(); });
+	powerMonitor.on('resume', () => { if (bg) bg.runner.resume(); });
 }
 
 function trayIcon() {
@@ -2086,6 +2160,12 @@ async function leaveBackground(opts) {
 	if (opts.quit) {
 		quitting = true;
 		app.quit();
+		return;
+	}
+	if (LEAN_BACKGROUND) {
+		// A process started from one at the lowest priority starts there too.
+		setAppPriority(os.constants.priority.PRIORITY_NORMAL);
+		relaunchApp(opts.link ? [opts.link] : [OPEN_SPIN_ARG]);
 		return;
 	}
 	if (!setAppPriority(os.constants.priority.PRIORITY_NORMAL)) {
@@ -2457,10 +2537,14 @@ function buildAppMenu() {
 // --- Starting and stopping -----------------------------------------------------
 
 let migration = null;
-if (gotTheLock) migration = migrateFromWebShell();
+if (gotTheLock && !LEAN_BACKGROUND) migration = migrateFromWebShell();
 
 app.on('ready', () => {
 	if (!gotTheLock) return;
+	if (LEAN_BACKGROUND) {
+		startLeanBackground();
+		return;
+	}
 	const userData = app.getPath('userData');
 	accountState = jsonfile.createStore(path.join(userData, 'account.json'), { signedIn: false, username: '' });
 	prefs = jsonfile.createStore(path.join(userData, 'prefs.json'), { theme: 0, notifications: true });
