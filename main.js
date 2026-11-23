@@ -46,6 +46,7 @@ const { createGameHandler } = require('./lib/gameprotocol');
 const { createCookieBridge, clearSiteCookies } = require('./lib/cookiebridge');
 const { createImageCache } = require('./lib/imagecache');
 const { createResources } = require('./lib/resources');
+const { createServerStatus, PAGE: STATUS_PAGE } = require('./lib/serverstatus');
 const routes = require('./lib/routes');
 
 const isMac = process.platform === 'darwin';
@@ -789,6 +790,7 @@ async function playGame(name) {
 		return { ok: true };
 	}
 	if (game) await closeGame();
+	closeStatusPage();
 
 	const online = net.isOnline();
 	if (!online && !bundle.gameReady(name)) {
@@ -968,6 +970,7 @@ function followSiteLink(url) {
 
 function goTo(route) {
 	if (!route) return;
+	closeStatusPage();
 	if (route.play) {
 		playGame(route.play);
 		return;
@@ -996,7 +999,8 @@ const EXTERNAL = {
 	privacy: SITE + '/privacy.html',
 	terms: SITE + '/terms.html',
 	source: 'https://github.com/zachduda/Empanadas.io-App',
-	updates: SITE + '/updates'
+	updates: SITE + '/updates',
+	status: STATUS_PAGE
 };
 
 function siteWindowOptions() {
@@ -1091,6 +1095,308 @@ function finishBrowserConnect(link) {
 	browserConnectAt = 0;
 	closeAuthWindows();
 	openSiteWindow(url);
+}
+
+// --- Server status ------------------------------------------------------------
+// The light in App Settings (lib/serverstatus.js), and the full status page
+// behind it in a sheet over the window, as the iOS app's StatusPageView: the
+// screens draw the sheet (its title bar with Done, and Back once a link has
+// been followed) and say where its body is (status:layout); the page itself
+// is a view of its own laid there. It is Statuspage's, not the site's, so it
+// is kept apart from everything of the app's: no preload, a session of its
+// own kept in memory only (no persist: prefix), and no way off the status
+// page but the browser.
+
+const STATUS_PARTITION = 'statuspage';
+// How long the page gets to draw before it is shown however far it got: a
+// slow picture should not keep a spinner over the page.
+const STATUS_REVEAL_AFTER = 1500;
+
+const serverStatus = createServerStatus({ fetch: (url, options) => net.fetch(url, options) });
+
+// The page's background as it last drew it: what the sheet is painted while
+// the page loads, so it opens in the page's colour rather than changing to it.
+let statusPageColor = null;
+// { view, host, bounds, hasContent, error, revealTimer }
+let statusPage = null;
+
+// Put in on every page of it, so it looks like one of the app's screens. The
+// class names are Statuspage's hosted-page markup; one that is not there
+// changes nothing.
+const STATUS_PAGE_CSS = [
+	// Subscribe to Updates (email, text and webhook sign-ups, some of them
+	// on other sites) and the Powered by line. The logo stays.
+	'.updates-dropdown-container, .show-updates-dropdown, #show-updates-dropdown,',
+	'.powered-by, a[href*="atlassian.com"] { display: none !important; }',
+	// The logo links to the website: not something to click in the sheet.
+	'.masthead a, .logo-container a { pointer-events: none !important; cursor: default !important; }',
+	// Clicks as on the app's own screens, not a web page's.
+	'body { -webkit-user-select: none !important; user-select: none !important; }',
+	'input, textarea { -webkit-user-select: auto !important; user-select: auto !important; }',
+	// The system font, as everywhere else in the app (icons keep theirs).
+	'body, body *:not(i):not([class*="icon"]) {',
+	'  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif !important;',
+	'}'
+].join('\n');
+
+// The page's background: the body's, or the document's if that is
+// see-through, or white if both are.
+const STATUS_PAGE_BACKGROUND = `(function () {
+	var parts = [document.body, document.documentElement].filter(Boolean)
+		.map(function (el) { return getComputedStyle(el).backgroundColor; });
+	for (var i = 0; i < parts.length; i++) {
+		var m = /^rgba?\\(([^)]+)\\)$/.exec(parts[i] || '');
+		if (!m) continue;
+		var v = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number);
+		if (v.length < 3 || (v.length > 3 && v[3] === 0)) continue;
+		return 'rgb(' + Math.round(v[0]) + ', ' + Math.round(v[1]) + ', ' + Math.round(v[2]) + ')';
+	}
+	return 'rgb(255, 255, 255)';
+})()`;
+
+// The page before this one in the sheet, if there is one. By its place in
+// the history rather than canGoBack(), which skips pages Chromium decides
+// were not asked for (a page that sent itself on without a click).
+function statusPageBackIndex() {
+	if (!statusPage || statusPage.view.webContents.isDestroyed()) return -1;
+	const history = statusPage.view.webContents.navigationHistory;
+	return history.getActiveIndex() - 1;
+}
+
+function statusPageState() {
+	if (!statusPage) return { open: false };
+	return {
+		open: true,
+		hasContent: statusPage.hasContent,
+		canGoBack: statusPageBackIndex() >= 0,
+		error: statusPage.error,
+		background: statusPageColor
+	};
+}
+
+function sendStatusPage() {
+	sendToShell('statuspage', statusPageState());
+}
+
+function openStatusPage() {
+	if (!win || win.isDestroyed() || !showingShell()) return statusPageState();
+	if (statusPage) return statusPageState();
+	const view = new WebContentsView({
+		webPreferences: {
+			partition: STATUS_PARTITION,
+			sandbox: true,
+			contextIsolation: true,
+			nodeIntegration: false,
+			nodeIntegrationInSubFrames: false,
+			webviewTag: false,
+			webSecurity: true,
+			allowRunningInsecureContent: false,
+			experimentalFeatures: false,
+			spellcheck: false,
+			devTools: !app.isPackaged
+		}
+	});
+	view.setVisible(false);
+	view.setBackgroundColor(statusPageColor ? cssToHex(statusPageColor) : '#ffffff');
+	statusPage = { view, host: null, bounds: null, hasContent: false, error: null, revealTimer: null };
+	guardStatusPage(view.webContents);
+	win.contentView.addChildView(view);
+	loadStatusPage();
+	return statusPageState();
+}
+
+function loadStatusPage() {
+	if (!statusPage) return;
+	statusPage.error = null;
+	statusPage.view.webContents.loadURL(STATUS_PAGE).catch(() => {});
+	sendStatusPage();
+}
+
+function reloadStatusPage() {
+	if (!statusPage) return false;
+	const contents = statusPage.view.webContents;
+	if (!contents.getURL() || contents.getURL() === 'about:blank') loadStatusPage();
+	else {
+		statusPage.error = null;
+		contents.reload();
+		sendStatusPage();
+	}
+	return true;
+}
+
+function statusPageBack() {
+	const index = statusPageBackIndex();
+	if (index < 0) return false;
+	statusPage.view.webContents.navigationHistory.goToIndex(index);
+	return true;
+}
+
+function closeStatusPage() {
+	if (!statusPage) return false;
+	const s = statusPage;
+	statusPage = null;
+	clearTimeout(s.revealTimer);
+	if (win && !win.isDestroyed()) {
+		win.contentView.removeChildView(s.view);
+		win.webContents.focus();
+	}
+	if (!s.view.webContents.isDestroyed()) s.view.webContents.close();
+	sendStatusPage();
+	return true;
+}
+
+// Where the sheet's body is, in the screens' CSS pixels (null while it is
+// not on screen: opening, closing). Whatever the screens say, the view stays
+// inside the window.
+function layoutStatusPage(rect) {
+	if (!statusPage || !win || win.isDestroyed()) return false;
+	if (!rect || typeof rect !== 'object') {
+		statusPage.bounds = null;
+	} else {
+		const zoom = win.webContents.getZoomFactor() || 1;
+		const [width, height] = win.getContentSize();
+		const num = (v) => (Number.isFinite(Number(v)) ? Number(v) * zoom : 0);
+		const x = Math.max(0, Math.min(width, Math.round(num(rect.x))));
+		const y = Math.max(0, Math.min(height, Math.round(num(rect.y))));
+		statusPage.bounds = {
+			x, y,
+			width: Math.max(0, Math.min(width - x, Math.round(num(rect.width)))),
+			height: Math.max(0, Math.min(height - y, Math.round(num(rect.height))))
+		};
+	}
+	showStatusPageIfReady();
+	return true;
+}
+
+// On screen once the sheet has a place for it and the page has drawn, and
+// off it while there is an error to show instead.
+function showStatusPageIfReady() {
+	if (!statusPage) return;
+	const { view, bounds, hasContent, error } = statusPage;
+	const show = !!bounds && bounds.width > 0 && bounds.height > 0 && hasContent && !error;
+	if (bounds) view.setBounds(bounds);
+	view.setVisible(show);
+}
+
+async function revealStatusPage(contents) {
+	if (!statusPage || statusPage.view.webContents !== contents || contents.isDestroyed()) return;
+	try {
+		const color = await contents.executeJavaScript(STATUS_PAGE_BACKGROUND, false);
+		if (typeof color === 'string' && /^rgb\(\d{1,3}, \d{1,3}, \d{1,3}\)$/.test(color)) {
+			statusPageColor = color;
+			if (statusPage && !contents.isDestroyed()) statusPage.view.setBackgroundColor(cssToHex(color));
+		}
+	} catch (err) {
+		// Not drawn far enough to say: the last colour stands.
+	}
+	if (!statusPage || statusPage.view.webContents !== contents) return;
+	statusPage.hasContent = true;
+	showStatusPageIfReady();
+	sendStatusPage();
+}
+
+function cssToHex(color) {
+	const parts = String(color).match(/\d+/g) || [];
+	if (parts.length < 3) return '#ffffff';
+	return '#' + parts.slice(0, 3).map((n) => Math.max(0, Math.min(255, Number(n))).toString(16).padStart(2, '0')).join('');
+}
+
+function guardStatusPage(contents) {
+	const pageHost = new URL(STATUS_PAGE).hostname;
+	// The status page's own pages, over https. Before it has drawn anything,
+	// wherever its first load is redirected (nothing on it can have been
+	// clicked yet).
+	const allows = (url) => {
+		let target;
+		try {
+			target = new URL(url);
+		} catch (err) {
+			return false;
+		}
+		if (target.protocol !== 'https:') return false;
+		if (!statusPage || !statusPage.host) return true;
+		return target.hostname === statusPage.host || target.hostname === pageHost;
+	};
+	const elsewhere = (url) => {
+		if (/^https:\/\//i.test(url)) shell.openExternal(url).catch(() => {});
+	};
+	const mainFrame = (event, positional) =>
+		typeof event.isMainFrame === 'boolean' ? event.isMainFrame : positional !== false;
+	const guard = (event, url, isMainFrame) => {
+		if (!isMainFrame) {
+			// An embedded chart or captcha: https and the like only.
+			if (!/^(https|about|blob|data):/i.test(url)) event.preventDefault();
+			return;
+		}
+		if (/^about:/i.test(url) || allows(url)) return;
+		event.preventDefault();
+		elsewhere(url);
+	};
+	contents.on('will-navigate', (event, url, _inPlace, isMainFrame) => guard(event, url, mainFrame(event, isMainFrame)));
+	contents.on('will-redirect', (event, url, _inPlace, isMainFrame) => guard(event, url, mainFrame(event, isMainFrame)));
+	// A target="_blank" link: followed here if it is the status page's, in
+	// the browser otherwise. Never a window of its own.
+	contents.setWindowOpenHandler(({ url }) => {
+		if (statusPage && statusPage.host && allows(url)) contents.loadURL(url).catch(() => {});
+		else elsewhere(url);
+		return { action: 'deny' };
+	});
+	contents.on('will-attach-webview', (event) => event.preventDefault());
+	contents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+	contents.setVisualZoomLevelLimits(1, 1).catch(() => {});
+
+	contents.on('did-start-navigation', (details) => {
+		if (!statusPage || (details && details.isMainFrame === false) || (details && details.isSameDocument)) return;
+		statusPage.error = null;
+	});
+	contents.on('did-navigate', (_event, url) => {
+		if (!statusPage) return;
+		if (!statusPage.host) {
+			try {
+				statusPage.host = new URL(url).hostname;
+			} catch (err) {
+				// Not a page: nothing to settle on.
+			}
+		}
+		clearTimeout(statusPage.revealTimer);
+		statusPage.revealTimer = setTimeout(() => revealStatusPage(contents), STATUS_REVEAL_AFTER);
+		sendStatusPage();
+	});
+	contents.on('did-navigate-in-page', () => sendStatusPage());
+	contents.on('dom-ready', () => {
+		contents.insertCSS(STATUS_PAGE_CSS, { cssOrigin: 'user' }).catch(() => {});
+	});
+	contents.on('did-finish-load', () => {
+		if (!statusPage) return;
+		clearTimeout(statusPage.revealTimer);
+		revealStatusPage(contents);
+	});
+	contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+		// -3: given up on for another navigation (or one refused above).
+		if (!isMainFrame || code === -3 || !statusPage || statusPage.view.webContents !== contents) return;
+		statusPage.error = { offline: !net.isOnline(), message: String(description || '') };
+		showStatusPageIfReady();
+		sendStatusPage();
+	});
+	contents.on('render-process-gone', () => {
+		if (statusPage && statusPage.view.webContents === contents) reloadStatusPage();
+	});
+	contents.on('before-input-event', (event, input) => {
+		if (input.type !== 'keyDown') return;
+		const key = String(input.key).toLowerCase();
+		const command = (input.meta || input.control) && !input.alt;
+		// Escape and Cmd/Ctrl+W close the sheet, as Done does.
+		if ((key === 'escape' && !command && !input.alt) || (command && !input.shift && key === 'w')) {
+			event.preventDefault();
+			closeStatusPage();
+		} else if ((command && key === '[') || (input.alt && !input.meta && !input.control && key === 'arrowleft')) {
+			event.preventDefault();
+			statusPageBack();
+		} else if (command && key === 'r') {
+			event.preventDefault();
+			reloadStatusPage();
+		}
+	});
 }
 
 function authWindowOptions() {
@@ -1507,7 +1813,10 @@ function createShellWindow({ playOnLoad } = {}) {
 		}
 	});
 	win.on('closed', () => {
-		if (win === self) win = null;
+		if (win === self) {
+			win = null;
+			statusPage = null;
+		}
 		closingForReal = false;
 	});
 
@@ -1524,6 +1833,9 @@ function createShellWindow({ playOnLoad } = {}) {
 	win.on('blur', () => sendToShell('window', { focused: false }));
 
 	win.webContents.on('did-finish-load', () => {
+		// The screens were loaded again: a status page left from before has no
+		// sheet around it any more.
+		closeStatusPage();
 		if (!self.webContents.getURL().startsWith(SHELL_ORIGIN + '/')) return;
 		if (pendingRoute) {
 			const route = pendingRoute;
@@ -1939,6 +2251,18 @@ function registerIpcHandlers() {
 		const url = EXTERNAL[String(name)];
 		if (url) shell.openExternal(url);
 		return !!url;
+	});
+
+	// The server status light, and the full status page in a sheet.
+	handle('status:get', (force) => serverStatus.get(force === true));
+	handle('status:open', () => openStatusPage());
+	handle('status:layout', (rect) => layoutStatusPage(rect));
+	handle('status:back', () => statusPageBack());
+	handle('status:reload', () => reloadStatusPage());
+	handle('status:close', () => closeStatusPage());
+	handle('status:browser', () => {
+		shell.openExternal(STATUS_PAGE).catch(() => {});
+		return true;
 	});
 
 	handle('background-status', () => backgroundStatus(), either);

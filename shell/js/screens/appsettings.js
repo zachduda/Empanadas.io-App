@@ -1,11 +1,17 @@
 // App Settings: the app's own settings, apart from the account's. None of it
 // needs the site, so it opens offline and when the account can't be loaded:
 // updates, the cache, the games kept on this computer, Keep Spinning When
-// Closed, notifications, and which versions of the app, Electron and Chromium
-// this is (for bug reports, as the 1.x account page showed).
+// Closed, notifications, which versions of the app, Electron and Chromium
+// this is (for bug reports, as the 1.x account page showed), and how the
+// servers are (Server Status, as on iOS).
 
 import { h, replace, button, icon } from '../dom.js';
 import { num, ago, bytes, GAMES, GAME_ORDER } from '../format.js';
+import { levelOf, statusDot, openStatusSheet } from '../statussheet.js';
+
+// How often the light is asked about while App Settings is showing: the
+// main process caches Statuspage's answer for as long.
+const STATUS_EVERY = 60 * 1000;
 
 const UPDATE_TEXT = {
 	idle: 'Checks by itself every few hours, and asks before downloading and again before installing.',
@@ -36,6 +42,8 @@ export function mount(container, { app }) {
 	let clearing = false;
 	let looks = null;
 	let prefs = { notifications: true };
+	let serverLevel = 'checking';
+	const hasStatus = !!(window.native && window.native.status);
 	const offs = [];
 
 	function setting(title, desc, control, leadIcon) {
@@ -183,7 +191,7 @@ export function mount(container, { app }) {
 		const rows = lines.map(([label, value]) => h('div', { class: 'setting version-row' },
 			h('div', { class: 'main' }, h('div', { class: 'title' }, label)),
 			h('div', { class: 'control' }, h('code', { class: 'selectable' }, value))));
-		if (looks) rows.push(setting('App Design', looksText(looks), null));
+		if (looks) rows.push(setting('App Components', looksText(looks), null));
 		const ua = info.userAgent || navigator.userAgent;
 		if (ua) {
 			rows.push(h('div', { class: 'setting' },
@@ -205,6 +213,35 @@ export function mount(container, { app }) {
 		return rows;
 	}
 
+	// The Server Status card from the site's Updates page: a light that says
+	// how the servers are, pulsing while it is kept up to date, and the full
+	// status page behind it (statussheet.js).
+	function statusRows() {
+		const online = navigator.onLine;
+		const text = online ? levelOf(serverLevel).title : 'You’re Offline';
+		const row = h('button', {
+			type: 'button', class: 'setting status-row',
+			'aria-label': 'Server status: ' + text + '. Opens the full status page.'
+		},
+		h('span', { class: 'status-light' }, online ? statusDot(serverLevel) : icon('offline')),
+		h('div', { class: 'main' },
+			h('div', { class: 'title' }, text),
+			h('div', { class: 'desc' }, online ? 'View the full status page' : 'The status shows once you’re back online.')),
+		icon('chevron', 'trail'));
+		row.addEventListener('click', () => openStatusSheet());
+		return [row];
+	}
+
+	async function checkStatus(force = false) {
+		if (!hasStatus || !navigator.onLine) return;
+		const r = await window.native.status.get(force).catch(() => null);
+		const next = r && r.level ? r.level : 'unknown';
+		if (next !== serverLevel) {
+			serverLevel = next;
+			draw();
+		}
+	}
+
 	function draw() {
 		replace(inner,
 			h('div', { class: 'page-head' }, h('h1', null, 'App Settings')),
@@ -224,6 +261,7 @@ export function mount(container, { app }) {
 			]),
 			group('Storage', storageRows()),
 			group('About This App', aboutRows()),
+			hasStatus ? group('Server Status', statusRows()) : null,
 			h('section', { class: 'settings-group' }, h('div', { class: 'card' },
 				setting('Account Settings', 'Theme, privacy, email, passkeys and save points.',
 					button('Open', () => app.navigate({ screen: 'settings' }), { kind: 'small' }), 'user'))));
@@ -245,12 +283,29 @@ export function mount(container, { app }) {
 		draw();
 	});
 	offs.push(window.native.updater.onState((s) => { update = s; draw(); }));
+	if (hasStatus) {
+		checkStatus();
+		// Every minute while the row is showing, so the light is live.
+		const timer = setInterval(() => checkStatus(), STATUS_EVERY);
+		const onOnline = () => { draw(); checkStatus(true); };
+		const onOffline = () => draw();
+		window.addEventListener('online', onOnline);
+		window.addEventListener('offline', onOffline);
+		offs.push(() => {
+			clearInterval(timer);
+			window.removeEventListener('online', onOnline);
+			window.removeEventListener('offline', onOffline);
+		});
+	}
 	offs.push(app.on('games', (s) => { games = s; draw(); }));
 	offs.push(app.on('background', (s) => { bg = s; draw(); }));
 
 	return {
 		title: 'App Settings',
-		refresh: () => window.native.cache.size().then((c) => { cacheBytes = c ? c.bytes : cacheBytes; draw(); }),
+		refresh: () => Promise.all([
+			window.native.cache.size().then((c) => { cacheBytes = c ? c.bytes : cacheBytes; draw(); }),
+			checkStatus(true)
+		]),
 		destroy() { offs.forEach((off) => off()); }
 	};
 }

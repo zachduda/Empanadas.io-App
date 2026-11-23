@@ -14,7 +14,7 @@ const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
 
 const EVENTS = new Set([
 	'session', 'signin', 'data', 'games', 'game', 'route', 'refresh', 'back', 'toast', 'theme', 'window', 'background',
-	'loading'
+	'loading', 'statuspage'
 ]);
 
 contextBridge.exposeInMainWorld('native', {
@@ -59,7 +59,27 @@ contextBridge.exposeInMainWorld('native', {
 
 	// name: account, picture, twoFactor, verifyEmail.
 	site: { open: (name) => invoke('site:open', String(name)) },
-	// name: website, privacy, terms, source, updates.
+	// The server status light (Statuspage's indicator, as the site's Updates
+	// page shows it): resolves { level, checkedAt }, level one of checking,
+	// operational, minor, major, critical or unknown. Cached for a minute
+	// unless forced.
+	//
+	// And the full status page, in a sheet the screens draw: open() puts the
+	// page up (off screen until layout() says where the sheet's body is, in
+	// CSS pixels, or null to take it off screen), close() takes it away. Its
+	// state comes as on('statuspage'): { open, hasContent, canGoBack, error,
+	// background }.
+	status: {
+		get: (force) => invoke('status:get', force === true),
+		open: () => invoke('status:open'),
+		layout: (rect) => invoke('status:layout', rect && typeof rect === 'object'
+			? { x: Number(rect.x), y: Number(rect.y), width: Number(rect.width), height: Number(rect.height) } : null),
+		back: () => invoke('status:back'),
+		reload: () => invoke('status:reload'),
+		close: () => invoke('status:close'),
+		openInBrowser: () => invoke('status:browser')
+	},
+	// name: website, privacy, terms, source, updates, status.
 	external: { open: (name) => invoke('external:open', String(name)) },
 
 	background: {
