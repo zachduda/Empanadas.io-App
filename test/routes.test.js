@@ -30,6 +30,7 @@ check('deep links open the app\'s screens', () => {
 	assert.deepStrictEqual(deepLinkRoute('empanadas-io://profile/' + ID.toUpperCase()), { screen: 'profile', id: ID });
 	assert.deepStrictEqual(deepLinkRoute('empanadas-io://feedback?reason=5'), { screen: 'feedback', reason: 5 });
 	assert.deepStrictEqual(deepLinkRoute('empanadas-io://updates/abc123'), { screen: 'updates', id: 'abc123' });
+	assert.deepStrictEqual(deepLinkRoute('empanadas-io://appsettings'), { screen: 'appsettings' });
 });
 
 check('anything else is not a route', () => {

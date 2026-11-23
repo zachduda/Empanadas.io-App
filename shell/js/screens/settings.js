@@ -1,40 +1,19 @@
 // Settings: the account and its settings from /v2/app/account.php, changed
-// through account_edit.php; the app's own (Keep Spinning When Closed,
-// notifications, the kept games, the cache, updates); sign out and delete.
+// through account_edit.php; sign out and delete. The app's own settings
+// (updates, the cache, the kept games, versions) are App Settings
+// (appsettings.js), which needs no account and works offline.
 // Email and username, connections, passkeys, two-factor and the picture are
 // the site's own pages, in a window of their own.
 
 import { h, replace, button, icon, avatar } from '../dom.js';
-import { num, ago, bytes, GAMES, GAME_ORDER } from '../format.js';
+import { num } from '../format.js';
 import { load, staleBanner, errorState, skeleton } from '../data.js';
-
-const UPDATE_TEXT = {
-	idle: 'You’re on the latest version as far as we know.',
-	checking: 'Checking for updates…',
-	'up-to-date': 'You’re up to date.',
-	available: 'A new version is available.',
-	downloading: 'Downloading the update…',
-	verifying: 'Checking the update’s signature…',
-	ready: 'The update is ready to install.',
-	installing: 'Installing…',
-	declined: 'Update postponed.',
-	error: 'Couldn’t check for updates.'
-};
 
 export function mount(container, { app }) {
 	const inner = h('div', { class: 'content-inner narrow' });
 	replace(container, inner);
 
 	let last = null;
-	let info = app.state.info || {};
-	let games = app.state.games;
-	let bg = { available: false, enabled: false };
-	let update = { status: 'idle' };
-	let cacheBytes = null;
-	let looks = null;
-	let prefs = { notifications: true };
-	const offs = [];
-
 	function setting(title, desc, control, leadIcon) {
 		return h('div', { class: 'setting' },
 			leadIcon ? icon(leadIcon, 'lead') : null,
@@ -90,39 +69,6 @@ export function mount(container, { app }) {
 			}, label)));
 	}
 
-	function gameRows() {
-		const s = games || {};
-		const rows = GAME_ORDER.map((name) => {
-			const ready = s.games && s.games[name] && s.games[name].ready;
-			return setting(GAMES[name].full,
-				ready ? 'Downloaded. Plays without a connection.' : (s.syncing ? 'Downloading…' : 'Not fully downloaded yet.'),
-				ready ? h('span', { class: 'badge success' }, icon('check'), 'Ready') : h('span', { class: 'badge' }, s.syncing ? 'Downloading' : 'Online only'));
-		});
-		const busy = !!s.syncing;
-		rows.push(setting('Game Files',
-			(s.files ? num(s.files) + ' files, ' + bytes(s.bytes) : 'Nothing kept yet') +
-			(s.syncedAt ? ' · checked ' + ago(s.syncedAt) : '') +
-			(busy && s.progress ? ' · updating ' + num(s.progress.done) + ' of ' + num(s.progress.total) : '') +
-			(s.lastError ? ' · ' + s.lastError : ''),
-			[button('Check Now', async (e) => {
-				const btn = e.currentTarget;
-				btn.disabled = true;
-				games = await window.native.games.update();
-				draw();
-			}, { kind: 'small', disabled: busy || !navigator.onLine }),
-			button('Download Again', async (e) => {
-				const btn = e.currentTarget;
-				const sure = await app.confirm({ title: 'Download the games again?', message: 'The copy on this computer is deleted and fetched fresh from empanadas.io. Your saves are not touched.', confirm: 'Download Again' });
-				if (!sure) return;
-				btn.disabled = true;
-				games = await window.native.games.clear();
-				draw();
-			}, { kind: 'small', disabled: busy || !navigator.onLine })], 'download'));
-		rows.push(setting('Save Points', 'Missing or overwrote your progress? Put an earlier save back.',
-			button('Manage', () => app.navigate({ screen: 'savepoints' }), { kind: 'small' }), 'history'));
-		return rows;
-	}
-
 	function draw() {
 		const result = last;
 		if (!result) {
@@ -130,7 +76,10 @@ export function mount(container, { app }) {
 			return;
 		}
 		if (!result.data) {
-			replace(inner, errorState(result, refresh));
+			// The app's own settings don't need the account.
+			replace(inner, errorState(result, refresh),
+				h('div', { class: 'row-flex', style: { justifyContent: 'center', marginTop: '12px' } },
+					button('App Settings', () => app.navigate({ screen: 'appsettings' }), { kind: 'small', icon: 'sliders' })));
 			return;
 		}
 		const d = result.data;
@@ -175,38 +124,13 @@ export function mount(container, { app }) {
 				setting('News and Promotions', null, accountToggle('promoemails', s)),
 				setting('Everything Else', null, accountToggle('otheremails', s))
 			]),
-			group('This Computer', [
-				setting('Keep Spinning When Closed', bg.available
-					? 'Closing the window during Spin keeps your Auto Spinners going from the ' + (info.isMac ? 'menu bar' : 'system tray') + ', until 100,000 Spins.'
-					: 'Not available on this computer.',
-				toggle(bg.enabled, async (on) => {
-					bg = await window.native.background.set(on);
-					return bg.enabled === on;
-				}, { disabled: !bg.available, label: 'Keep Spinning When Closed' })),
-				setting('Friend Request Notifications', 'When the app is in the background.', toggle(prefs.notifications !== false, async (on) => {
-					prefs = await window.native.prefs.set({ notifications: on });
-					return true;
-				}, { label: 'Notifications' })),
-				setting('Cache', cacheBytes === null ? 'Working it out…' : bytes(cacheBytes) + '. Clearing it keeps you signed in and keeps your saves and games.',
-					button('Clear Cache', async (e) => {
-				const btn = e.currentTarget;
-						btn.disabled = true;
-						const r = await window.native.cache.clear();
-						app.toast(r && r.ok ? 'Cache cleared.' : 'Part of the cache couldn’t be cleared.', r && r.ok ? 'success' : 'error');
-						cacheBytes = (await window.native.cache.size()).bytes;
-						draw();
-					}, { kind: 'small' }))
+			group('App', [
+				setting('App Settings', 'Updates, the cache, the games on this computer, and which version this is.',
+					button('Open', () => app.navigate({ screen: 'appsettings' }), { kind: 'small' }), 'sliders'),
+				setting('Save Points', 'Missing or overwrote your progress? Put an earlier save back.',
+					button('Manage', () => app.navigate({ screen: 'savepoints' }), { kind: 'small' }), 'history')
 			]),
-			group('Games', gameRows()),
 			group('About', [
-				setting('Empanadas.io ' + (info.version || ''), UPDATE_TEXT[update.status] + (update.status === 'error' && update.error ? ' ' + update.error : '') +
-					(update.version && update.status !== 'up-to-date' && update.status !== 'idle' ? ' (' + update.version + ')' : ''),
-				button('Check for Updates', async (e) => {
-				const btn = e.currentTarget;
-					btn.disabled = true;
-					await window.native.updater.check();
-				}, { kind: 'small', disabled: ['checking', 'downloading', 'verifying', 'installing'].includes(update.status) }), 'download'),
-				looks ? setting('App Design', looksText(looks), null) : null,
 				setting('Send Feedback', 'Ideas, problems, questions.', button('Write', () => app.navigate({ screen: 'feedback' }), { kind: 'small' }), 'message'),
 				setting('Website', null, button('Open', () => window.native.external.open('website'), { kind: 'small', icon: 'external' })),
 				setting('Privacy Policy', null, button('Open', () => window.native.external.open('privacy'), { kind: 'small', icon: 'external' })),
@@ -234,14 +158,6 @@ export function mount(container, { app }) {
 				}, { kind: 'small danger' })))));
 	}
 
-	// Which copy of the screens this is (lib/resources.js in the app).
-	function looksText(r) {
-		const checked = r.checkedAt ? ' Checked ' + ago(r.checkedAt) + '.' : '';
-		if (r.serving) return 'The latest from empanadas.io, updated ' + ago(r.updatedAt) + '.' + checked;
-		if (!r.enabled) return 'Built into this version of the app.';
-		return 'Built into this version of the app.' + checked;
-	}
-
 	function render(result) {
 		if (!result || (!result.data && last && last.data)) return;
 		last = result;
@@ -254,27 +170,9 @@ export function mount(container, { app }) {
 
 	draw();
 	load('account', {}, render);
-	Promise.all([
-		window.native.info(), window.native.background.status(), window.native.updater.state(),
-		window.native.cache.size(), window.native.prefs.get(), window.native.games.status(),
-		window.native.resources ? window.native.resources.status().catch(() => null) : null
-	]).then(([i, b, u, c, p, g, r]) => {
-		looks = r || null;
-		info = i || info;
-		bg = b || bg;
-		update = u || update;
-		cacheBytes = c ? c.bytes : null;
-		prefs = p || prefs;
-		games = g || games;
-		draw();
-	});
-	offs.push(window.native.updater.onState((s) => { update = s; draw(); }));
-	offs.push(app.on('games', (s) => { games = s; draw(); }));
-	offs.push(app.on('background', (s) => { bg = s; draw(); }));
 
 	return {
 		title: 'Settings',
-		refresh,
-		destroy() { offs.forEach((off) => off()); }
+		refresh
 	};
 }

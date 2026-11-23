@@ -252,7 +252,7 @@ async function main() {
 
 	await step('Settings, and a setting saved to the account', async () => {
 		await win.click('.nav-account');
-		await win.waitForSelector('text=Keep Spinning When Closed');
+		await win.waitForSelector('.setting:has-text("Weekly Recap")');
 		const before = site.state.settings.promoemails;
 		await win.click('.setting:has-text("News and Promotions") .switch');
 		await until('the setting to reach the site', () => site.state.settings.promoemails !== before);
@@ -314,7 +314,7 @@ async function main() {
 		await win.click('.titlebar-avatar');
 		await win.waitForSelector('.account-menu');
 		const labels = await win.$$eval('.account-menu .menu-item', (els) => els.map((e) => e.textContent.trim()));
-		assert.deepStrictEqual(labels, ['My Profile', 'Settings', 'Sign Out']);
+		assert.deepStrictEqual(labels, ['My Profile', 'Settings', 'App Settings', 'Sign Out']);
 		assert.ok(await win.$('.account-menu .menu-divider'), 'no divider above Sign Out');
 		await wait(300);
 		await shot('12-account-menu');
@@ -325,8 +325,25 @@ async function main() {
 		await win.keyboard.press('Escape');
 		await win.waitForSelector('.account-menu', { state: 'detached' });
 		await win.click('.titlebar-avatar');
-		await win.click('.account-menu .menu-item:has-text("Settings")');
+		await win.click('.account-menu .menu-item:has(span:text-is("Settings"))');
 		await win.waitForSelector('.setting:has-text("Sign Out")');
+	});
+
+	await step('App Settings, from the account menu: updates, the cache and the versions', async () => {
+		await win.click('.titlebar-avatar');
+		await win.click('.account-menu .menu-item:has-text("App Settings")');
+		await win.waitForSelector('.setting:has-text("Keep Spinning When Closed")');
+		await win.waitForSelector('.setting:has-text("Check for Updates")');
+		const versions = await win.$$eval('.version-row', (rows) => rows.map((r) => r.textContent));
+		const want = await electronApp.evaluate(() => ({ electron: process.versions.electron, chrome: process.versions.chrome }));
+		assert.ok(versions.some((t) => t.includes('Electron') && t.includes(want.electron)), 'no Electron version: ' + versions.join(' | '));
+		assert.ok(versions.some((t) => t.includes('Chromium') && t.includes(want.chrome)), 'no Chromium version');
+		await until('the cache size', () => win.$('.setting:has-text("Cache") .desc:not(:has-text("Working it out"))'));
+		await win.click('.setting:has-text("Cache") button:has-text("Clear Cache")');
+		await win.waitForSelector('.toast:has-text("Cache cleared")');
+		await shot('13-app-settings');
+		await win.evaluate(() => document.querySelector('.version-row').scrollIntoView({ block: 'center' }));
+		await shot('14-app-settings-versions');
 	});
 
 	await step('Sign Out, from the account menu, goes back to the welcome screen', async () => {

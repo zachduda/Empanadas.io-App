@@ -11,13 +11,14 @@ import * as leaderboard from './screens/leaderboard.js';
 import * as friends from './screens/friends.js';
 import * as profile from './screens/profile.js';
 import * as settings from './screens/settings.js';
+import * as appsettings from './screens/appsettings.js';
 import * as updates from './screens/updates.js';
 import * as feedback from './screens/feedback.js';
 import * as savepoints from './screens/savepoints.js';
 
 const native = window.native;
 
-const SCREENS = { home, games, leaderboard, friends, profile, settings, updates, feedback, savepoints };
+const SCREENS = { home, games, leaderboard, friends, profile, settings, appsettings, updates, feedback, savepoints };
 
 // The sidebar: one of these is always the section a screen belongs to.
 const SECTIONS = [
@@ -54,7 +55,7 @@ export const app = {
 	navigate(route, { replaceTop = false } = {}) {
 		if (!route || !SCREENS[route.screen]) return;
 		const isSection = SECTIONS.some((s) => s.screen === route.screen) && !route.id;
-		if (isSection || route.screen === 'settings') {
+		if (isSection || route.screen === 'settings' || route.screen === 'appsettings') {
 			state.stack = [];
 		} else if (!replaceTop) {
 			state.stack.push(state.route);
@@ -198,7 +199,7 @@ function refreshScreen() {
 function sectionOf(route) {
 	if (route.screen === 'profile' && !route.id) return 'profile';
 	if (SECTIONS.some((s) => s.screen === route.screen)) return route.screen;
-	if (route.screen === 'settings' || route.screen === 'savepoints') return 'settings';
+	if (route.screen === 'settings' || route.screen === 'appsettings' || route.screen === 'savepoints') return 'settings';
 	const below = state.stack.length ? state.stack[0] : null;
 	return below ? sectionOf(below) : null;
 }
@@ -309,7 +310,8 @@ function drawTitlebar() {
 }
 
 // Your picture at the top right, beside the bell: a menu with My Profile,
-// Settings and Sign Out.
+// Settings (the account's), App Settings (updates, cache, versions) and
+// Sign Out.
 let accountMenu = null;
 
 function titlebarAvatar() {
@@ -341,6 +343,7 @@ function openAccountMenu(anchor, fromKeyboard) {
 	const menu = h('div', { class: 'account-menu', role: 'menu', 'aria-label': 'Account' },
 		item('My Profile', 'user', () => app.navigate({ screen: 'profile' })),
 		item('Settings', 'settings', () => app.navigate({ screen: 'settings' })),
+		item('App Settings', 'sliders', () => app.navigate({ screen: 'appsettings' })),
 		h('div', { class: 'menu-divider', role: 'separator' }),
 		item('Sign Out', 'logout', () => app.signOut(), 'danger'));
 	const r = anchor.getBoundingClientRect();
