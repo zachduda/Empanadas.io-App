@@ -1841,6 +1841,17 @@ async function appCacheSize() {
 	return { bytes: sizes.reduce((a, b) => a + b, 0) + await images.size() };
 }
 
+// "macOS 15.1 (arm64)", "Windows 10.0.26100", "Linux 6.8.0".
+function osDescription() {
+	try {
+		if (isMac) return 'macOS ' + process.getSystemVersion();
+		if (isWindows) return 'Windows ' + (process.getSystemVersion ? process.getSystemVersion() : os.release());
+		return os.type() + ' ' + os.release();
+	} catch (err) {
+		return os.type() + ' ' + os.release();
+	}
+}
+
 // --- IPC ---------------------------------------------------------------------
 
 function isShellSender(event) {
@@ -1892,7 +1903,13 @@ function registerIpcHandlers() {
 
 	handle('app:info', () => ({
 		version: app.getVersion(), platform: process.platform, isMac, isWindows,
-		packaged: app.isPackaged, titlebar: TITLEBAR_HEIGHT
+		packaged: app.isPackaged, titlebar: TITLEBAR_HEIGHT,
+		// For Settings → App: what this copy runs on, for bug reports.
+		versions: {
+			electron: process.versions.electron, chrome: process.versions.chrome,
+			node: process.versions.node, v8: process.versions.v8
+		},
+		os: osDescription(), arch: process.arch, userAgent
 	}));
 
 	handle('session:get', () => sessionInfo());
@@ -2025,6 +2042,7 @@ function buildAppMenu() {
 
 	const appItems = [
 		{ label: 'Settings…', accelerator: mod + '+,', enabled: signedIn, click: go('settings') },
+		{ label: 'App Settings…', accelerator: mod + '+Alt+,', enabled: signedIn, click: go('appsettings') },
 		{ label: 'Check for Updates…', click: () => updater.checkFromRenderer() },
 		sep,
 		{
