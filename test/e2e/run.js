@@ -346,6 +346,64 @@ async function main() {
 		await shot('14-app-settings-versions');
 	});
 
+	await step('App Settings: Server Status, and the status page in a sheet', async () => {
+		await win.waitForSelector('.setting:has-text("App Components")');
+		const row = '.setting.status-row';
+		await win.waitForSelector(row + ':has-text("Possible Outage")', { timeout: 15000 });
+		assert.ok(await win.$(row + ' .status-dot.yellow.live'), 'no pulsing yellow light');
+		await win.evaluate(() => document.querySelector('.status-row').scrollIntoView({ block: 'center' }));
+		await shot('15-app-settings-server-status');
+
+		const statusContents = () => electronApp.evaluate(({ webContents }) => {
+			const c = webContents.getAllWebContents().find((w) => /statuspage\.io/.test(w.getURL()));
+			return c ? c.id : null;
+		});
+		const inPage = (js) => electronApp.evaluate(({ webContents }, src) => {
+			const c = webContents.getAllWebContents().find((w) => /statuspage\.io/.test(w.getURL()));
+			// As a click would be: with a user gesture.
+			return c ? c.executeJavaScript(src, true) : null;
+		}, js);
+		const pageView = () => electronApp.evaluate(({ BrowserWindow }) => {
+			const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().startsWith('app://shell'));
+			const v = w.contentView.children.find((c) => c.webContents && /statuspage\.io/.test(c.webContents.getURL()));
+			return v ? { visible: v.getVisible(), bounds: v.getBounds() } : null;
+		});
+
+		await win.click(row);
+		await win.waitForSelector('.status-sheet:has-text("Server Status")');
+		await until('the status page on screen', async () => {
+			const v = await pageView();
+			return v && v.visible && v.bounds.width > 200 && v.bounds.height > 200;
+		});
+		const body = await win.$eval('.status-sheet-body', (el) => {
+			const r = el.getBoundingClientRect();
+			return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
+		});
+		const view = await pageView();
+		assert.ok(Math.abs(view.bounds.x - body.x) <= 1 && Math.abs(view.bounds.y - body.y) <= 1, 'the page is not over the sheet: ' + JSON.stringify([view.bounds, body]));
+		assert.strictEqual(await inPage('getComputedStyle(document.querySelector(".updates-dropdown-container")).display'), 'none', 'Subscribe still shows');
+		assert.strictEqual(await inPage('getComputedStyle(document.querySelector(".powered-by")).display'), 'none', 'Powered by still shows');
+		assert.ok(await win.$('.status-sheet-back[hidden]'), 'Back shows before a link was followed');
+		await shot('16-status-page-sheet');
+
+		// A link of the status page's own stays in the sheet, with Back.
+		await inPage('document.querySelector("a.incident").click()');
+		await win.waitForSelector('.status-sheet-back:not([hidden])');
+		await win.click('.status-sheet-back');
+		await win.waitForSelector('.status-sheet-back[hidden]', { state: 'attached' });
+		// Anywhere else goes to the browser, not the sheet.
+		await until('the page back', async () => (await inPage('location.pathname')) === '/');
+		await inPage('document.querySelector("a.away").click()');
+		await until('the browser opened', async () =>
+			(await electronApp.evaluate(() => global.__e2eOpened)).includes('https://example.com/elsewhere'));
+		assert.strictEqual(await inPage('location.hostname'), 'empanadas.statuspage.io');
+
+		await win.click('.status-sheet button:has-text("Done")');
+		await win.waitForSelector('.status-sheet', { state: 'detached' });
+		await until('the page gone', async () => !(await statusContents()));
+		assert.ok(!(await pageView()), 'the view is still in the window');
+	});
+
 	await step('Sign Out, from the account menu, goes back to the welcome screen', async () => {
 		await win.click('.titlebar-avatar');
 		await win.click('.account-menu .menu-item.danger:has-text("Sign Out")');

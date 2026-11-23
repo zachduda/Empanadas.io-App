@@ -52,7 +52,9 @@ function createFakeSite({ siteDir, certDir }) {
 		// these files changed: rel => contents. A deploy since the app shipped.
 		resourceOverrides: new Map(),
 		// How long the list of them takes to come back (ms).
-		resourcesDelay: 0
+		resourcesDelay: 0,
+		// Statuspage's indicator for the server status light.
+		statusIndicator: 'minor'
 	};
 
 	// /v2/app/resources.php, as html/v2/app/_resources.php lists the folder.
@@ -195,6 +197,31 @@ function createFakeSite({ siteDir, certDir }) {
 		const form = new URLSearchParams(body);
 		// /v2/ios/ is an alias of the native API's /v2/app/, as on the site.
 		const p = url.pathname.replace(/^\/v2\/ios\//, '/v2/app/');
+
+		// Statuspage: the API the server status light reads, and the hosted
+		// status page the app shows in a sheet, with the parts it hides.
+		if (host === '9c0yt9mrrj7l.statuspage.io') {
+			if (p === '/api/v2/status.json') return send(res, 200, { page: { id: '9c0yt9mrrj7l' }, status: { indicator: state.statusIndicator, description: 'Minor Service Outage' } });
+			return send(res, 404, { error: 'not found' });
+		}
+		if (host === 'empanadas.statuspage.io') {
+			const page = (title, main) => '<!doctype html><html><head><meta charset="utf-8"><title>' + title + '</title>' +
+				'<style>body{margin:0;background:#1e1e91;color:#fff;font-family:Georgia,serif}.masthead{padding:28px}.container{padding:0 28px}' +
+				'.box{background:#fff;color:#222;border-radius:6px;padding:16px;margin-bottom:16px}.updates-dropdown-container{float:right}' +
+				'a{color:#9cf}</style></head><body><div class="masthead"><a class="logo-container" href="https://empanadas.io/"><b>Empanadas.io</b></a>' +
+				'<div class="updates-dropdown-container"><button class="show-updates-dropdown">Subscribe to Updates</button></div></div>' +
+				'<div class="container">' + main + '<div class="powered-by"><a href="https://www.atlassian.com/software/statuspage">Powered by Atlassian Statuspage</a></div></div></body></html>';
+			if (p === '/') {
+				return send(res, 200, page('Empanadas.io Status', '<div class="box"><b>Partial System Outage</b></div>' +
+					'<div class="box">Website — Degraded Performance</div><div class="box">Games — Operational</div>' +
+					'<a class="incident" href="/incidents/abc123">Slow leaderboards</a> · <a class="history" href="/history">Incident History</a> · ' +
+					'<a class="away" href="https://example.com/elsewhere">Elsewhere</a>'), { 'content-type': 'text/html; charset=utf-8' });
+			}
+			if (p === '/incidents/abc123') {
+				return send(res, 200, page('Slow leaderboards', '<div class="box"><b>Slow leaderboards</b><p>Investigating.</p></div>'), { 'content-type': 'text/html; charset=utf-8' });
+			}
+			return send(res, 404, 'not found', { 'content-type': 'text/plain' });
+		}
 
 		if (host === 'api.empanadas.io') {
 			if (p === '/v1/updates.php') {

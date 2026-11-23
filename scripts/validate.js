@@ -35,6 +35,7 @@ console.log('syntax');
 const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/background.js',
 	'lib/api.js', 'lib/answers.js', 'lib/signin.js', 'lib/jsonfile.js', 'lib/gamebundle.js', 'lib/gameprotocol.js',
 	'lib/cookiebridge.js', 'lib/imagecache.js', 'lib/routes.js', 'lib/windowstate.js', 'lib/resources.js',
+	'lib/serverstatus.js',
 	'Content/JS/shell-preload.js', 'Content/JS/game-preload.js', 'Content/JS/auth-preload.js',
 	'Content/Loading/loading.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js', 'scripts/publish-resources.js'];
@@ -247,7 +248,8 @@ check('the app\'s screens set a strict Content-Security-Policy', () => {
 
 check('the app\'s screens put the site\'s words on the page as text', () => {
 	const files = fs.readdirSync(path.join(root, 'shell', 'js', 'screens')).map((f) => path.join('shell', 'js', 'screens', f))
-		.concat(['shell/js/main.js', 'shell/js/dom.js', 'shell/js/components.js', 'shell/js/chart.js', 'shell/js/friendship.js']);
+		.concat(['shell/js/main.js', 'shell/js/dom.js', 'shell/js/components.js', 'shell/js/chart.js', 'shell/js/friendship.js',
+		'shell/js/statussheet.js']);
 	for (const file of files) {
 		const src = fs.readFileSync(path.join(root, file), 'utf8');
 		assert(!/\.innerHTML\s*=|insertAdjacentHTML|outerHTML\s*=|document\.write/.test(src), file + ' writes markup');
@@ -486,6 +488,28 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'resources.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/resources.js test suite failed');
+}
+
+// --- server status ----------------------------------------------------------
+console.log('server status');
+
+check('the status page is kept apart from the app', () => {
+	const start = mainSrc.indexOf('function openStatusPage()');
+	assert(start > 0, 'main.js no longer has openStatusPage()');
+	const body = mainSrc.slice(start, mainSrc.indexOf('\nfunction ', start + 1));
+	assert(/partition: STATUS_PARTITION/.test(body), 'the status page shares a session');
+	assert(!/preload:/.test(body), 'the status page has a preload');
+	assert(/sandbox: true/.test(body) && /contextIsolation: true/.test(body) && /nodeIntegration: false/.test(body),
+		'the status page is not sandboxed');
+	assert(/const STATUS_PARTITION = '(?!persist:)[^']+'/.test(mainSrc), 'the status page\'s session is kept on disk');
+	assert(/function guardStatusPage\(contents\)[\s\S]{0,4000}setWindowOpenHandler[\s\S]{0,300}action: 'deny'/.test(mainSrc),
+		'the status page may open windows');
+});
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'serverstatus.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/serverstatus.js test suite failed');
 }
 
 // --- links ----------------------------------------------------------------
