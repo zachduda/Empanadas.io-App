@@ -501,8 +501,10 @@ final class AppModel {
             } catch {
                 signInProgress = .idle
                 signInError = (error as? LocalizedError)?.errorDescription ?? "Something went wrong. Try again!"
+                Haptics.play("error")
                 return
             }
+            Haptics.play("success")
             setSession(.signedIn)
             // What the site's scripts keep about the account in the web
             // views' storage (SiteURLs.signedInHandoff). It goes on to the
@@ -675,6 +677,8 @@ final class AppModel {
                 self.isLowDataMode = lowData
                 if self.isOnline != online {
                     self.isOnline = online
+                    // Only once the first answer is in: not at launch.
+                    if !firstAnswer { Haptics.play(online ? "light" : "warning") }
                     // Back online: retry whatever failed while it was not. The
                     // native screens refresh themselves when they are showing.
                     if online, let page = self.signOutPage, page.loadError != nil {

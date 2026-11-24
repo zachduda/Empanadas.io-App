@@ -32,6 +32,7 @@ struct LaunchAnimation: View {
             try? await Task.sleep(for: .seconds(max(0, leave - Date().timeIntervalSince(start))))
             guard !Task.isCancelled else { return }
             phase = .leaving
+            Haptics.play("medium")
             try? await Task.sleep(for: .seconds(exit))
             guard !Task.isCancelled else { return }
             phase = .done

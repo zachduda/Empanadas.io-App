@@ -61,6 +61,10 @@ struct RootView: View {
             guard scenePhase == .active else { return }
             await model.watchServerStatus(every: 300)
         }
+        // A warning as the server disruption alert comes up.
+        .onChange(of: serverStatusAlert) { old, new in
+            if old == nil, new != nil { Haptics.play("warning") }
+        }
         // A thump as a game opens, a lighter tap as it closes.
         .onChange(of: model.activeGame != nil) { _, open in
             Haptics.play(open ? "medium" : "light")
