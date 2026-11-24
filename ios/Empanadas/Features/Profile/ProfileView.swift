@@ -50,7 +50,10 @@ struct ProfileView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
-        .refreshable { await profile.load(app: model) }
+        .refreshable {
+            await profile.load(app: model)
+            Haptics.play("light")
+        }
         // Each time it comes back on screen (from a profile picture change,
         // a friend's profile), unless it is fresh. Someone else's, read
         // earlier this session, shows at once and is good for a minute.

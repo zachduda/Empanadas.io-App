@@ -75,12 +75,15 @@ struct LeaderboardView: View {
                 }
             }
             .profileDestinations()
-            .refreshable { await leaderboard.load(app: model) }
+            .refreshable {
+            await leaderboard.load(app: model)
+            Haptics.play("light")
+        }
             .task(id: scenePhase) { await keepFresh() }
             .onChange(of: model.isOnline) { _, online in
                 if online { Task { await leaderboard.load(app: model) } }
             }
-            .sensoryFeedback(.selection, trigger: game)
+            .haptic(on: game)
         }
     }
 

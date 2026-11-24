@@ -44,6 +44,7 @@ struct SpinChartCard: View {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .haptic(on: mode)
 
                 if visible.isEmpty {
                     Text("No spins saved \(range.label). Try a longer range.")
@@ -62,6 +63,7 @@ struct SpinChartCard: View {
                     ForEach(SpinHistory.Range.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .haptic(on: range)
             }
 
             if let manageSaves {
@@ -71,6 +73,19 @@ struct SpinChartCard: View {
         }
         .onChange(of: range) { selectedDate = nil }
         .onChange(of: mode) { selectedDate = nil }
+        // A tick each time the scrub lands on another day, and a firmer one
+        // as the finger first touches the chart.
+        .onChange(of: scrubbedDay) { old, new in
+            guard new != nil else { return }
+            Haptics.play(old == nil ? "light" : "selection")
+        }
+    }
+
+    /// The day the scrub is on, nil when the finger is off the chart.
+    private var scrubbedDay: Date? {
+        guard let selectedDate else { return nil }
+        let points = SpinHistory.points(allPoints, in: range, now: Date())
+        return points.min { abs($0.date.timeIntervalSince(selectedDate)) < abs($1.date.timeIntervalSince(selectedDate)) }?.date
     }
 
     // MARK: - Parts

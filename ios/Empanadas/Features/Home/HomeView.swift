@@ -58,7 +58,10 @@ struct HomeView: View {
             .profileDestinations()
             .updatesDestinations()
             .gameDataDestinations()
-            .refreshable { await dashboard.reload(app: model) }
+            .refreshable {
+            await dashboard.reload(app: model)
+            Haptics.play("light")
+        }
             .task(id: scenePhase) { await keepFresh() }
             .onChange(of: model.isOnline) { _, online in
                 guard online else { return }

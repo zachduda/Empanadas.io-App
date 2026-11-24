@@ -67,7 +67,10 @@ struct SettingsView: View {
                 serverStatusSection
 
                 Section {
-                    Button("Sign Out", role: .destructive) { confirmingSignOut = true }
+                    Button("Sign Out", role: .destructive) {
+                        Haptics.play("warning")
+                        confirmingSignOut = true
+                    }
                         // On the button rather than the screen: on an iPad or
                         // a Mac the question is a popover, and it points at
                         // whatever it is attached to.
@@ -80,7 +83,10 @@ struct SettingsView: View {
                 Section {
                     // Always native: the modal fetches the account's csrf
                     // token itself if Settings could not load it.
-                    Button("Delete Account", role: .destructive) { deletingAccount = true }
+                    Button("Delete Account", role: .destructive) {
+                        Haptics.play("warning")
+                        deletingAccount = true
+                    }
                 } footer: {
                     Text("Deleting your account removes your profile, friends and game stats. It can't be undone.")
                 }
@@ -188,6 +194,7 @@ struct SettingsView: View {
             Toggle("Usage Analytics", isOn: Binding(
                 get: { settings.value(\.analytics) == 1 },
                 set: { on in
+                    Haptics.play(on ? "selection" : "warning")
                     if on {
                         Task { await settings.set(\.analytics, field: "analytics", to: 1, app: model) }
                     } else {
@@ -251,6 +258,8 @@ struct SettingsView: View {
     private var appSection: some View {
         Section {
             Toggle("Haptics", isOn: $haptics)
+                // On: a tap to show it. Off: it goes quiet, as the switch says.
+                .onChange(of: haptics) { _, on in if on { Haptics.play("medium") } }
             Button(action: clearCache) {
                 LabeledContent("Clear Cache") {
                     HStack(spacing: 6) {
@@ -407,14 +416,20 @@ struct SettingsView: View {
     private func setting(_ keyPath: WritableKeyPath<AccountSettings, Int>, _ field: String) -> Binding<Int> {
         Binding(
             get: { settings.value(keyPath) },
-            set: { value in Task { await settings.set(keyPath, field: field, to: value, app: model) } }
+            set: { value in
+                Haptics.play("selection")
+                Task { await settings.set(keyPath, field: field, to: value, app: model) }
+            }
         )
     }
 
     private func toggle(_ keyPath: WritableKeyPath<AccountSettings, Int>, _ field: String) -> Binding<Bool> {
         Binding(
             get: { settings.value(keyPath) == 1 },
-            set: { on in Task { await settings.set(keyPath, field: field, to: on ? 1 : 0, app: model) } }
+            set: { on in
+                Haptics.play("selection")
+                Task { await settings.set(keyPath, field: field, to: on ? 1 : 0, app: model) }
+            }
         )
     }
 }

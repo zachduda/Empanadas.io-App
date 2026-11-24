@@ -61,6 +61,14 @@ struct RootView: View {
             guard scenePhase == .active else { return }
             await model.watchServerStatus(every: 300)
         }
+        // A warning as the server disruption alert comes up.
+        .onChange(of: serverStatusAlert) { old, new in
+            if old == nil, new != nil { Haptics.play("warning") }
+        }
+        // A thump as a game opens, a lighter tap as it closes.
+        .onChange(of: model.activeGame != nil) { _, open in
+            Haptics.play(open ? "medium" : "light")
+        }
         .fullScreenCover(item: $model.activeGame) { game in
             GamePlayerView(game: game)
                 .id(game)
@@ -152,5 +160,8 @@ struct MainTabView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(AppTab.settings)
         }
+        // A tick for every change of tab: a tap on the tab bar, a swipe, or
+        // the app's own (a deep link, Home's "Play a Game").
+        .haptic(on: model.selectedTab)
     }
 }

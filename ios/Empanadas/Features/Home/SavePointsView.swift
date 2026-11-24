@@ -100,7 +100,10 @@ struct SavePointsView: View {
             .padding(.bottom, 24)
             .readableWidth(ReadableWidth.narrow)
         }
-        .refreshable { await saves.refresh(app: model) }
+        .refreshable {
+            await saves.refresh(app: model)
+            Haptics.play("light")
+        }
     }
 
     /// White on the brand gradient, as Home's hero is.

@@ -140,7 +140,6 @@ struct GamesView: View {
     }
 
     private func play(_ game: Game) {
-        Haptics.play("light")
         model.navigate(to: .game(game))
     }
 
