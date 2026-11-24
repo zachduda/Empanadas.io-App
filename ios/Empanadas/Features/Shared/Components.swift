@@ -49,6 +49,15 @@ extension Game {
 }
 
 extension View {
+    /// A haptic whenever `value` changes, through Haptics so the Haptics
+    /// switch in Settings turns it off (unlike .sensoryFeedback, which
+    /// plays regardless).
+    func haptic<V: Equatable>(_ style: String = "selection", on value: V) -> some View {
+        onChange(of: value) { _, _ in Haptics.play(style) }
+    }
+}
+
+extension View {
     /// The system's own navigation bar: Liquid Glass on iOS 26, and before it a
     /// translucent material that follows light and dark mode and blurs what
     /// scrolls under it. Replaces the solid brand-blue bar.

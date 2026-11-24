@@ -44,6 +44,7 @@ struct SpinChartCard: View {
                     ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .haptic(on: mode)
 
                 if visible.isEmpty {
                     Text("No spins saved \(range.label). Try a longer range.")
@@ -62,6 +63,7 @@ struct SpinChartCard: View {
                     ForEach(SpinHistory.Range.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .haptic(on: range)
             }
 
             if let manageSaves {

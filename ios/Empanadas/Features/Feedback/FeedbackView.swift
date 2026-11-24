@@ -147,7 +147,7 @@ struct FeedbackView: View {
         .scrollDismissesKeyboard(.interactively)
         .readableListWidth()
         .disabled(model.isSending)
-        .sensoryFeedback(.selection, trigger: model.subjectID)
+        .haptic(on: model.subjectID)
     }
 
     @ViewBuilder
