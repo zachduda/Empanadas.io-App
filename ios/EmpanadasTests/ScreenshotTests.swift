@@ -182,7 +182,8 @@ private final class FakeSite: URLProtocol {
 }
 
 /// What the site's /v2/app/ endpoints would say about a player a few weeks
-/// in: friends, a request waiting, scores in all three games, pumpkin season.
+/// in: friends, a request waiting, scores in all three games, some pumpkins
+/// (shown only in September and October, PumpkinSeason).
 /// And the site's announcements, two of them posted since the player last
 /// looked.
 private enum Fixtures {

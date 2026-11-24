@@ -42,7 +42,7 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(dashboard.account.days, 9)
         XCTAssertEqual(dashboard.pictureURL?.absoluteString, "https://empanadas.io/Content/Images/ProfilePics/lg/me.jpeg")
         XCTAssertEqual(dashboard.peppers, 12)
-        XCTAssertTrue(dashboard.pumpkinSeason)
+        XCTAssertEqual(dashboard.pumpkins, 4)
         XCTAssertEqual(dashboard.spin.lifetime, 280000)
         XCTAssertEqual(dashboard.spin.progress, 2.5, accuracy: 0.001)
         XCTAssertEqual(dashboard.flappy.high, 40)
@@ -327,6 +327,23 @@ final class DashboardTests: XCTestCase {
         OfflineStore.save(Data(boardJSON.utf8), as: .leaderboard, generation: OfflineStore.generation)
         XCTAssertNotNil(OfflineStore.load(.leaderboard))
         OfflineStore.clear()
+    }
+
+    /// Pumpkins only in September and October, by the site's clock in New
+    /// York, whatever the answer being shown says.
+    func testPumpkinSeasonIsSeptemberAndOctoberInNewYork() throws {
+        func at(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) throws -> Date {
+            try XCTUnwrap(newYork.date(from: DateComponents(year: year, month: month, day: day,
+                                                            hour: hour, minute: minute)))
+        }
+        XCTAssertFalse(PumpkinSeason.contains(try at(2026, 8, 31, 23, 59)))
+        XCTAssertTrue(PumpkinSeason.contains(try at(2026, 9, 1, 0, 0)))
+        XCTAssertTrue(PumpkinSeason.contains(try at(2026, 10, 15, 12)))
+        // Already November in UTC, still October in New York.
+        XCTAssertTrue(PumpkinSeason.contains(try at(2026, 10, 31, 23, 30)))
+        XCTAssertFalse(PumpkinSeason.contains(try at(2026, 11, 1, 0, 0)))
+        XCTAssertFalse(PumpkinSeason.contains(try at(2026, 11, 24, 12)))
+        XCTAssertFalse(PumpkinSeason.contains(try at(2027, 2, 1, 12)))
     }
 
     func testWhichFailuresMeanNoConnection() {

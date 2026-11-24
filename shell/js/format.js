@@ -15,6 +15,18 @@ export function short(value) {
 	return Math.abs(n) < 100000 ? integer.format(n) : compact.format(n);
 }
 
+// Pumpkins turn up around the site in September and October, by the site's
+// clock in New York (pumpkin_season in the site's v2/_lib.php). The screens
+// ask the clock rather than the answer they're showing, which may be one
+// saved in October; out of season no pumpkins are shown, however many the
+// player has, and the site's pumpkin_season isn't read.
+const newYorkMonth = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: 'numeric' });
+
+export function pumpkinSeason(now = new Date()) {
+	const month = Number(newYorkMonth.format(now));
+	return month === 9 || month === 10;
+}
+
 export function plural(n, one, many) {
 	return num(n) + ' ' + (Number(n) === 1 ? one : (many || one + 's'));
 }

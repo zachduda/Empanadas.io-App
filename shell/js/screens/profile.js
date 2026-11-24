@@ -3,7 +3,7 @@
 // friends-only profile shows a stranger only the name and picture).
 
 import { h, replace, button, icon, avatar } from '../dom.js';
-import { num, plural, dayLabel } from '../format.js';
+import { num, plural, dayLabel, pumpkinSeason } from '../format.js';
 import { load, staleBanner, errorState, skeleton } from '../data.js';
 import { badges, presenceOf, playerRow, xpBreakdown } from '../components.js';
 import { relationButtons } from '../friendship.js';
@@ -104,7 +104,7 @@ export function mount(container, { app, params }) {
 			if (stats.flappy) cells.push(stat('Flappy Best', stats.flappy.high), stat('Flappy Rounds', stats.flappy.played));
 			if (stats.tower) cells.push(stat('Tower Best', stats.tower.high), stat('Tower Rounds', stats.tower.played), stat('Best Streak', stats.tower.best_streak), stat('Perfect Drops', stats.tower.perfects));
 			if (stats.peppers) cells.push(stat('Peppers', stats.peppers.current), stat('Peppers Earned', stats.peppers.lifetime));
-			if (stats.pumpkin_season || stats.pumpkins) cells.push(stat('Pumpkins', stats.pumpkins));
+			if (pumpkinSeason()) cells.push(stat('Pumpkins', stats.pumpkins));
 			blocks.push(h('div', { class: 'card' }, h('div', { class: 'card-title' }, 'Stats'), h('div', { class: 'stat-grid' }, cells)));
 		}
 		if (p.star_sign && p.star_sign.name) {

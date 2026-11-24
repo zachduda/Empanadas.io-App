@@ -512,6 +512,15 @@ try {
 	failures.push('lib/serverstatus.js test suite failed');
 }
 
+// --- the screens' numbers and dates -----------------------------------------
+console.log('format');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'format.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('shell/js/format.js test suite failed');
+}
+
 // --- links ----------------------------------------------------------------
 console.log('links');
 

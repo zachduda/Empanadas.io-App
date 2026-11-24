@@ -186,11 +186,7 @@ private struct ProfileContent: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            ProfileHero(data: data, editBio: editBio)
-
-            if !data.isSelf {
-                RelationshipCard(data: data, profile: profile, remove: remove)
-            }
+            ProfileHero(data: data, profile: profile, editBio: editBio, remove: remove)
 
             MasonryColumns(minColumnWidth: 340) {
                 if let friends = data.friends {
@@ -214,12 +210,15 @@ private struct ProfileContent: View {
 
 /// Who they are, on the site's wave banner: centred on a phone, as the
 /// site's profile is on one, and the picture beside the name once there is
-/// room, as on a computer. Under it, their friends, experience and days at a
-/// glance, then the status line.
+/// room, as on a computer. Under it, on someone else's, Add Friend or where
+/// the two stand; their friends, experience and peppers at a glance; then the
+/// status line.
 private struct ProfileHero: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     let data: PlayerProfile
+    let profile: ProfileModel
     let editBio: () -> Void
+    let remove: (Removal) -> Void
 
     private var player: PlayerProfile.Player { data.player }
     private var centred: Bool { sizeClass != .regular }
@@ -237,6 +236,10 @@ private struct ProfileHero: View {
                     meta
                 }
                 .multilineTextAlignment(centred ? .center : .leading)
+            }
+
+            if !data.isSelf {
+                BannerFriendActions(data: data, profile: profile, remove: remove, centred: centred)
             }
 
             if !highlights.isEmpty {
@@ -348,9 +351,11 @@ private struct ProfileHero: View {
         if let xp = data.xp {
             items.append(Highlight(value: xp.total, label: "XP", spoken: "\(xp.total.formatted()) XP"))
         }
-        if let days = player.days {
-            items.append(Highlight(value: days, label: days == 1 ? "Day" : "Days",
-                                   spoken: "Member for \(days.formatted()) day\(days == 1 ? "" : "s")"))
+        // Every pepper they've earned: the cards below already say how long
+        // they've been here and the rest of their experience.
+        if let peppers = data.stats?.peppers.lifetime {
+            items.append(Highlight(value: peppers, label: peppers == 1 ? "Pepper" : "Peppers",
+                                   spoken: "\(peppers.formatted()) pepper\(peppers == 1 ? "" : "s") earned"))
         }
         return items.count >= 2 ? items : []
     }
@@ -484,55 +489,42 @@ enum PresenceDot {
     }
 }
 
-/// Add Friend, the request either way, or the friendship, for someone else's
-/// profile.
-private struct RelationshipCard: View {
+/// Add Friend, the request either way, or the friendship, on someone else's
+/// banner, where it is seen first: white for what moves things forward,
+/// outlined for the rest. Letting a friend go and taking a request back are
+/// in a menu, and asked again before they happen. Under them, profile.php's
+/// words for where the two stand.
+private struct BannerFriendActions: View {
     @Environment(AppModel.self) private var model
     let data: PlayerProfile
     let profile: ProfileModel
     let remove: (Removal) -> Void
+    let centred: Bool
 
     private var player: PlayerProfile.Player { data.player }
     private var working: Bool { profile.working == player.id }
 
     var body: some View {
-        Card(title, systemImage: icon, tint: tint) {
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: centred ? .center : .leading, spacing: 8) {
             buttons
                 .disabled(profile.working != nil)
+            if let message {
+                Text(message)
+                    .font(.footnote)
+                    .opacity(0.85)
+                    .multilineTextAlignment(centred ? .center : .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: centred ? .center : .leading)
     }
 
-    private var title: String {
-        switch data.relationship {
-        case .friends: "Friends"
-        case .incoming: "Friend Request"
-        case .outgoing: "Request Sent"
-        case .me, .stranger: data.acceptsRequests ? "Add Friend" : "Become Friends"
-        }
-    }
-
-    private var icon: String {
-        switch data.relationship {
-        case .friends: "person.2.fill"
-        case .incoming: "person.badge.plus"
-        case .outgoing: "paperplane.fill"
-        case .me, .stranger: data.acceptsRequests ? "person.badge.plus" : "lock.fill"
-        }
-    }
-
-    private var tint: Color {
-        data.relationship == .stranger && !data.acceptsRequests ? .secondary : Palette.friends
-    }
-
-    /// profile.php's words for each case.
-    private var message: String {
+    /// profile.php's words for each case. None for friends: the button says.
+    private var message: String? {
         let name = player.username
         switch data.relationship {
         case .friends:
-            return "You and \(name) are friends."
+            return nil
         case .incoming:
             return "\(name) wants to be your friend."
         case .outgoing:
@@ -553,58 +545,89 @@ private struct RelationshipCard: View {
     private var buttons: some View {
         switch data.relationship {
         case .friends:
-            Button(role: .destructive) {
-                remove(Removal(playerID: player.id, username: player.username, isRequest: false))
+            Menu {
+                Button(role: .destructive) {
+                    remove(Removal(playerID: player.id, username: player.username, isRequest: false))
+                } label: {
+                    Label("Unfriend", systemImage: "person.badge.minus")
+                }
             } label: {
-                label("Unfriend", systemImage: "person.badge.minus")
+                outlined("Friends", systemImage: "person.2.fill", more: true)
             }
-            .buttonStyle(.bordered)
+            .accessibilityLabel("Friends with \(player.username)")
+            .accessibilityHint("Offers to unfriend them")
         case .incoming:
             HStack(spacing: 10) {
                 Button {
                     Task { await profile.answer(player.id, accept: true, app: model) }
                 } label: {
-                    label("Accept", systemImage: "checkmark")
+                    filled("Accept", systemImage: "checkmark")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.flappy)
-                Button(role: .destructive) {
+                .buttonStyle(.plain)
+                Button {
                     Task { await profile.answer(player.id, accept: false, app: model) }
                 } label: {
-                    label("Decline", systemImage: "xmark")
+                    outlined("Decline", systemImage: "xmark")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
         case .outgoing:
-            Button {
-                remove(Removal(playerID: player.id, username: player.username, isRequest: true))
+            Menu {
+                Button(role: .destructive) {
+                    remove(Removal(playerID: player.id, username: player.username, isRequest: true))
+                } label: {
+                    Label("Cancel Request", systemImage: "xmark")
+                }
             } label: {
-                label("Cancel Request", systemImage: "xmark")
+                outlined("Request Sent", systemImage: "paperplane.fill", more: true)
             }
-            .buttonStyle(.bordered)
+            .accessibilityHint("Offers to cancel the request")
         case .me, .stranger:
             if data.acceptsRequests {
                 Button {
                     Task { await profile.addFriend(player.id, app: model) }
                 } label: {
-                    label("Add Friend", systemImage: "plus.circle.fill")
+                    filled("Add Friend", systemImage: "person.badge.plus")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.flappy)
+                .buttonStyle(.plain)
             }
         }
     }
 
-    private func label(_ title: String, systemImage: String) -> some View {
-        HStack {
-            if working {
-                ProgressView()
-            } else {
+    /// White, with the banner's indigo on it.
+    private func filled(_ title: String, systemImage: String) -> some View {
+        label(title, systemImage: systemImage, more: false, spinner: Palette.bannerTop)
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Palette.bannerTop)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 9)
+            .background(.white, in: Capsule())
+            .contentShape(Capsule())
+    }
+
+    /// White on the banner, outlined.
+    private func outlined(_ title: String, systemImage: String, more: Bool = false) -> some View {
+        label(title, systemImage: systemImage, more: more, spinner: .white)
+            .foregroundStyle(.white)
+            .bannerCapsule()
+    }
+
+    @ViewBuilder
+    private func label(_ title: String, systemImage: String, more: Bool, spinner: Color) -> some View {
+        if working {
+            ProgressView()
+                .tint(spinner)
+                .accessibilityLabel("Working")
+        } else {
+            HStack(spacing: 6) {
                 Label(title, systemImage: systemImage)
+                if more {
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .accessibilityHidden(true)
+                }
             }
         }
-        .font(.subheadline.weight(.semibold))
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -944,7 +967,7 @@ private struct ProfileStatsCard: View {
                         Row(label: "Current peppers", value: stats.peppers.current),
                         Row(label: "Lifetime peppers", value: stats.peppers.lifetime),
                     ])
-                    if stats.pumpkinSeason {
+                    if PumpkinSeason.isNow {
                         section("Halloween", systemImage: "leaf.fill", tint: Palette.pumpkin, rows: [
                             Row(label: "Pumpkins collected", value: stats.pumpkins),
                         ])

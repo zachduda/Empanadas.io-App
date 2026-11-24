@@ -165,7 +165,7 @@ private struct DashboardContent: View {
                              systemImage: "person.2.fill", tint: Palette.friends)
                 }
                 .buttonStyle(.plain)
-                if data.pumpkinSeason {
+                if PumpkinSeason.isNow {
                     StatTile(title: "Pumpkins", value: data.pumpkins, systemImage: "leaf.fill", emoji: "🎃",
                              tint: Palette.pumpkin)
                 }
@@ -192,11 +192,13 @@ private struct DashboardContent: View {
                 }
                 FriendsCard(friends: data.friends, show: show)
                 ExperienceCard(xp: data.xp, show: show)
-                if data.pumpkinSeason {
+                if PumpkinSeason.isNow {
                     PumpkinCard(pumpkins: data.pumpkins)
                 }
                 PeppersCard(peppers: data.peppers)
             }
+
+            HomeFooter()
         }
     }
 }
@@ -559,6 +561,26 @@ private struct PumpkinCard: View {
             }
             .frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// The site dashboard's footer, on its wave banner.
+private struct HomeFooter: View {
+    var body: some View {
+        let heart = Text(Image(systemName: "heart.fill")).foregroundStyle(Color(hex: 0xFF8985))
+        VStack(spacing: 4) {
+            Text("Empanadas.io")
+                .font(.brand(.title3, .extraBold))
+            Text("Made with \(heart) by \(Text("Zach").bold())")
+                .font(.caption)
+                .opacity(0.9)
+        }
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity)
+        .waveBanner(cornerRadius: 18)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Empanadas.io, made with love by Zach")
+        .padding(.top, 10)
     }
 }
 

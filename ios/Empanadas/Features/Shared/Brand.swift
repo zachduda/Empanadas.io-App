@@ -1,48 +1,29 @@
 import SwiftUI
+import UIKit
 
 // The site's look, for the parts of the native screens that carry it:
-// Poppins, the site's face, and the blue wave banner the site puts behind the
-// dashboard's and the profiles' heroes (.wave-jumbo in the site's
+// Poppins, the site's face (the Poppins enum and Font.brand are in
+// Shared/Poppins.swift, for the widget too), and the blue wave banner the site
+// puts behind its heroes (.wave-jumbo in the site's
 // Content/Code/CSS/accounts.css).
 
-// MARK: - Poppins
+// MARK: - Navigation titles
 
-/// The weights of Poppins the app bundles (Resources/Fonts, listed under
-/// UIAppFonts in Info.plist), by PostScript name. Poppins is for what carries
-/// the brand: names in the banners, card titles and the big numbers. Body
-/// text, lists and controls stay the system's, as in the desktop app.
-enum Poppins: String, CaseIterable {
-    case semibold = "Poppins-SemiBold"
-    case bold = "Poppins-Bold"
-    case extraBold = "Poppins-ExtraBold"
-}
-
-extension Font {
-    /// Poppins at the size of `style` (or `size`), growing and shrinking with
-    /// the player's text size as that style does. Its digits are
-    /// proportional, so a column of numbers to line up stays in the system
-    /// font with .monospacedDigit().
-    static func brand(_ style: TextStyle, _ weight: Poppins = .bold, size: CGFloat? = nil) -> Font {
-        .custom(weight.rawValue, size: size ?? style.defaultPointSize, relativeTo: style)
-    }
-}
-
-extension Font.TextStyle {
-    /// The style's size at the default text size (Large).
-    var defaultPointSize: CGFloat {
-        switch self {
-        case .largeTitle: 34
-        case .title: 28
-        case .title2: 22
-        case .title3: 20
-        case .headline, .body: 17
-        case .callout: 16
-        case .subheadline: 15
-        case .footnote: 13
-        case .caption: 12
-        case .caption2: 11
-        @unknown default: 17
-        }
+/// The navigation bars' titles in Poppins, as the site's headings are: the
+/// tabs' large titles ("Home", "Leaderboards") in ExtraBold and the small
+/// ones in Bold, sized for the text size the app opened with. Only the font:
+/// the colour stays the bar's own, so a bar over a dark site page (pageBars)
+/// still turns its title white. Set once, at launch, before any bar exists.
+@MainActor
+enum NavigationTitles {
+    static func usePoppins() {
+        guard let large = UIFont(name: Poppins.extraBold.rawValue, size: 34),
+              let small = UIFont(name: Poppins.bold.rawValue, size: 17) else { return }
+        let bar = UINavigationBar.appearance()
+        bar.largeTitleTextAttributes = [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large)]
+        bar.titleTextAttributes = [
+            .font: UIFontMetrics(forTextStyle: .headline).scaledFont(for: small, maximumPointSize: 24),
+        ]
     }
 }
 
