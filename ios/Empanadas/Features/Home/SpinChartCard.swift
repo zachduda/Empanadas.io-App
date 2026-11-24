@@ -134,7 +134,7 @@ struct SpinChartCard: View {
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(all.last?.total ?? 0, format: .number)
-                    .font(.title2.bold().monospacedDigit())
+                    .font(.brand(.title2, .extraBold))
                     .contentTransition(.numericText())
                 Text("Lifetime spins")
                     .font(.caption)
@@ -143,7 +143,7 @@ struct SpinChartCard: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text("+\(gained.formatted())")
-                    .font(.headline.monospacedDigit())
+                    .font(.brand(.headline, .bold))
                     .foregroundStyle(gained > 0 ? Palette.flappy : Color.secondary)
                     .contentTransition(.numericText())
                 Text(range.label.capitalized)
