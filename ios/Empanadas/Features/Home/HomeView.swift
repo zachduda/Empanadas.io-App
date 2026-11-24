@@ -149,8 +149,6 @@ private struct DashboardContent: View {
         VStack(spacing: 16) {
             HeroCard(account: data.account, pictureURL: data.pictureURL, show: show, open: open)
 
-            nudge
-
             // Wide enough for "Lifetime Spins" and "Friends Online": on an
             // iPad in portrait, six tiles in a row cut them short.
             BalancedGrid(minItemWidth: 165, spacing: 12) {
@@ -167,7 +165,7 @@ private struct DashboardContent: View {
                              systemImage: "person.2.fill", tint: Palette.friends)
                 }
                 .buttonStyle(.plain)
-                if data.pumpkinSeason {
+                if PumpkinSeason.isNow {
                     StatTile(title: "Pumpkins", value: data.pumpkins, systemImage: "leaf.fill", emoji: "🎃",
                              tint: Palette.pumpkin)
                 }
@@ -194,64 +192,47 @@ private struct DashboardContent: View {
                 }
                 FriendsCard(friends: data.friends, show: show)
                 ExperienceCard(xp: data.xp, show: show)
-                if data.pumpkinSeason {
+                if PumpkinSeason.isNow {
                     PumpkinCard(pumpkins: data.pumpkins)
                 }
                 PeppersCard(peppers: data.peppers)
             }
-        }
-    }
 
-    /// The hero's "Almost there!" box: verify the address first, then add a
-    /// picture, as on the site.
-    @ViewBuilder
-    private var nudge: some View {
-        if !data.account.emailVerified {
-            NudgeCard(title: "Almost there!",
-                      message: "Verify your email to secure the account and unlock everything.",
-                      button: "Verify Email", systemImage: "envelope.fill") { open(.verifyEmail) }
-        } else if !data.account.hasCustomPfp {
-            NudgeCard(title: "Make it yours.",
-                      message: "Add a profile picture so your friends know it's you.",
-                      button: "Upload Picture", systemImage: "photo.fill") { open(.profilePicture) }
+            HomeFooter()
         }
     }
 }
 
 // MARK: - Cards
 
+/// The site dashboard's hero, on its wave banner: the picture, "Hey ...", how
+/// long they've been an Empanada, the way to their profile and to friends,
+/// and the "Almost there!" box (verify the address first, then add a
+/// picture), as on the site.
 private struct HeroCard: View {
     let account: Dashboard.Account
     let pictureURL: URL?
     let show: (ProfileRoute) -> Void
     let open: (WebLink) -> Void
 
-    private var subtitle: String {
-        switch account.days {
-        case ..<1: "Welcome to your very own Empanadas.io account!"
-        case 1: "You've been an Empanada for 1 day."
-        default: "You've been an Empanada for \(account.days.formatted()) days."
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 16) {
                 Button { open(.profilePicture) } label: {
-                    Avatar(url: pictureURL, size: 72)
-                        .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 2))
+                    BannerAvatar(url: pictureURL, size: 72)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Change profile picture")
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Hey \(account.username) 👋")
-                        .font(.title2.bold())
+                        .font(.brand(.title, .extraBold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                    Text(subtitle)
+                        .accessibilityAddTraits(.isHeader)
+                    subtitle
                         .font(.subheadline)
-                        .opacity(0.85)
+                        .opacity(0.9)
                 }
             }
 
@@ -259,30 +240,47 @@ private struct HeroCard: View {
                 heroButton("My Profile", systemImage: "person.crop.circle") { show(.player(id: nil, name: nil)) }
                 heroButton("Find Friends", systemImage: "magnifyingglass") { show(.findFriends) }
             }
+
+            nudge
         }
-        .foregroundStyle(.white)
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [Color("Brand"), Color(hex: 0x4A5BF0)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
+        .waveBanner()
+    }
+
+    private var subtitle: Text {
+        switch account.days {
+        case ..<1: Text("Welcome to your very own Empanadas.io account!")
+        case 1: Text("You've been an Empanada for \(Text("1").bold()) day.")
+        default: Text("You've been an Empanada for \(Text(account.days.formatted()).bold()) days.")
+        }
+    }
+
+    @ViewBuilder
+    private var nudge: some View {
+        if !account.emailVerified {
+            HeroNudge(title: "Almost there!",
+                      message: "Verify your email to secure the account and unlock everything.",
+                      button: "Verify Email", systemImage: "envelope.fill") { open(.verifyEmail) }
+        } else if !account.hasCustomPfp {
+            HeroNudge(title: "Make it yours.",
+                      message: "Add a profile picture so your friends know it's you.",
+                      button: "Upload Picture", systemImage: "photo.fill") { open(.profilePicture) }
+        }
     }
 
     private func heroButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(.white.opacity(0.18), in: Capsule())
+                .bannerCapsule()
         }
         .buttonStyle(.plain)
     }
 }
 
-private struct NudgeCard: View {
+/// Something to do, in a darker box on the hero (the site's .dash-nudge),
+/// with a white button.
+private struct HeroNudge: View {
     let title: String
     let message: String
     let button: String
@@ -290,15 +288,24 @@ private struct NudgeCard: View {
     let action: () -> Void
 
     var body: some View {
-        Card {
-            (Text(title).bold() + Text(" ") + Text(message))
+        VStack(alignment: .leading, spacing: 10) {
+            Text("\(Text(title).bold()) \(message)")
                 .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
             Button(action: action) {
                 Label(button, systemImage: systemImage)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Palette.bannerTop)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(.white, in: Capsule())
+                    .contentShape(Capsule())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bannerInset()
     }
 }
 
@@ -354,7 +361,7 @@ private struct GameStatsCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label {
-                        Text(game.title).font(.headline)
+                        Text(game.title).font(.brand(.headline, .semibold))
                     } icon: {
                         Image(systemName: game.systemImage).foregroundStyle(game.tint)
                     }
@@ -505,9 +512,10 @@ private struct ExperienceCard: View {
         Card("Experience", systemImage: "star.fill", tint: Palette.experience, aside: "\(xp.total.formatted()) XP") {
             HStack(spacing: 8) {
                 Text(xp.icon)
-                Text(xp.rank).fontWeight(.semibold)
+                    .font(.title3)
+                Text(xp.rank)
+                    .font(.brand(.title3, .bold))
             }
-            .font(.title3)
 
             Meter(value: xp.progress, tint: Palette.experience)
 
@@ -543,7 +551,7 @@ private struct PumpkinCard: View {
             VStack(spacing: 6) {
                 Text("🎃 Pumpkin Season").font(.headline)
                 Text(pumpkins, format: .number)
-                    .font(.system(size: countSize, weight: .heavy, design: .rounded))
+                    .font(.custom(Poppins.extraBold.rawValue, fixedSize: countSize))
                     .foregroundStyle(Palette.pumpkin)
                 Text("Pumpkins Collected").font(.caption).foregroundStyle(.secondary)
                 Text("Sometimes a pumpkin appears around the site. Tap it quickly and earn even more!")
@@ -553,6 +561,26 @@ private struct PumpkinCard: View {
             }
             .frame(maxWidth: .infinity)
         }
+    }
+}
+
+/// The site dashboard's footer, on its wave banner.
+private struct HomeFooter: View {
+    var body: some View {
+        let heart = Text(Image(systemName: "heart.fill")).foregroundStyle(Color(hex: 0xFF8985))
+        VStack(spacing: 4) {
+            Text("Empanadas.io")
+                .font(.brand(.title3, .extraBold))
+            Text("Made with \(heart) by \(Text("Zach").bold())")
+                .font(.caption)
+                .opacity(0.9)
+        }
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity)
+        .waveBanner(cornerRadius: 18)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Empanadas.io, made with love by Zach")
+        .padding(.top, 10)
     }
 }
 

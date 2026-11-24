@@ -261,11 +261,9 @@ struct PlayerProfile: Decodable, Equatable {
         var tower: Score?
         var peppers = Peppers()
         var pumpkins = 0
-        var pumpkinSeason = false
 
         enum CodingKeys: String, CodingKey {
             case spin, flappy, tower, peppers, pumpkins
-            case pumpkinSeason = "pumpkin_season"
         }
 
         init(from decoder: Decoder) throws {
@@ -275,7 +273,6 @@ struct PlayerProfile: Decodable, Equatable {
             tower = try? c.decodeIfPresent(Score.self, forKey: .tower)
             peppers = c.lenient(.peppers, Peppers())
             pumpkins = c.lenient(.pumpkins, 0)
-            pumpkinSeason = c.lenient(.pumpkinSeason, false)
         }
 
         var hasPlayed: Bool { spin != nil || flappy != nil || tower != nil }

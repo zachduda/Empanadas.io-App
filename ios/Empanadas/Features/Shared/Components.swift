@@ -29,6 +29,13 @@ enum Palette {
     static let online = Color(hex: 0x2DD67F)
     static let idle = Color(hex: 0xF0AD4E)
 
+    /// The wave banner's gradient, top to bottom (.wave-jumbo), and a
+    /// shade darker for Increase Contrast.
+    static let bannerTop = Color(hex: 0x361CC1)
+    static let bannerBottom = Color(hex: 0x2E82EF)
+    static let bannerTopContrast = Color(hex: 0x2A1599)
+    static let bannerBottomContrast = Color(hex: 0x1F5FC4)
+
     static let gold = Color(hex: 0xF5B301)
     static let silver = Color(hex: 0xA7B1BC)
     static let bronze = Color(hex: 0xC8834B)
@@ -240,13 +247,17 @@ struct MasonryColumns: Layout {
     }
 }
 
-/// A rounded section of a native screen, optionally with a heading.
+/// A rounded section of a native screen, optionally with a heading: the
+/// title in Poppins beside its symbol on a tile of its colour.
 struct Card<Content: View>: View {
     var title: String?
     var systemImage: String?
     var tint: Color
     var aside: String?
     let content: Content
+
+    /// The symbol's tile, 28 points at the default text size.
+    @ScaledMetric(relativeTo: .headline) private var tileSize: CGFloat = 28
 
     init(_ title: String? = nil, systemImage: String? = nil, tint: Color = .accentColor, aside: String? = nil,
          @ViewBuilder content: () -> Content) {
@@ -260,15 +271,18 @@ struct Card<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let title {
-                HStack(alignment: .firstTextBaseline) {
-                    Label {
-                        Text(title)
-                    } icon: {
-                        if let systemImage {
-                            Image(systemName: systemImage).foregroundStyle(tint)
-                        }
+                HStack(spacing: 10) {
+                    if let systemImage {
+                        Image(systemName: systemImage)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: tileSize, height: tileSize)
+                            .background(tint.gradient, in: RoundedRectangle(cornerRadius: tileSize * 0.3,
+                                                                            style: .continuous))
+                            .accessibilityHidden(true)
                     }
-                    .font(.headline)
+                    Text(title)
+                        .font(.brand(.headline, .semibold))
                     Spacer(minLength: 8)
                     if let aside {
                         Text(aside)
@@ -345,7 +359,7 @@ struct StatTile: View {
                         Text(suffix).foregroundStyle(.secondary)
                     }
                 }
-                .font(.headline.monospacedDigit())
+                .font(.brand(.headline, .bold, size: 18))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 Text(title)

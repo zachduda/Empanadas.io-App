@@ -106,7 +106,7 @@ struct SavePointsView: View {
         }
     }
 
-    /// White on the brand gradient, as Home's hero is.
+    /// White on the wave banner, as Home's hero is.
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: "externaldrive.fill.badge.timemachine")
@@ -116,21 +116,16 @@ struct SavePointsView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Your Progress, Backed Up")
-                    .font(.headline)
+                    .font(.brand(.headline, .bold))
                 Text("Every so often we back up your progress, in case something happens. Pick a save point to put your games back the way they were then.")
                     .font(.subheadline)
                     .opacity(0.9)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .foregroundStyle(.white)
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [Color("Brand"), Color(hex: 0x4A5BF0)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
+        .waveBanner()
         .accessibilityElement(children: .combine)
     }
 

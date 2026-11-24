@@ -186,11 +186,7 @@ private struct ProfileContent: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            ProfileHero(data: data, editBio: editBio)
-
-            if !data.isSelf {
-                RelationshipCard(data: data, profile: profile, remove: remove)
-            }
+            ProfileHero(data: data, profile: profile, editBio: editBio, remove: remove)
 
             MasonryColumns(minColumnWidth: 340) {
                 if let friends = data.friends {
@@ -212,54 +208,55 @@ private struct ProfileContent: View {
     }
 }
 
+/// Who they are, on the site's wave banner: centred on a phone, as the
+/// site's profile is on one, and the picture beside the name once there is
+/// room, as on a computer. Under it, on someone else's, Add Friend or where
+/// the two stand; their friends, experience and peppers at a glance; then the
+/// status line.
 private struct ProfileHero: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let data: PlayerProfile
+    let profile: ProfileModel
     let editBio: () -> Void
+    let remove: (Removal) -> Void
 
     private var player: PlayerProfile.Player { data.player }
+    private var centred: Bool { sizeClass != .regular }
+
+    private var identityLayout: AnyLayout {
+        centred ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(spacing: 24))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 16) {
+        VStack(alignment: centred ? .center : .leading, spacing: 18) {
+            identityLayout {
                 picture
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(player.username)
-                            .font(.title2.bold())
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                        if player.admin {
-                            Image(systemName: "crown.fill")
-                                .foregroundStyle(.orange)
-                                .accessibilityLabel("Administrator")
-                        }
-                        if player.supporter {
-                            Image(systemName: "heart.fill")
-                                .foregroundStyle(Color(hex: 0xFA8072))
-                                .accessibilityLabel("Supporter")
-                        }
-                    }
+                VStack(alignment: centred ? .center : .leading, spacing: 8) {
+                    name
                     meta
                 }
+                .multilineTextAlignment(centred ? .center : .leading)
+            }
+
+            if !data.isSelf {
+                BannerFriendActions(data: data, profile: profile, remove: remove, centred: centred)
+            }
+
+            if !highlights.isEmpty {
+                highlightStrip
             }
 
             bio
         }
-        .foregroundStyle(.white)
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [Color("Brand"), Color(hex: 0x4A5BF0)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous)
-        )
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity, alignment: centred ? .center : .leading)
+        .waveBanner()
     }
 
     @ViewBuilder
     private var picture: some View {
-        let avatar = Avatar(url: player.pictureURL, size: 84)
-            .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 2))
+        let avatar = BannerAvatar(url: player.pictureURL, size: centred ? 108 : 128)
         if data.isSelf {
             NavigationLink {
                 WebDestination(url: SiteURLs.profilePicture, title: "Profile Picture")
@@ -267,10 +264,11 @@ private struct ProfileHero: View {
                 avatar
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "camera.fill")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Color("Brand"))
-                            .frame(width: 24, height: 24)
+                            .font(.footnote.weight(.bold))
+                            .foregroundStyle(Palette.bannerTop)
+                            .frame(width: 30, height: 30)
                             .background(.white, in: Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
                     }
             }
             .buttonStyle(.plain)
@@ -280,48 +278,144 @@ private struct ProfileHero: View {
         }
     }
 
+    private var name: some View {
+        HStack(spacing: 8) {
+            Text(player.username)
+                .font(.brand(centred ? .title : .largeTitle, .extraBold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            if player.admin {
+                Image(systemName: "crown.fill")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Administrator")
+            }
+            if player.supporter {
+                Image(systemName: "heart.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color(hex: 0xFA8072))
+                    .accessibilityLabel("Supporter")
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
     @ViewBuilder
     private var meta: some View {
         if player.isPrivate {
             Label("Private profile", systemImage: "lock.fill")
                 .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(.black.opacity(0.25), in: Capsule())
         } else {
-            HStack(spacing: 8) {
-                if let month = player.memberSinceMonth {
-                    Text("Member since \(month)")
-                        .font(.subheadline)
-                        .opacity(0.85)
-                }
-                if let presence = player.presence {
-                    PresencePill(presence: presence)
-                }
+            // Under each other on a narrow phone, rather than cutting the
+            // month short.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { metaItems }
+                VStack(spacing: 6) { metaItems }
             }
         }
     }
 
     @ViewBuilder
+    private var metaItems: some View {
+        if let month = player.memberSinceMonth {
+            Text("Member since \(Text(month).bold())")
+                .font(.subheadline)
+                .opacity(0.9)
+        }
+        if let presence = player.presence {
+            PresencePill(presence: presence)
+        }
+    }
+
+    // MARK: Highlights
+
+    private struct Highlight: Identifiable {
+        let value: Int
+        let label: String
+        let spoken: String
+        var id: String { label }
+    }
+
+    /// What the profile shows the viewer of these, if two or more.
+    private var highlights: [Highlight] {
+        var items: [Highlight] = []
+        if let friends = data.friends {
+            let total = friends.total
+            items.append(Highlight(value: total, label: total == 1 ? "Friend" : "Friends",
+                                   spoken: "\(total.formatted()) friend\(total == 1 ? "" : "s")"))
+        }
+        if let xp = data.xp {
+            items.append(Highlight(value: xp.total, label: "XP", spoken: "\(xp.total.formatted()) XP"))
+        }
+        // Every pepper they've earned: the cards below already say how long
+        // they've been here and the rest of their experience.
+        if let peppers = data.stats?.peppers.lifetime {
+            items.append(Highlight(value: peppers, label: peppers == 1 ? "Pepper" : "Peppers",
+                                   spoken: "\(peppers.formatted()) pepper\(peppers == 1 ? "" : "s") earned"))
+        }
+        return items.count >= 2 ? items : []
+    }
+
+    private var highlightStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(highlights.enumerated()), id: \.element.id) { index, item in
+                if index > 0 {
+                    Rectangle()
+                        .fill(.white.opacity(0.25))
+                        .frame(width: 1)
+                        .padding(.vertical, 4)
+                        .accessibilityHidden(true)
+                }
+                VStack(spacing: 0) {
+                    Text(item.value, format: .number)
+                        .font(.brand(.title3, .extraBold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText(value: Double(item.value)))
+                    Text(item.label)
+                        .font(.caption.weight(.semibold))
+                        .opacity(0.8)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.spoken)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: centred ? .infinity : 460)
+        .bannerInset(cornerRadius: 16)
+    }
+
+    // MARK: Status
+
+    @ViewBuilder
     private var bio: some View {
         if data.isSelf {
             if player.emailVerified == false {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: centred ? .center : .leading, spacing: 10) {
                     Text("Verify your email to set a status.")
                         .font(.subheadline)
-                        .opacity(0.85)
                     NavigationLink {
                         WebDestination(url: SiteURLs.verifyEmail, title: "Verify Email")
                     } label: {
                         Label("Verify Email", systemImage: "envelope.fill")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(.white.opacity(0.18), in: Capsule())
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(Palette.bannerTop)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .background(.white, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.top, 4)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: centred ? .center : .leading)
+                .bannerInset()
             } else {
                 Button(action: editBio) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -329,12 +423,12 @@ private struct ProfileHero: View {
                             Text(text)
                                 .multilineTextAlignment(.leading)
                         } else {
-                            Text("Set your status…").opacity(0.7)
+                            Text("Set your status…").opacity(0.75)
                         }
                         Spacer(minLength: 0)
                         Image(systemName: "pencil")
                             .font(.subheadline.weight(.semibold))
-                            .opacity(0.7)
+                            .opacity(0.75)
                     }
                     .font(.subheadline)
                     .padding(12)
@@ -347,11 +441,19 @@ private struct ProfileHero: View {
                 .accessibilityHint("Edits your status")
             }
         } else if let text = player.bio {
-            Text(text)
-                .font(.subheadline)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "quote.opening")
+                    .font(.caption.weight(.bold))
+                    .opacity(0.6)
+                    .accessibilityHidden(true)
+                Text(text)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         } else if player.isPrivate {
             Text("Only \(player.username)'s friends can see the rest of this profile.")
                 .font(.subheadline)
@@ -387,55 +489,42 @@ enum PresenceDot {
     }
 }
 
-/// Add Friend, the request either way, or the friendship, for someone else's
-/// profile.
-private struct RelationshipCard: View {
+/// Add Friend, the request either way, or the friendship, on someone else's
+/// banner, where it is seen first: white for what moves things forward,
+/// outlined for the rest. Letting a friend go and taking a request back are
+/// in a menu, and asked again before they happen. Under them, profile.php's
+/// words for where the two stand.
+private struct BannerFriendActions: View {
     @Environment(AppModel.self) private var model
     let data: PlayerProfile
     let profile: ProfileModel
     let remove: (Removal) -> Void
+    let centred: Bool
 
     private var player: PlayerProfile.Player { data.player }
     private var working: Bool { profile.working == player.id }
 
     var body: some View {
-        Card(title, systemImage: icon, tint: tint) {
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        VStack(alignment: centred ? .center : .leading, spacing: 8) {
             buttons
                 .disabled(profile.working != nil)
+            if let message {
+                Text(message)
+                    .font(.footnote)
+                    .opacity(0.85)
+                    .multilineTextAlignment(centred ? .center : .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: centred ? .center : .leading)
     }
 
-    private var title: String {
-        switch data.relationship {
-        case .friends: "Friends"
-        case .incoming: "Friend Request"
-        case .outgoing: "Request Sent"
-        case .me, .stranger: data.acceptsRequests ? "Add Friend" : "Become Friends"
-        }
-    }
-
-    private var icon: String {
-        switch data.relationship {
-        case .friends: "person.2.fill"
-        case .incoming: "person.badge.plus"
-        case .outgoing: "paperplane.fill"
-        case .me, .stranger: data.acceptsRequests ? "person.badge.plus" : "lock.fill"
-        }
-    }
-
-    private var tint: Color {
-        data.relationship == .stranger && !data.acceptsRequests ? .secondary : Palette.friends
-    }
-
-    /// profile.php's words for each case.
-    private var message: String {
+    /// profile.php's words for each case. None for friends: the button says.
+    private var message: String? {
         let name = player.username
         switch data.relationship {
         case .friends:
-            return "You and \(name) are friends."
+            return nil
         case .incoming:
             return "\(name) wants to be your friend."
         case .outgoing:
@@ -456,58 +545,89 @@ private struct RelationshipCard: View {
     private var buttons: some View {
         switch data.relationship {
         case .friends:
-            Button(role: .destructive) {
-                remove(Removal(playerID: player.id, username: player.username, isRequest: false))
+            Menu {
+                Button(role: .destructive) {
+                    remove(Removal(playerID: player.id, username: player.username, isRequest: false))
+                } label: {
+                    Label("Unfriend", systemImage: "person.badge.minus")
+                }
             } label: {
-                label("Unfriend", systemImage: "person.badge.minus")
+                outlined("Friends", systemImage: "person.2.fill", more: true)
             }
-            .buttonStyle(.bordered)
+            .accessibilityLabel("Friends with \(player.username)")
+            .accessibilityHint("Offers to unfriend them")
         case .incoming:
             HStack(spacing: 10) {
                 Button {
                     Task { await profile.answer(player.id, accept: true, app: model) }
                 } label: {
-                    label("Accept", systemImage: "checkmark")
+                    filled("Accept", systemImage: "checkmark")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.flappy)
-                Button(role: .destructive) {
+                .buttonStyle(.plain)
+                Button {
                     Task { await profile.answer(player.id, accept: false, app: model) }
                 } label: {
-                    label("Decline", systemImage: "xmark")
+                    outlined("Decline", systemImage: "xmark")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
         case .outgoing:
-            Button {
-                remove(Removal(playerID: player.id, username: player.username, isRequest: true))
+            Menu {
+                Button(role: .destructive) {
+                    remove(Removal(playerID: player.id, username: player.username, isRequest: true))
+                } label: {
+                    Label("Cancel Request", systemImage: "xmark")
+                }
             } label: {
-                label("Cancel Request", systemImage: "xmark")
+                outlined("Request Sent", systemImage: "paperplane.fill", more: true)
             }
-            .buttonStyle(.bordered)
+            .accessibilityHint("Offers to cancel the request")
         case .me, .stranger:
             if data.acceptsRequests {
                 Button {
                     Task { await profile.addFriend(player.id, app: model) }
                 } label: {
-                    label("Add Friend", systemImage: "plus.circle.fill")
+                    filled("Add Friend", systemImage: "person.badge.plus")
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.flappy)
+                .buttonStyle(.plain)
             }
         }
     }
 
-    private func label(_ title: String, systemImage: String) -> some View {
-        HStack {
-            if working {
-                ProgressView()
-            } else {
+    /// White, with the banner's indigo on it.
+    private func filled(_ title: String, systemImage: String) -> some View {
+        label(title, systemImage: systemImage, more: false, spinner: Palette.bannerTop)
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Palette.bannerTop)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 9)
+            .background(.white, in: Capsule())
+            .contentShape(Capsule())
+    }
+
+    /// White on the banner, outlined.
+    private func outlined(_ title: String, systemImage: String, more: Bool = false) -> some View {
+        label(title, systemImage: systemImage, more: more, spinner: .white)
+            .foregroundStyle(.white)
+            .bannerCapsule()
+    }
+
+    @ViewBuilder
+    private func label(_ title: String, systemImage: String, more: Bool, spinner: Color) -> some View {
+        if working {
+            ProgressView()
+                .tint(spinner)
+                .accessibilityLabel("Working")
+        } else {
+            HStack(spacing: 6) {
                 Label(title, systemImage: systemImage)
+                if more {
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .accessibilityHidden(true)
+                }
             }
         }
-        .font(.subheadline.weight(.semibold))
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -716,22 +836,41 @@ private struct ProfileExperienceCard: View {
     let days: Int?
 
     @State private var showsBreakdown = false
+    /// The rank's badge, 52 points at the default text size.
+    @ScaledMetric(relativeTo: .title) private var badgeSize: CGFloat = 52
 
     var body: some View {
-        Card("Experience", systemImage: "star.fill", tint: Palette.experience, aside: "\(xp.total.formatted()) XP") {
-            HStack(spacing: 8) {
-                Text(xp.icon)
-                Text(xp.rank).fontWeight(.semibold)
-                if !xp.range.isEmpty {
-                    Text(xp.range)
-                        .font(.caption2.weight(.semibold))
+        Card("Experience", systemImage: "star.fill", tint: Palette.experience) {
+            HStack(spacing: 12) {
+                Text(xp.icon.isEmpty ? "⭐️" : xp.icon)
+                    .font(.title)
+                    .frame(width: badgeSize, height: badgeSize)
+                    .background(Palette.experience.opacity(0.15), in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(xp.rank)
+                        .font(.brand(.title3, .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    if !xp.range.isEmpty {
+                        Text(xp.range)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(xp.total, format: .number)
+                        .font(.brand(.title2, .extraBold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText(value: Double(xp.total)))
+                    Text("Total XP")
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.primary.opacity(0.08), in: Capsule())
                 }
             }
-            .font(.title3)
+            .accessibilityElement(children: .combine)
 
             Meter(value: xp.progress, tint: Palette.experience)
 
@@ -780,6 +919,8 @@ private struct ProfileExperienceCard: View {
     }
 }
 
+/// Each game's numbers on a panel of its colour, two to a row, as the
+/// dashboard's tiles are: the number large, what it counts under it.
 private struct ProfileStatsCard: View {
     let stats: PlayerProfile.Stats
     let username: String
@@ -791,6 +932,9 @@ private struct ProfileStatsCard: View {
         var id: String { label }
     }
 
+    /// The symbol's tile on each panel, 24 points at the default text size.
+    @ScaledMetric(relativeTo: .subheadline) private var tileSize: CGFloat = 24
+
     var body: some View {
         Card("Stats", systemImage: "trophy.fill", tint: Color(hex: 0xFF9D47)) {
             if !stats.hasPlayed && stats.peppers.lifetime == 0 {
@@ -800,99 +944,132 @@ private struct ProfileStatsCard: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
             } else {
-                game(.spin, stats.spin.map {
-                    [Row(label: "Lifetime manual spins", value: $0.lifetime),
-                     Row(label: "Current spins", value: $0.current),
-                     Row(label: "Ascensions", value: $0.ascends),
-                     Row(label: "Prestige", value: $0.prestige)]
-                })
-                game(.flappy, stats.flappy.map {
-                    [Row(label: "Highest score", value: $0.high),
-                     Row(label: "Rounds played", value: $0.played),
-                     Row(label: "Most recent", value: $0.recent)]
-                })
-                game(.tower, stats.tower.map {
-                    [Row(label: "Tallest tower", value: $0.high),
-                     Row(label: "Runs played", value: $0.played),
-                     Row(label: "Most recent", value: $0.recent),
-                     Row(label: "Best perfect streak", value: $0.bestStreak ?? 0),
-                     Row(label: "Perfect drops", value: $0.perfects ?? 0)]
-                })
-                section("Peppers", systemImage: "flame.fill", tint: Palette.peppers, rows: [
-                    Row(label: "Current peppers", value: stats.peppers.current),
-                    Row(label: "Lifetime peppers", value: stats.peppers.lifetime),
-                ])
-                if stats.pumpkinSeason {
-                    section("Halloween", systemImage: "leaf.fill", tint: Palette.pumpkin, rows: [
-                        Row(label: "Pumpkins collected", value: stats.pumpkins),
+                VStack(spacing: 10) {
+                    game(.spin, stats.spin.map {
+                        [Row(label: "Lifetime manual spins", value: $0.lifetime),
+                         Row(label: "Current spins", value: $0.current),
+                         Row(label: "Ascensions", value: $0.ascends),
+                         Row(label: "Prestige", value: $0.prestige)]
+                    })
+                    game(.flappy, stats.flappy.map {
+                        [Row(label: "Highest score", value: $0.high),
+                         Row(label: "Rounds played", value: $0.played),
+                         Row(label: "Most recent", value: $0.recent)]
+                    })
+                    game(.tower, stats.tower.map {
+                        [Row(label: "Tallest tower", value: $0.high),
+                         Row(label: "Runs played", value: $0.played),
+                         Row(label: "Most recent", value: $0.recent),
+                         Row(label: "Best perfect streak", value: $0.bestStreak ?? 0),
+                         Row(label: "Perfect drops", value: $0.perfects ?? 0)]
+                    })
+                    section("Peppers", systemImage: "flame.fill", tint: Palette.peppers, rows: [
+                        Row(label: "Current peppers", value: stats.peppers.current),
+                        Row(label: "Lifetime peppers", value: stats.peppers.lifetime),
                     ])
+                    if PumpkinSeason.isNow {
+                        section("Halloween", systemImage: "leaf.fill", tint: Palette.pumpkin, rows: [
+                            Row(label: "Pumpkins collected", value: stats.pumpkins),
+                        ])
+                    }
                 }
             }
         }
     }
 
-    @ViewBuilder
     private func game(_ game: Game, _ rows: [Row]?) -> some View {
-        if let rows {
-            section(game.title, systemImage: game.systemImage, tint: game.tint, rows: rows)
-        } else {
-            VStack(alignment: .leading, spacing: 6) {
-                heading(game.title, systemImage: game.systemImage, tint: game.tint)
-                Text("No \(game.title) progress yet")
+        section(game.title, systemImage: game.systemImage, tint: game.tint, rows: rows,
+                empty: "No \(game.title) progress yet")
+    }
+
+    private func section(_ title: String, systemImage: String, tint: Color, rows: [Row]?,
+                         empty: String = "") -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: tileSize, height: tileSize)
+                    .background(tint.gradient, in: RoundedRectangle(cornerRadius: tileSize * 0.3, style: .continuous))
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.brand(.subheadline, .semibold))
+            }
+
+            if let rows {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(stride(from: 0, to: rows.count, by: 2)), id: \.self) { start in
+                        HStack(alignment: .top, spacing: 12) {
+                            cell(rows[start])
+                            if start + 1 < rows.count {
+                                cell(rows[start + 1])
+                            } else {
+                                Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(empty)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func section(_ title: String, systemImage: String, tint: Color, rows: [Row]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            heading(title, systemImage: systemImage, tint: tint)
-            ForEach(rows) { row in
-                HStack {
-                    Text(row.label).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(row.value, format: .number)
-                        .fontWeight(.semibold)
-                        .monospacedDigit()
-                }
-                .font(.subheadline)
-            }
-        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
-    private func heading(_ title: String, systemImage: String, tint: Color) -> some View {
-        Label {
-            Text(title.uppercased())
-        } icon: {
-            Image(systemName: systemImage).foregroundStyle(tint)
+    private func cell(_ row: Row) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(row.value, format: .number)
+                .font(.brand(.headline, .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(row.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.caption.weight(.bold))
-        .foregroundStyle(.secondary)
-        .padding(.top, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(row.label), \(row.value.formatted())")
     }
 }
 
 private struct StarSignCard: View {
     let sign: PlayerProfile.StarSign
 
+    /// The sign's tile, 56 points at the default text size.
+    @ScaledMetric(relativeTo: .title) private var tileSize: CGFloat = 56
+
     var body: some View {
         Card {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 14) {
                 Text(sign.symbol.isEmpty ? "✨" : sign.symbol)
-                    .font(.title)
-                    .frame(width: 44, height: 44)
-                    .background(Palette.friends.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .font(.largeTitle)
+                    .frame(width: tileSize, height: tileSize)
+                    .background(
+                        LinearGradient(colors: [Palette.friends.opacity(0.24), Palette.chart.opacity(0.16)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(sign.name).font(.headline)
+                    Text("STAR SIGN")
+                        .font(.caption2.weight(.bold))
+                        .tracking(0.8)
+                        .foregroundStyle(.secondary)
+                    Text(sign.name)
+                        .font(.brand(.title3, .bold))
                     if !sign.blurb.isEmpty {
                         Text(sign.blurb)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                 }
+                .accessibilityElement(children: .combine)
             }
         }
     }

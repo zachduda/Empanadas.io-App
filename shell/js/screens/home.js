@@ -2,7 +2,7 @@
 // game, the Spin Progress chart, experience and rank, and friends online.
 
 import { h, replace, button, icon, avatar } from '../dom.js';
-import { num, short, plural, greeting, GAMES, GAME_ORDER } from '../format.js';
+import { num, short, plural, greeting, pumpkinSeason, GAMES, GAME_ORDER } from '../format.js';
 import { load, staleBanner, errorState, skeleton, skeletonCards } from '../data.js';
 import { gameArt, numberTile, presenceOf, xpBreakdown } from '../components.js';
 import { spinChart } from '../chart.js';
@@ -118,7 +118,7 @@ export function mount(container, { app }) {
 			['Tower Best', tower.high, 'trophy'],
 			['Peppers', d.peppers, 'pepper']
 		];
-		if (d.pumpkin_season || d.pumpkins) tileDefs.push(['Pumpkins 🎃', d.pumpkins, null]);
+		if (pumpkinSeason()) tileDefs.push(['Pumpkins 🎃', d.pumpkins, null]);
 		const tiles = tileDefs.map(([label, value, iconName], i) => {
 			const t = numberTile(label, value, iconName);
 			t.classList.add('bubble-tile', 'hue-' + (i % 3));

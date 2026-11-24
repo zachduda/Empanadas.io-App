@@ -34,7 +34,7 @@ struct WelcomeView: View {
                 .accessibilityHidden(true)
             VStack(spacing: 6) {
                 Text("Empanadas.io")
-                    .font(.system(.largeTitle, design: .rounded).weight(.heavy))
+                    .font(.brand(.largeTitle, .extraBold))
                 Text("Welcome! Let's get you signed in first.")
                     .font(.subheadline)
                     .multilineTextAlignment(.center)
@@ -47,7 +47,7 @@ struct WelcomeView: View {
         let busy = model.signInProgress != .idle
         return VStack(spacing: 12) {
             Text("Got an account? 🤔")
-                .font(.title2.weight(.bold))
+                .font(.brand(.title2, .bold))
                 .accessibilityLabel("Got an account?")
                 .padding(.bottom, 4)
 

@@ -65,7 +65,7 @@ struct UpdatesView: View {
             LazyVStack(spacing: 16) {
                 if !updates.posts.isEmpty {
                     ForEach(Array(updates.posts.enumerated()), id: \.element.id) { index, post in
-                        AnnouncementCard(post: post, isNew: index < updates.newCount)
+                        AnnouncementCard(post: post, isNew: index < updates.newCount, featured: index == 0)
                     }
                     footer(updates)
                 } else if updates.total == 0 {
@@ -163,7 +163,7 @@ struct AnnouncementView: View {
         ScrollView {
             VStack(spacing: 16) {
                 if let post {
-                    AnnouncementCard(post: post)
+                    AnnouncementCard(post: post, featured: true)
                     Button { model.homePath.append(UpdatesRoute.all) } label: {
                         Label("See All Updates", systemImage: "bell").frame(maxWidth: .infinity)
                     }
@@ -226,55 +226,110 @@ struct AnnouncementView: View {
     }
 }
 
-/// One announcement: its title, who posted it and when, and the post.
+/// One announcement: its title, who posted it and when, and the post. The
+/// newest, and one opened on its own, as the site's Updates page shows a
+/// post: the title and byline on the wave banner, the post under it.
 struct AnnouncementCard: View {
     @Environment(AppModel.self) private var model
     let post: Announcement
     var isNew = false
+    var featured = false
+
+    private var title: String { post.title.isEmpty ? "Announcement" : post.title }
 
     var body: some View {
-        Card {
-            if isNew {
-                Text("New")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.red, in: Capsule())
+        if featured {
+            featuredCard
+        } else {
+            Card {
+                if isNew {
+                    Text("New")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.red, in: Capsule())
+                }
+                Text(title)
+                    .font(.brand(.title3, .bold))
+                    .accessibilityAddTraits(.isHeader)
+                byline(onBanner: false)
+                Divider()
+                details
             }
-            Text(post.title.isEmpty ? "Announcement" : post.title)
-                .font(.title3.bold())
-                .accessibilityAddTraits(.isHeader)
-            byline
-            Divider()
-            PostBody(blocks: post.blocks)
-            if let edited = post.edited, !edited.isEmpty {
-                Label("Edited \(edited)", systemImage: "pencil")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        }
+    }
+
+    private var featuredCard: some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Label("Announcement", systemImage: "megaphone.fill")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.white.opacity(0.18), in: Capsule())
+                    if isNew {
+                        Text("New")
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color.red, in: Capsule())
+                    }
+                }
+                Text(title)
+                    .font(.brand(.title2, .extraBold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                byline(onBanner: true)
             }
+            .foregroundStyle(.white)
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background { WaveBanner() }
+
+            VStack(alignment: .leading, spacing: 12) {
+                details
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(shape)
+        .shadow(color: Palette.bannerTop.opacity(0.18), radius: 14, y: 6)
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        PostBody(blocks: post.blocks)
+        if let edited = post.edited, !edited.isEmpty {
+            Label("Edited \(edited)", systemImage: "pencil")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     /// Opens the author's profile, when the site gave its id.
     @ViewBuilder
-    private var byline: some View {
+    private func byline(onBanner: Bool) -> some View {
         if let id = post.author.playerID {
             Button {
                 model.homePath.append(ProfileRoute.player(id: id, name: post.author.username))
             } label: {
-                author
+                author(onBanner: onBanner)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Shows their profile")
         } else {
-            author
+            author(onBanner: onBanner)
         }
     }
 
-    private var author: some View {
+    private func author(onBanner: Bool) -> some View {
         HStack(spacing: 10) {
             Avatar(url: post.author.pictureURL, size: 34)
+                .overlay(Circle().stroke(.white.opacity(onBanner ? 0.8 : 0), lineWidth: 2))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(post.author.username)
@@ -283,10 +338,11 @@ struct AnnouncementCard: View {
                     if post.author.isAdmin {
                         Label("Staff", systemImage: "checkmark.shield.fill")
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(onBanner ? Color.white : Color.accentColor)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .background(onBanner ? Color.white.opacity(0.18) : Color.accentColor.opacity(0.12),
+                                        in: Capsule())
                     }
                 }
                 if !post.date.isEmpty {

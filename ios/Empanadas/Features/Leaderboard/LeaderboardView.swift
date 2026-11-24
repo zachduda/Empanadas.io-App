@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The leaderboards, native: the three boards of the site's /leaderboard,
-/// read from /v2/app/leaderboard.php (LeaderboardModel). Refreshes while on
-/// screen at the pace the site's shared cache rebuilds, and marks the
-/// player's own row. A row opens the player's native profile. The Game
+/// read from /v2/app/leaderboard.php (LeaderboardModel), under the site's
+/// banner, which also picks the board. Refreshes while on screen at the pace
+/// the site's shared cache rebuilds, and marks the player's own row. A row opens the player's native profile. The Game
 /// Center button opens the same board there (GameCenter).
 struct LeaderboardView: View {
     @Environment(AppModel.self) private var model
@@ -19,12 +19,10 @@ struct LeaderboardView: View {
         NavigationStack {
             List {
                 Section {
-                    Picker("Board", selection: $model.leaderboardGame) {
-                        ForEach(Game.allCases) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
+                    LeaderboardBanner(board: leaderboard.board, game: $model.leaderboardGame,
+                                      isOnline: model.isOnline)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
 
                     if !model.isOnline || (leaderboard.board != nil && leaderboard.error != nil) {
                         OfflineNotice(isOnline: model.isOnline, updatedAt: leaderboard.updatedAt,
@@ -106,37 +104,9 @@ struct LeaderboardView: View {
                     .listRowBackground(board.isYou(row) ? game.tint.opacity(0.14) : nil)
                 }
             }
-        } header: {
-            HStack {
-                Text(header)
-                Spacer()
-                if let generated = board.generatedAt {
-                    TimelineView(.periodic(from: .now, by: 10)) { context in
-                        Text(freshness(generated, now: context.date))
-                    }
-                }
-            }
         } footer: {
             Text("Private profiles keep their place, but not their scores.")
         }
-    }
-
-    private var header: String {
-        switch game {
-        case .spin: "Most Manual Spins"
-        case .flappy: "Best Flappy Scores"
-        case .tower: "Tallest Towers"
-        }
-    }
-
-    /// "Updated just now", "Updated 40s ago", "Updated 3m ago", as the site's
-    /// leaderboard words it.
-    private func freshness(_ generated: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(generated)))
-        if seconds < 10 { return "Updated just now" }
-        if seconds < 90 { return "Updated \(seconds)s ago" }
-        if seconds < 90 * 60 { return "Updated \(Int((Double(seconds) / 60).rounded()))m ago" }
-        return "Updated \(generated.formatted(.relative(presentation: .named)))"
     }
 
     private func keepFresh() async {
@@ -153,6 +123,123 @@ struct LeaderboardView: View {
                 await leaderboard.load(app: model)
             }
         }
+    }
+}
+
+/// The site's leaderboard hero, on its wave banner: the board's name, how
+/// fresh the boards are (the site's live dot), and the player's place on each
+/// of the three, which picks the board to show.
+private struct LeaderboardBanner: View {
+    let board: Leaderboard?
+    @Binding var game: Game
+    let isOnline: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center) {
+                Image(systemName: "trophy.fill")
+                    .font(.headline)
+                    .frame(width: 36, height: 36)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
+                Spacer(minLength: 8)
+                live
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(Self.title(for: game))
+                    .font(.brand(.title2, .extraBold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Who has spun the most, flapped the furthest and stacked the highest. Everybody who plays is on here somewhere.")
+                    .font(.subheadline)
+                    .opacity(0.9)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                ForEach(Game.allCases) { place($0) }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .waveBanner(cornerRadius: 22, shadow: false)
+    }
+
+    static func title(for game: Game) -> String {
+        switch game {
+        case .spin: "Most Manual Spins"
+        case .flappy: "Best Flappy Scores"
+        case .tower: "Tallest Towers"
+        }
+    }
+
+    /// "Updated just now", "Updated 40s ago", "Updated 3m ago", as the site's
+    /// leaderboard words it.
+    static func freshness(_ generated: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(generated)))
+        if seconds < 10 { return "Updated just now" }
+        if seconds < 90 { return "Updated \(seconds)s ago" }
+        if seconds < 90 * 60 { return "Updated \(Int((Double(seconds) / 60).rounded()))m ago" }
+        return "Updated \(generated.formatted(.relative(presentation: .named)))"
+    }
+
+    @ViewBuilder
+    private var live: some View {
+        if let generated = board?.generatedAt {
+            TimelineView(.periodic(from: .now, by: 10)) { context in
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(isOnline ? Palette.online : Color.white.opacity(0.5))
+                        .frame(width: 8, height: 8)
+                    Text(isOnline ? Self.freshness(generated, now: context.date) : "Saved for offline")
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.black.opacity(0.2), in: Capsule())
+            }
+        }
+    }
+
+    /// A board, and where the player is on it: white when it's the one
+    /// showing.
+    private func place(_ option: Game) -> some View {
+        let selected = option == game
+        let rank = board.flatMap { board in board.rows(for: option).first(where: board.isYou)?.rank }
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return Button {
+            withAnimation(.smooth) { game = option }
+        } label: {
+            VStack(spacing: 2) {
+                // Not a Label: in a List row it takes the row's layout, the
+                // symbol at one edge and the name at the other.
+                HStack(spacing: 4) {
+                    Image(systemName: option.systemImage)
+                        .accessibilityHidden(true)
+                    Text(option.title)
+                }
+                .font(.caption.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                Text(rank.map { "#\($0.formatted())" } ?? "–")
+                    .font(.brand(.headline, .extraBold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            .foregroundStyle(selected ? Palette.bannerTop : Color.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 4)
+            .background(Color.white.opacity(selected ? 1 : 0.14), in: shape)
+            .overlay(shape.strokeBorder(.white.opacity(selected ? 0 : 0.3), lineWidth: 1))
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(option.title) board")
+        .accessibilityValue(rank.map { "You're number \($0.formatted())" } ?? "You're not on it yet")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

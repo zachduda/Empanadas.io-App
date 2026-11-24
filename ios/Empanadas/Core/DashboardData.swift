@@ -176,7 +176,6 @@ struct Dashboard: Decodable, Equatable {
     var account: Account
     var peppers = 0
     var pumpkins = 0
-    var pumpkinSeason = false
     var spin = Spin()
     var flappy = Score()
     var tower = Score()
@@ -186,7 +185,6 @@ struct Dashboard: Decodable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case account, peppers, pumpkins, spin, flappy, tower, xp, friends
-        case pumpkinSeason = "pumpkin_season"
         case spinHistory = "spin_history"
     }
 
@@ -199,7 +197,6 @@ struct Dashboard: Decodable, Equatable {
         account = try c.decode(Account.self, forKey: .account)
         peppers = c.lenient(.peppers, 0)
         pumpkins = c.lenient(.pumpkins, 0)
-        pumpkinSeason = c.lenient(.pumpkinSeason, false)
         spin = c.lenient(.spin, Spin())
         flappy = c.lenient(.flappy, Score())
         tower = c.lenient(.tower, Score())
@@ -481,4 +478,20 @@ struct Leaderboard: Decodable, Equatable {
         case .tower: "Floors"
         }
     }
+}
+
+/// When pumpkins turn up around the site: September and October, in the
+/// site's time zone (pumpkin_season in the site's v2/_lib.php). The screens
+/// ask the clock rather than the answer they're showing, which may have been
+/// saved in October and shown offline in November; the site's pumpkin_season
+/// is not read. Out of season the pumpkins aren't shown at all.
+enum PumpkinSeason {
+    static func contains(_ date: Date) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .current
+        let month = calendar.component(.month, from: date)
+        return month == 9 || month == 10
+    }
+
+    static var isNow: Bool { contains(.now) }
 }
