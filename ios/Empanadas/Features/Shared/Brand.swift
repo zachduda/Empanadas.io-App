@@ -120,14 +120,15 @@ private enum WaveArt {
 
 extension View {
     /// White on the wave banner, in a rounded card: the heroes of Home, the
-    /// profiles and Manage Game Data.
-    func waveBanner(cornerRadius: CGFloat = 24) -> some View {
+    /// profiles, Leaderboards and Manage Game Data. No shadow in a List row,
+    /// which clips it to a pale box around the banner.
+    func waveBanner(cornerRadius: CGFloat = 24, shadow: Bool = true) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         return foregroundStyle(.white)
             .background {
                 WaveBanner()
                     .clipShape(shape)
-                    .shadow(color: Palette.bannerTop.opacity(0.22), radius: 14, y: 6)
+                    .shadow(color: Palette.bannerTop.opacity(shadow ? 0.22 : 0), radius: 14, y: 6)
             }
     }
 

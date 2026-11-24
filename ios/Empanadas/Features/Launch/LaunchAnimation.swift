@@ -311,7 +311,7 @@ struct LaunchScene: View {
             : progress(LaunchTiming.name, LaunchTiming.nameDuration, Self.settle)
 
         return Text("Empanadas.io")
-            .font(.system(.largeTitle, design: .rounded).weight(.heavy))
+            .font(.brand(.largeTitle, .extraBold))
             .foregroundStyle(.white)
             .offset(y: reduceMotion ? 0 : -16 * (1 - shown))
             .opacity(shown)

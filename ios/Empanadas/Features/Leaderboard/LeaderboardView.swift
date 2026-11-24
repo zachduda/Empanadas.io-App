@@ -164,7 +164,7 @@ private struct LeaderboardBanner: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .waveBanner(cornerRadius: 22)
+        .waveBanner(cornerRadius: 22, shadow: false)
     }
 
     static func title(for game: Game) -> String {
@@ -213,10 +213,16 @@ private struct LeaderboardBanner: View {
             withAnimation(.smooth) { game = option }
         } label: {
             VStack(spacing: 2) {
-                Label(option.title, systemImage: option.systemImage)
-                    .font(.caption.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                // Not a Label: in a List row it takes the row's layout, the
+                // symbol at one edge and the name at the other.
+                HStack(spacing: 4) {
+                    Image(systemName: option.systemImage)
+                        .accessibilityHidden(true)
+                    Text(option.title)
+                }
+                .font(.caption.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 Text(rank.map { "#\($0.formatted())" } ?? "–")
                     .font(.brand(.headline, .extraBold))
                     .lineLimit(1)

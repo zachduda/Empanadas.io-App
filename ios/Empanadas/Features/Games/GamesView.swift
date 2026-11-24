@@ -175,7 +175,7 @@ private struct JumpBackInCard: View {
                         .textCase(.uppercase)
                         .foregroundStyle(.secondary)
                     Text(game.title)
-                        .font(.headline)
+                        .font(.brand(.headline, .bold))
                     Text(label)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -249,7 +249,7 @@ private struct GameCard: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(game.title)
-                    .font(.title3.weight(.bold))
+                    .font(.brand(.title3, .extraBold))
                 Text(game.subtitle)
                     .font(.footnote)
                     .opacity(0.85)
@@ -304,7 +304,7 @@ private struct GameCard: View {
                 }
                 VStack(spacing: 2) {
                     Text(stats == nil ? "–" : stat.text)
-                        .font(.headline.monospacedDigit())
+                        .font(.brand(.headline, .extraBold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .contentTransition(.numericText(value: Double(stat.value)))
