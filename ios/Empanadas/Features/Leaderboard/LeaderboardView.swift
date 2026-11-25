@@ -128,7 +128,8 @@ struct LeaderboardView: View {
 
 /// The site's leaderboard hero, on its wave banner: the board's name, how
 /// fresh the boards are (the site's live dot), and the player's place on each
-/// of the three, which picks the board to show.
+/// of the three, however far down the board (Leaderboard.place(on:)), which
+/// picks the board to show.
 private struct LeaderboardBanner: View {
     let board: Leaderboard?
     @Binding var game: Game
@@ -207,7 +208,7 @@ private struct LeaderboardBanner: View {
     /// showing.
     private func place(_ option: Game) -> some View {
         let selected = option == game
-        let rank = board.flatMap { board in board.rows(for: option).first(where: board.isYou)?.rank }
+        let rank = board?.place(on: option)
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return Button {
             withAnimation(.smooth) { game = option }

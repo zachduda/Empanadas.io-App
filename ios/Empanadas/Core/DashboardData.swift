@@ -427,13 +427,17 @@ struct Leaderboard: Decodable, Equatable {
     var tower: [Row] = []
     /// The player's own profile id, to mark their row.
     var you = ""
+    /// Where the player stands on each board ("spin", "flappy", "tower"),
+    /// however far down: the boards themselves stop at ten. Missing for a
+    /// board they're not on, and from a site that doesn't send it yet.
+    var places: [String: Int] = [:]
     /// When the site built these boards (Unix time).
     var generated = 0
     /// How old the build was when it was sent, and how long builds last.
     var age = 0
     var ttl = 45
 
-    enum CodingKeys: String, CodingKey { case spin, flappy, tower, you, generated, age, ttl }
+    enum CodingKeys: String, CodingKey { case spin, flappy, tower, you, places, generated, age, ttl }
 
     init() {}
 
@@ -443,6 +447,8 @@ struct Leaderboard: Decodable, Equatable {
         flappy = c.lenient(.flappy, [])
         tower = c.lenient(.tower, [])
         you = c.lenient(.you, "")
+        // Nulls (not on that board) are left out rather than failing the lot.
+        places = c.lenient(.places, [String: Int?]()).compactMapValues { $0 }
         generated = c.lenient(.generated, 0)
         age = c.lenient(.age, 0)
         ttl = c.lenient(.ttl, 45)
@@ -458,6 +464,13 @@ struct Leaderboard: Decodable, Equatable {
 
     func isYou(_ row: Row) -> Bool {
         !you.isEmpty && row.uuid.lowercased() == you.lowercased()
+    }
+
+    /// The player's place on a board: their row's, when the board lists them,
+    /// else the site's count; nil when they aren't on it.
+    func place(on game: Game) -> Int? {
+        if let row = rows(for: game).first(where: isYou) { return row.rank }
+        return places[game.rawValue].flatMap { $0 > 0 ? $0 : nil }
     }
 
     var generatedAt: Date? {

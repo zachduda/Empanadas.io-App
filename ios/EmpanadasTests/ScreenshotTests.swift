@@ -378,7 +378,8 @@ private enum Fixtures {
                 return row
             }
         }
-        var board: [String: Any] = ["ok": true, "api": 1, "you": "0003", "age": 5, "ttl": 45]
+        var board: [String: Any] = ["ok": true, "api": 1, "you": "0003", "age": 5, "ttl": 45,
+                                    "places": ["spin": 3, "flappy": 3, "tower": 3]]
         board["spin"] = rows(900_000, 70_000) { index in
             let ascends = 5 - index / 2
             let prestige = 90 - index * 7
