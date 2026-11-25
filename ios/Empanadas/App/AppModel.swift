@@ -109,6 +109,9 @@ final class AppModel {
     @ObservationIgnored private let browserSignIn = BrowserSignIn()
     /// /v2/auth/logout.php, out of sight, until it has signed the site out.
     @ObservationIgnored private var signOutPage: WebPage?
+    /// Deleting the last account's cookies after a sign-out (forgetCookies).
+    /// A sign-in waits for it, so it cannot delete the new session's.
+    @ObservationIgnored private var cookieCleanup: Task<Void, Never>?
     @ObservationIgnored private var backgroundPages: [WebPage] = []
     @ObservationIgnored private var checkingSession = false
     @ObservationIgnored private let pathMonitor = NWPathMonitor()
@@ -160,7 +163,12 @@ final class AppModel {
     func observe(_ signal: SignInSignal) {
         switch signal {
         case .signedIn:
-            setSession(.signedIn)
+            // Nothing to do. Signed in, it says so already. Signed out, it
+            // is a page still on the last account's session (a sign-out the
+            // site has not heard about yet, offline): taken as a sign-in, it
+            // put the app back in that account, without its cookies ever
+            // being cleared. The way in is the system browser (signIn).
+            break
         case .signedOut:
             // A page is on its way to /v2/auth/logout.php. It may be torn
             // down with the tabs before it gets there, so the app signs the
@@ -202,6 +210,8 @@ final class AppModel {
             webSheet = nil
             gameSheet = nil
             backgroundPages = []
+            // Its pages carry the session's cookies (forgetCookies).
+            offlineGames.stop()
             selectedTab = .home
             homePath = NavigationPath()
             leaderboardGame = .spin
@@ -219,7 +229,14 @@ final class AppModel {
             OfflineStore.clear()
             ImageStore.shared.clear()
             updateHomeScreen()
-            if signingOut { signOutOnSite() }
+            if signingOut {
+                // The cookies go once logout.php has had them
+                // (signedOutOnSite).
+                signOutOnSite()
+            } else {
+                // The site has ended the session already.
+                forgetCookies()
+            }
         }
     }
 
@@ -240,13 +257,32 @@ final class AppModel {
         signOutPage = makePage(SiteURLs.logout, pullToRefresh: false)
     }
 
-    private func signedOutOnSite() {
+    /// `forgettingCookies`: false only from a sign-in, which deletes them
+    /// itself (finishSignIn).
+    private func signedOutOnSite(forgettingCookies: Bool = true) {
         UserDefaults.standard.set(false, forKey: Preferences.signOutPendingKey)
+        if forgettingCookies { forgetCookies() }
         // Not released here: this runs inside the page's own delegate
         // callback.
         let finished = signOutPage
         Task { @MainActor in
             if self.signOutPage === finished { self.signOutPage = nil }
+        }
+    }
+
+    /// Deletes the last account's cookies from WebKit's store, at a sign-out
+    /// rather than at the next sign-in: until then a page opened from the
+    /// welcome screen, or a web view of the last session's still loading,
+    /// went on as that account, and could set its cookies again after the
+    /// sign-in had deleted them. The new session's first dashboard was then
+    /// the last account's. Not while a sign-out is still to reach the site:
+    /// logout.php needs them to end the session (signOutOnSite).
+    private func forgetCookies() {
+        guard session == .signedOut else { return }
+        let previous = cookieCleanup
+        cookieCleanup = Task {
+            await previous?.value
+            await account.forgetSession()
         }
     }
 
@@ -494,10 +530,15 @@ final class AppModel {
         Task {
             await waitForSignOutOnSite()
             // Whether or not that landed, the last account's cookies go: the
-            // new session must be the only one the site is sent.
+            // new session must be the only one the site is sent. After any
+            // deletion still under way from the sign-out, which would
+            // otherwise run on into the new session's cookies.
+            await cookieCleanup?.value
+            cookieCleanup = nil
             await account.forgetSession()
+            let username: String?
             do {
-                try await account.redeemSignIn(code: code, verifier: request.verifier)
+                username = try await account.redeemSignIn(code: code, verifier: request.verifier)
             } catch {
                 signInProgress = .idle
                 signInError = (error as? LocalizedError)?.errorDescription ?? "Something went wrong. Try again!"
@@ -505,6 +546,9 @@ final class AppModel {
                 return
             }
             Haptics.play("success")
+            // Before Home asks for it: the first dashboard must be this
+            // account's (DashboardModel.expect).
+            dashboard.expect(username: username)
             setSession(.signedIn)
             // What the site's scripts keep about the account in the web
             // views' storage (SiteURLs.signedInHandoff). It goes on to the
@@ -524,7 +568,7 @@ final class AppModel {
         }
         if let page = signOutPage {
             page.webView.stopLoading()
-            signedOutOnSite()
+            signedOutOnSite(forgettingCookies: false)
         }
     }
 

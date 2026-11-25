@@ -89,6 +89,14 @@ enum OfflineStore {
         return (value, entry.savedAt)
     }
 
+    /// One copy, known not to be this account's (DashboardModel's check of
+    /// whose dashboard came back).
+    static func remove(_ key: Key) {
+        memory[key] = nil
+        try? FileManager.default.removeItem(at: file(key))
+        UserDefaults.standard.removeObject(forKey: savedAtKey(key))
+    }
+
     static func clear() {
         generation += 1
         memory = [:]

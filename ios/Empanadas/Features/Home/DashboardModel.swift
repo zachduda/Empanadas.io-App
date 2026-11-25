@@ -19,6 +19,17 @@ final class DashboardModel {
     /// How many answers in a row were the same as the one before: what the
     /// pace of the refresh goes by (DashboardPace).
     @ObservationIgnored private var unchanged = 0
+    /// The account just signed in to (AppModel.finishSignIn), until a
+    /// dashboard for it has come back. The first requests of a new session
+    /// can still go out with the last account's cookies (a web view of the
+    /// last session's answering after they were deleted), and the site then
+    /// answers for that account: shown, it stayed on Home until the player
+    /// pulled down.
+    @ObservationIgnored private var expectedUsername: String?
+
+    /// How many times a dashboard for some other account is asked for again,
+    /// a second more apart each time, before it is given up as an error.
+    static let mismatchRetries = 3
 
     /// How long Home waits before asking again while it is showing.
     var pollInterval: TimeInterval {
@@ -55,7 +66,20 @@ final class DashboardModel {
         await fetch(app: app)
     }
 
+    /// The next dashboard must be this account's (see expectedUsername).
+    func expect(username: String?) {
+        expectedUsername = username
+    }
+
+    /// Whether a dashboard is the account's: usernames are matched without
+    /// regard to case, as the site's sign-in does.
+    nonisolated static func belongs(_ dashboard: Dashboard, to username: String) -> Bool {
+        dashboard.account.username.caseInsensitiveCompare(username) == .orderedSame
+    }
+
     private func fetch(app: AppModel) async {
+        // Signed out: whatever the cookies still say is the last account's.
+        guard app.session == .signedIn else { return }
         generation += 1
         let generation = self.generation
         isLoading = true
@@ -64,8 +88,29 @@ final class DashboardModel {
         }
 
         do {
-            let fresh = try await app.account.dashboard()
-            guard generation == self.generation else { return }
+            var fresh = try await app.account.dashboard()
+            var attempts = 0
+            while let expected = expectedUsername, !Self.belongs(fresh, to: expected),
+                  attempts < Self.mismatchRetries {
+                attempts += 1
+                // nativeGet kept it: not for the next launch to open on.
+                OfflineStore.remove(.dashboard)
+                try await Task.sleep(for: .seconds(Double(attempts)))
+                guard generation == self.generation, app.session == .signedIn else { return }
+                fresh = try await app.account.dashboard()
+            }
+            // Signed out meanwhile, and perhaps in again: not this account's.
+            guard generation == self.generation, app.session == .signedIn else { return }
+            if let expected = expectedUsername {
+                guard Self.belongs(fresh, to: expected) else {
+                    // Still the wrong account: nothing shown, nothing kept,
+                    // and the next refresh checks again.
+                    OfflineStore.remove(.dashboard)
+                    error = .unavailable("signed in as someone else")
+                    return
+                }
+                expectedUsername = nil
+            }
             unchanged = fresh == data ? unchanged + 1 : 0
             data = fresh
             updatedAt = Date()
@@ -88,6 +133,7 @@ final class DashboardModel {
     func reset() {
         generation += 1
         unchanged = 0
+        expectedUsername = nil
         isLoading = false
         data = nil
         updatedAt = nil
