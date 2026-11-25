@@ -173,6 +173,100 @@ struct Dashboard: Decodable, Equatable {
         var spins: Int
     }
 
+    /// The daily reward (dailyStatus() in the site's v2/_daily.php): the
+    /// streak, today's day of it, and the seven days the card shows.
+    /// Claimed through /v2/app/daily.php (AccountAPI.claimDailyReward()).
+    struct Daily: Decodable, Equatable {
+        struct Day: Decodable, Equatable, Identifiable {
+            var day = 1
+            var reward = 0
+            var done = false
+            var today = false
+
+            var id: Int { day }
+
+            enum CodingKeys: String, CodingKey { case day, reward, done, today }
+
+            init(day: Int, reward: Int, done: Bool, today: Bool) {
+                self.day = day
+                self.reward = reward
+                self.done = done
+                self.today = today
+            }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                day = c.lenient(.day, 1)
+                reward = c.lenient(.reward, 0)
+                done = c.lenient(.done, false)
+                today = c.lenient(.today, false)
+            }
+        }
+
+        var claimed = false
+        /// Days in a row, today's claim counted once made; 0 once a day was missed.
+        var streak = 0
+        /// The day of the streak today is.
+        var day = 1
+        /// What today pays (or paid).
+        var reward = 10
+        /// What tomorrow pays if the streak goes on.
+        var tomorrow = 10
+        var best = 0
+        var total = 0
+        var week: [Day] = []
+        var baseReward = 10
+        var streakReward = 50
+        /// The day of a streak the bigger reward starts on.
+        var streakDays = 7
+        /// Seconds until the site's next day, once today is claimed.
+        var nextIn: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case claimed, streak, day, reward, tomorrow, best, total, week
+            case baseReward = "base_reward"
+            case streakReward = "streak_reward"
+            case streakDays = "streak_days"
+            case nextIn = "next_in"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            claimed = c.lenient(.claimed, false)
+            streak = c.lenient(.streak, 0)
+            day = c.lenient(.day, 1)
+            reward = c.lenient(.reward, 10)
+            tomorrow = c.lenient(.tomorrow, 10)
+            best = c.lenient(.best, 0)
+            total = c.lenient(.total, 0)
+            week = c.lenient(.week, [])
+            baseReward = c.lenient(.baseReward, 10)
+            streakReward = c.lenient(.streakReward, 50)
+            streakDays = c.lenient(.streakDays, 7)
+            nextIn = try? c.decodeIfPresent(Int.self, forKey: .nextIn)
+        }
+
+        /// Past the first week of a streak, every day pays the bigger reward.
+        var isOnFire: Bool { streak >= streakDays }
+
+        /// Claimed, but the site's day has turned over since `asOf` (when the
+        /// answer came): today is claimable again. Home asks the site anyway
+        /// once a minute; this keeps the card from saying "come back
+        /// tomorrow" past midnight meanwhile.
+        func isDueAgain(asOf: Date?, now: Date = Date()) -> Bool {
+            guard claimed, let nextIn, let asOf else { return false }
+            return now >= asOf.addingTimeInterval(TimeInterval(nextIn))
+        }
+
+        /// When the next reward is due, from an answer that came at `asOf`.
+        func nextRewardAt(asOf: Date?) -> Date? {
+            guard claimed, let nextIn, let asOf else { return nil }
+            return asOf.addingTimeInterval(TimeInterval(nextIn))
+        }
+    }
+
     var account: Account
     var peppers = 0
     var pumpkins = 0
@@ -182,9 +276,12 @@ struct Dashboard: Decodable, Equatable {
     var xp = Experience()
     var friends = Friends()
     var spinHistory: [SpinDay] = []
+    /// Nil from a site without the daily reward, or when it could not be read:
+    /// Home then leaves the card out.
+    var daily: Daily?
 
     enum CodingKeys: String, CodingKey {
-        case account, peppers, pumpkins, spin, flappy, tower, xp, friends
+        case account, peppers, pumpkins, spin, flappy, tower, xp, friends, daily
         case spinHistory = "spin_history"
     }
 
@@ -204,6 +301,7 @@ struct Dashboard: Decodable, Equatable {
         friends = c.lenient(.friends, Friends())
         // One bad day must not take the rest of the chart with it.
         spinHistory = (c.lenient(.spinHistory, [LenientDay]())).compactMap(\.day)
+        daily = try? c.decodeIfPresent(Daily.self, forKey: .daily)
     }
 
     var pictureURL: URL? { SiteURLs.resolve(account.pfp) }
@@ -507,4 +605,29 @@ enum PumpkinSeason {
     }
 
     static var isNow: Bool { contains(.now) }
+}
+
+/// What /v2/app/daily.php answers a claim with: the peppers paid (0 when today
+/// was already claimed, on another device perhaps), the balance after, and
+/// the reward as it now stands.
+struct DailyClaim: Decodable, Equatable {
+    var granted = 0
+    /// Nil when nothing was paid.
+    var peppers: Int?
+    var daily: Dashboard.Daily
+
+    enum CodingKeys: String, CodingKey { case granted, peppers, daily }
+
+    init(granted: Int, peppers: Int?, daily: Dashboard.Daily) {
+        self.granted = granted
+        self.peppers = peppers
+        self.daily = daily
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        granted = c.lenient(.granted, 0)
+        peppers = try? c.decodeIfPresent(Int.self, forKey: .peppers)
+        daily = try c.decode(Dashboard.Daily.self, forKey: .daily)
+    }
 }

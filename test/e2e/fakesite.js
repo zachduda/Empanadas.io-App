@@ -38,6 +38,8 @@ function history(days) {
 
 function createFakeSite({ siteDir, certDir }) {
 	const state = {
+		// The daily reward: day 4 of a streak, today not claimed yet.
+		daily: { streak: 3, claimed: false },
 		sessions: new Set(),
 		codes: new Map(),
 		requests: [],
@@ -100,8 +102,23 @@ function createFakeSite({ siteDir, certDir }) {
 				list: FRIENDS.filter((f) => state.friends.has(f[0])).map((f) => ({ username: f[1], uuid: f[0], pfp: pfp(f[1]), default_pfp: false, state: f[2], label: f[3] }))
 			},
 			spin_history: h,
+			daily: daily(),
 			generated: Math.floor(Date.now() / 1000)
 		};
+	}
+
+	// dailyStatus() in the site's v2/_daily.php, for the fake's streak.
+	function daily() {
+		const { streak, claimed } = state.daily;
+		const day = claimed ? Math.max(1, streak) : streak + 1;
+		const pays = (n) => (n >= 7 ? 50 : 10);
+		const first = Math.max(1, day - 6);
+		const week = Array.from({ length: 7 }, (_, i) => {
+			const n = first + i;
+			return { day: n, reward: pays(n), done: n < day || (n === day && claimed), today: n === day };
+		});
+		return { claimed, streak, day, reward: pays(day), tomorrow: pays(day + 1), best: Math.max(9, streak), total: 40, week,
+			base_reward: 10, streak_reward: 50, streak_days: 7, next_in: claimed ? 5 * 3600 + 12 * 60 : null };
 	}
 
 	function board(game) {
@@ -328,6 +345,14 @@ function createFakeSite({ siteDir, certDir }) {
 					if (form.get('r') === '1') state.friends.add(id);
 				}
 				return send(res, 200, { result: 1 });
+			}
+			case '/v2/app/daily.php': {
+				if (req.method !== 'POST') return send(res, 405, { ok: false, api: 1, reason: 'wrong_method' });
+				if (form.get('csrf') !== csrf) return send(res, 403, { ok: false, api: 1, reason: 'csrf' });
+				if (state.daily.claimed) return send(res, 409, { ok: false, api: 1, reason: 'claimed', daily: daily() });
+				state.daily = { streak: state.daily.streak + 1, claimed: true };
+				const now = daily();
+				return send(res, 200, { ok: true, api: 1, granted: now.reward, peppers: 1287 + now.reward, daily: now });
 			}
 			case '/v2/gamehistory.php':
 				return send(res, 200, { result: true, current: { prestige: 23, ascensions: 4, manual_spins: 1500000, peppers: 1287, flappy_best: 87, tower_best: 142 }, points: [

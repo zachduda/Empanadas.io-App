@@ -171,6 +171,17 @@ private struct DashboardContent: View {
                 }
             }
 
+            // The daily reward, the whole width under the tiles, where the
+            // site's dashboard has its banner.
+            if let daily = data.daily {
+                DailyRewardCard(daily: daily,
+                                asOf: model.dashboard.updatedAt,
+                                isOnline: model.isOnline,
+                                isClaiming: model.dashboard.isClaimingDaily) {
+                    claimDaily()
+                }
+            }
+
             // Side by side once there is room for all three. Room for two
             // (Split View, a phone on its side) puts the third under them,
             // the whole width.
@@ -199,6 +210,31 @@ private struct DashboardContent: View {
             }
 
             HomeFooter()
+        }
+    }
+
+    private func claimDaily() {
+        Haptics.play("light")
+        Task {
+            do {
+                let claim = try await model.dashboard.claimDaily(app: model)
+                Haptics.play(claim.granted > 0 ? "success" : "warning")
+                if claim.granted == 0 {
+                    await Dialogs.alert("Today's reward is already yours. Come back tomorrow!")
+                }
+            } catch is CancellationError {
+                // Already claiming.
+            } catch let failure as AccountError {
+                Haptics.play("error")
+                if failure == .signedOut {
+                    model.observe(.unsure)
+                } else {
+                    await Dialogs.alert(failure.localizedDescription)
+                }
+            } catch {
+                Haptics.play("error")
+                await Dialogs.alert(AccountError.network.localizedDescription)
+            }
         }
     }
 }

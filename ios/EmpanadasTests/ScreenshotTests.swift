@@ -359,6 +359,15 @@ private enum Fixtures {
         dashboard["xp"] = xp
         dashboard["friends"] = friendsCard
         dashboard["spin_history"] = spinHistory
+        // Day 5 of a streak, today not claimed yet: four flames lit, and the
+        // Claim button.
+        dashboard["daily"] = [
+            "claimed": false, "streak": 4, "day": 5, "reward": 10, "tomorrow": 10, "best": 9, "total": 23,
+            "base_reward": 10, "streak_reward": 50, "streak_days": 7, "next_in": NSNull(),
+            "week": (1...7).map { day -> [String: Any] in
+                ["day": day, "reward": day >= 7 ? 50 : 10, "done": day < 5, "today": day == 5]
+            },
+        ] as [String: Any]
         dashboard["generated"] = Int(Date().timeIntervalSince1970)
         return dashboard
     }
