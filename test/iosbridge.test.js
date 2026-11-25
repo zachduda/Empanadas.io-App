@@ -193,6 +193,15 @@ check('window.empanadasApp is there, frozen, without the old deep link hook', ()
 	assert(Object.isFrozen(app));
 });
 
+check('passes a Spin achievement on to the app, quiet only when asked', () => {
+	const p = page();
+	p.window.empanadasApp.achievement('first_spin');
+	p.window.empanadasApp.achievement('ten_burnt', true);
+	p.window.empanadasApp.achievement(42, 'yes');
+	assert.deepStrictEqual(p.sent.filter((m) => m.cmd === 'achievement').map((m) => [m.args.id, m.args.quiet]),
+		[['first_spin', false], ['ten_burnt', true], ['42', false]]);
+});
+
 if (failures.length) {
 	console.error('\n' + failures.length + ' failed');
 	process.exit(1);

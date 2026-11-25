@@ -340,9 +340,9 @@ struct SettingsView: View {
             if !gameCenter.isSignedIn && !gameCenter.canSignIn {
                 Text("Sign in to Game Center in the Settings app to see how you rank there too.")
             } else if gameCenter.postsScores {
-                Text("Your lifetime spins and best Flappy and Tower scores go on Game Center's leaderboards too, under your Game Center name.")
+                Text("Your lifetime spins and best Flappy and Tower scores go on Game Center's leaderboards too, and your Spin achievements to Game Center, under your Game Center name.")
             } else {
-                Text("New scores stay off Game Center.")
+                Text("New scores and achievements stay off Game Center.")
             }
         }
     }

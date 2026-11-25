@@ -21,7 +21,7 @@ App Review expects.
 | **Updates** | Native (`Features/Updates/`): the site's announcements, from the bell at the top of Home. It reads the public API the site's Updates page reads, `api.empanadas.io/v1/updates.php`, one post a request as that page does, so there is no `/v2/app/` endpoint for it. Newest first, a card per post (title, who posted it and when, the post), the newest with its title and byline on the wave banner as the site's Updates page shows a post, and a post opened on its own the same, the next one read as the end comes into view, and the ones posted since the player last looked marked New. The bell has a red dot while there is one: Home asks as it shows, at most every ten minutes (the time the site caches the answer for), and opening Updates clears it. What the player has seen is the newest post's id, kept on the device; the first time, the newest counts as seen, as the site has a new account start with everything read. Posts are written as HTML in the admin panel: `PostHTML` (`Core/UpdatesData.swift`) reads the part of HTML they use (paragraphs, bold, italics, links, headings, lists, quotes, pictures) into native text, so they follow the text size and light and dark; an embedded video becomes a link to it, and scripts and styles are dropped. A link in a post opens the app's own screen where there is one, another site page in a sheet, and anything else in Safari. Links to `/updates` and `/updates?post=<id>` from any site page open it too. |
 | **Games** | Native (`Features/Games/GamesView.swift`): **Jump Back In** for the game played last, then a card per game with when it was last played here ("Played 2 hours ago"), the player's place on its leaderboard, and three of their numbers in it from the dashboard (Spin's spins, prestige and ascensions; Flappy's and Tower's best, last and rounds). When each game was last played is kept on the device (`Core/PlayHistory.swift`), since the site keeps no such time, and goes at sign-out; a game played only on the website shows no time. Holding a card offers its leaderboard (the Leaderboards tab, on that board), Game Center and Report a Problem. At the bottom, Leaderboards and Send Feedback, the same screen Settings opens. Each game opens in a full-screen web player. Flappy and Tower use their own close button, which closes the player. Spin draws one only in the app (`data-app-close` in `spin.html`, reported through `bridge.js`); until a game says it has one, or if it fails to load, the player shows a native one. Leaving a game for the homepage or the dashboard closes the player, and a game's links to other site pages (Spin's account button, Report a Problem) open in a sheet over it. The games draw edge to edge (`viewport-fit=cover`) and keep their controls out of the camera housing and the home indicator. |
 | **Leaderboards** | Native, from `/v2/app/leaderboard.php`: Spin, Flappy and Tower, under the site's banner, which says how fresh the boards are and the player's place on each of the three, and picks the board, with medals for the top three and the player's own row marked. Refreshes while showing, at the pace the site's cache rebuilds, and not before the next rebuild when the tab comes back on screen. Rows open the player's native profile. The **Game Center** button opens the same board in Game Center. |
-| **Game Center** | Three Game Center leaderboards, ranked as the site's are: lifetime spins, best Flappy round, tallest Tower (`Core/GameCenter.swift`). The scores are the site's, not the games': every fresh dashboard posts whichever changed since the last post, so a best set on the website or the desktop app gets there too. Signs in to Game Center once the player has signed in to the app; a player not signed in to Game Center is offered GameKit's sign-in from Settings or the Leaderboards tab, never unasked. Settings shows the Game Center name and has **Post Scores to Game Center** to stop posting. |
+| **Game Center** | Three Game Center leaderboards, ranked as the site's are: lifetime spins, best Flappy round, tallest Tower (`Core/GameCenter.swift`). The scores are the site's, not the games': every fresh dashboard posts whichever changed since the last post, so a best set on the website or the desktop app gets there too. Signs in to Game Center once the player has signed in to the app; a player not signed in to Game Center is offered GameKit's sign-in from Settings or the Leaderboards tab, never unasked. The Spin Game's 29 achievements are Game Center achievements too: the dashboard lists the ones the site has saved (so one earned on the website or the desktop app unlocks here as well), and the game tells the app the moment one is earned in it (`window.empanadasApp.achievement`), so Game Center's banner comes up mid-game. Settings shows the Game Center name and has **Post Scores to Game Center** to stop posting scores and achievements. |
 | **Settings** | The account (picture, name, address) and native controls for theme, privacy and email preferences, read from `/v2/app/account.php`. The theme is the account's, so it is also read as the app comes to the front (at most every five minutes, and the answer is the Settings screen's too), and applied to the whole window. Also has sign out, delete account (a native modal: type DELETE), haptics, clear cache, the version and Send Feedback. Email/username, connections, passkeys, 2FA and the profile picture open the site's own pages. |
 | **Sign-in** | Native welcome screen (`Features/SignIn/WelcomeView.swift`), on the launch screen's navy: the login page's "Got an account?", with **Yup! Log In** and **Nope. Create One**. Either opens the whole sign-in in the system browser (`ASWebAuthenticationSession`, sharing Safari's cookies), on the site's own pages: the username step or Pick a Username, passkeys, Google/GitHub/Discord and 2FA, with Safari's AutoFill and the player's iCloud Keychain passkeys. A browser already signed in to Empanadas.io asks "Continue as …?" instead. The site hands the sign-in back with `empanadas-io://signin?code=`, and the app redeems the code at `/v2/app/signin.php` with the PKCE verifier only it holds (`Auth/AppSignIn.swift`). The login page never shows in a web view of the app's: a page that goes there is stopped, and the app asks the site whether the session ended (`loginPageReached` in `App/AppModel.swift`). Sign Out loads `/v2/auth/logout.php` out of sight, and again later if it could not reach the site. |
 | **Popups** | Captcha and other script-opened windows of the signed-in pages open in a sheet, limited to the site, the providers and the SSO hosts. Connect Google/GitHub/Discord on the account page goes through the system browser too, using the site's provider hand-off (`/v2/auth/browser.php`, `empanadas-io://auth`). |
@@ -150,6 +150,55 @@ To try it before release, run a development build on a device signed in to
 Game Center (it posts to Game Center's sandbox, not the live boards), play a
 round, and the score shows on the board once the dashboard has refreshed.
 
+### Achievements
+
+The Spin Game's achievements (`SpinAchievement` in `Core/GameCenter.swift`,
+from `givea()` in the site's `_spin.js`) need adding the same way, in the
+app's Game Center settings under **Achievements**. Each is one achievement,
+not achievable more than once, with the ID below; the titles and earned
+descriptions are the site's own, without its markup. The points come to
+905 of Game Center's 1,000, leaving room for more. Each also needs a
+square image (512×512 or 1024×1024); the game's trophy or medals will do.
+
+| Achievement ID | Title | Points | Hidden | Pre-earned description | Earned description |
+|---|---|---|---|---|---|
+| `io.empanadas.app.achievement.spin.first_spin` | The Start of Spin | 5 | No | Make your very first spin. | Make your very first spin! They grow up so fast. |
+| `io.empanadas.app.achievement.spin.first_medal` | A Shiny Beginning | 10 | No | Earn a medal in the Spin Game. | Earn your very first Medal! |
+| `io.empanadas.app.achievement.spin.one_thousand` | Ice Cold Spinner | 10 | No | Surpass 1,000 spins. | Surpass 1,000 spins. Way to go superstar! |
+| `io.empanadas.app.achievement.spin.ten_thousand` | 10 Karats of Gold | 20 | No | Surpass 10,000 spins. | Surpass 10,000 spins! That's the spirit! |
+| `io.empanadas.app.achievement.spin.fifty_thousand` | Half-done Baking | 30 | No | Achieve 50,000 spins. | Achieve 50,000 spins! You're halfway to Prestiging! |
+| `io.empanadas.app.achievement.spin.prestige_one` | 1st Time Letting Go? | 30 | No | Prestige for the first time. | Starting over helps bring new beginnings. Your first prestige! |
+| `io.empanadas.app.achievement.spin.prestige_two` | I've Been Here Before | 20 | No | Prestige twice. | Prestige for a second time! It's starting to click, huh? |
+| `io.empanadas.app.achievement.spin.prestige_five` | High Five Steaks | 30 | No | Reach your fifth Prestige. | Your fifth Prestige! Not all cowboys have their boots. |
+| `io.empanadas.app.achievement.spin.prestige_ten` | Hang Ten | 40 | No | Reach your tenth Prestige. | Your tenth Prestige! The sky is your limit, and the clouds await. |
+| `io.empanadas.app.achievement.spin.prestige_twentyfive` | The Strive for Twenty-Five | 50 | No | Reach your 25th Prestige. | Have you tried turning it off and back on again 25 times? Well, you have. |
+| `io.empanadas.app.achievement.spin.prestige_fifty` | Halfway Finished or Halfway Started? | 60 | No | Reach your 50th Prestige. | The clouds are the closest and farthest yet. I'm sure you'll Ascend in no time. |
+| `io.empanadas.app.achievement.spin.prestige_hundred` | A Tough Choice | 80 | No | Reach your 100th Prestige. | You've been here 100 times. The choice is yours. You were made to answer this calling. |
+| `io.empanadas.app.achievement.spin.ascend_one` | Answer The Call | 80 | No | Ascend for the first time. | You chose to answer your sacred calling in the sky. Sacrificing everything for the good of humanity. |
+| `io.empanadas.app.achievement.spin.ascend_two` | The Phone Rings Twice | 50 | No | Ascend twice. | You've answered your calling to the clouds twice. Many cannot boast such brave acts of selflessness. |
+| `io.empanadas.app.achievement.spin.ascend_three` | Loud and Clear | 50 | No | Ascend three times. | No temptation will curb your dedication. After all, the third time is the most charming of them all. |
+| `io.empanadas.app.achievement.spin.ascend_four` | Four Score & 400 Prestiges Ago | 50 | No | Ascend four times. | An even number: 4. Will this be enough to sate your appetite for success? What more is there to prove? |
+| `io.empanadas.app.achievement.spin.ascend_five` | The Inevitable Fall | 60 | No | Ascend five times. | This was never for Empanadas, was it? You have your own motives. Your actions have dire consequences. |
+| `io.empanadas.app.achievement.spin.ascend_hundred` | A Cry for Help | 100 | Yes | Ascend 100 times. | You've ascended 100 times. That's concerning. Very concerning. |
+| `io.empanadas.app.achievement.spin.ascend_one_thousand` | Cheater Cheater Empanada Eater | 10 | Yes | Ascend 1,000 times. | You cheated. Right? Please tell me you cheated. |
+| `io.empanadas.app.achievement.spin.superstar_spinner` | Superstar Spinner | 20 | No | Spin over 10 times a second for a while. | Way to go Superstar! You spin empanada dough quite fast with your hands. |
+| `io.empanadas.app.achievement.spin.first_autospinner` | Wait! We have Technology | 10 | No | Buy your first Auto Spinner. | Use the power of mindless robots to bake your Empanadas for you. |
+| `io.empanadas.app.achievement.spin.first_burnt` | Forgot the Oven | 5 | No | Burn an Empanada. | Burn your first Empanada. There there, it happens to the best of us. |
+| `io.empanadas.app.achievement.spin.second_burnt` | The Zap Strikes Back | 5 | No | Burn two Empanadas. | Clumsy or careless? Your poor empanada didn't need to be burnt twice. |
+| `io.empanadas.app.achievement.spin.ten_burnt` | Be At-Ten-tive | 10 | No | Burn 10 Empanadas. | You've burnt through a lot of dough! 10 burnt to be exact. |
+| `io.empanadas.app.achievement.spin.twentyfive_burnt` | House Fire | 15 | No | Burn 25 Empanadas. | Your unattended oven caught the house on fire! Guess that's your karma for burning 25 empanadas. |
+| `io.empanadas.app.achievement.spin.onehundred_burnt` | Pyromaniac | 25 | No | Burn 100 Empanadas. | You have burnt 100 empanadas. Guess cooking isn't really your thing, huh? |
+| `io.empanadas.app.achievement.spin.gimme_space` | Give Me Some Space | 10 | Yes | Find another way to spin. | Magical! Use the space-bar to earn spins. |
+| `io.empanadas.app.achievement.spin.debug_nerd` | Nerding Out | 10 | Yes | Find the debug menu. | You discovered the debug menu, for nerds. 6 figure salary, here you come! |
+| `io.empanadas.app.achievement.spin.buy_extinguisher` | Feel the Burn! Or don't! | 10 | No | Buy your first Extinguisher. | Your first extinguisher, just to be safe. |
+
+Then add them to the version's Game Center section with the leaderboards.
+An achievement goes out once per Game Center player (the app remembers which
+it has reported), with Game Center's banner when it is earned in the app's
+Spin player and quietly when it comes from the dashboard or a save loading in
+the game (earned earlier, or somewhere else). One the site adds later is skipped until it is in
+`SpinAchievement` and App Store Connect both.
+
 ## Next steps
 
 - **Offline play from the site's service worker.** The games are saved into
@@ -161,7 +210,4 @@ round, and the score shows on the board once the dashboard has refreshed.
   runs service workers for App-Bound Domains (`WKAppBoundDomains`), which also
   blocks script injection in every web view not limited to those domains, so
   it needs testing on a device against the sign-in popups before it ships.
-- **Game Center achievements.** The leaderboards are done (see "Game Center"
-  above); achievements could follow the same way, from the dashboard's
-  numbers.
 - **Push notifications** for friend requests and messages.

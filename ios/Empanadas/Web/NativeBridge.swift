@@ -58,6 +58,17 @@ final class NativeBridge: NSObject, WKScriptMessageHandlerWithReply {
             page.ownsCloseButton()
             return (true, nil)
 
+        case "achievement":
+            // The Spin Game's givea(): an achievement just earned, or (quiet)
+            // one its save already had, for Game Center. Only from the Spin
+            // player, and only one the app knows.
+            guard case .game(.spin)? = page.ownRoute,
+                  let name = args["id"] as? String, let achievement = SpinAchievement(rawValue: name) else {
+                return (false, nil)
+            }
+            app.gameCenter.unlock(achievement, banner: args["quiet"] as? Bool != true)
+            return (true, nil)
+
         case "share":
             // Only the site's own pages: this is not a way to put arbitrary
             // links in front of the player with the app's name on them.
