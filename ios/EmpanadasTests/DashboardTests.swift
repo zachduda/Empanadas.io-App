@@ -205,7 +205,8 @@ final class DashboardTests: XCTestCase {
             "default_pfp":true,"private":true}],
          "flappy":[{"rank":1,"id":"ef56","username":"bird","private":false,"score":80,"recent":12}],
          "tower":[{"rank":1,"id":"gh78","username":"stack","private":false,"score":30,"recent":1}],
-         "you":"ab12","generated":1760000000,"age":10,"ttl":45}
+         "you":"ab12","places":{"spin":3,"flappy":142,"tower":null},
+         "generated":1760000000,"age":10,"ttl":45}
         """
 
     func testReadsTheLeaderboardAnswer() throws {
@@ -232,6 +233,15 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(try decode(Leaderboard.self, boardJSON).pollInterval, 37, "45 - 10, and a little")
         XCTAssertEqual(try decode(Leaderboard.self, #"{"ttl":45,"age":44}"#).pollInterval, 15, "never sooner")
         XCTAssertEqual(try decode(Leaderboard.self, #"{"ttl":600,"age":0}"#).pollInterval, 120, "never later")
+    }
+
+    func testTheBannerHasThePlayersPlaceBelowTheTopTen() throws {
+        let board = try decode(Leaderboard.self, boardJSON)
+        XCTAssertEqual(board.place(on: .spin), 1, "their row's rank, when the board lists them")
+        XCTAssertEqual(board.place(on: .flappy), 142, "the site's count, below the ten listed")
+        XCTAssertNil(board.place(on: .tower), "not on the tower board")
+        XCTAssertNil(try decode(Leaderboard.self, #"{"places":"nope"}"#).place(on: .spin),
+                     "a site without places reads as not placed")
     }
 
     func testAnEmptyBoardIsNotAnError() throws {

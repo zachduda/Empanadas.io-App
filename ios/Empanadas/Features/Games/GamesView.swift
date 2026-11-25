@@ -111,11 +111,11 @@ struct GamesView: View {
         return nil
     }
 
-    /// The player's place on the game's board, when they are on it.
+    /// The player's place on the game's board, however far down, when they
+    /// are on it.
     private func rank(in game: Game) -> Int? {
-        guard let board = model.leaderboard.board,
-              let row = board.rows(for: game).first(where: { board.isYou($0) }), row.rank > 0 else { return nil }
-        return row.rank
+        guard let rank = model.leaderboard.board?.place(on: game), rank > 0 else { return nil }
+        return rank
     }
 
     /// The leaderboards, and Send Feedback: the screen Settings opens, pushed
