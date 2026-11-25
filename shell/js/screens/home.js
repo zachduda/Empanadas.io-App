@@ -7,6 +7,7 @@ import { load, staleBanner, errorState, skeleton, skeletonCards } from '../data.
 import { gameArt, numberTile, presenceOf, xpBreakdown } from '../components.js';
 import { spinChart } from '../chart.js';
 import { checkForNew } from './updates.js';
+import { dailyCard } from '../daily.js';
 
 const pct = (value) => Math.max(0, Math.min(100, Number(value) || 0)) + '%';
 const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -21,6 +22,21 @@ export function mount(container, { app }) {
 	let shown = false;
 	let counting = [];
 	let gone = false;
+
+	// The daily reward: one card for as long as Home is up, so the countdown
+	// and a claim under way carry over a refresh.
+	const daily = dailyCard({
+		toast: (message, kind) => app.toast(message, kind),
+		async claim() {
+			const result = await window.native.data.act('claimDaily', {});
+			if (result && result.ok && result.data && !gone) {
+				// The new balance at once; the whole dashboard follows.
+				if (app.state.dashboard && Number.isFinite(result.data.peppers)) app.state.dashboard.peppers = result.data.peppers;
+				setTimeout(() => { if (!gone) refresh(); }, 2500);
+			}
+			return result;
+		}
+	});
 
 	// What the experience came from, under the rank. The dashboard does not
 	// carry it (the profile does), so it is asked for after the dashboard, and
@@ -212,10 +228,12 @@ export function mount(container, { app }) {
 				'Verify your email address to unlock your bio, friend requests and more.',
 				h('div', { class: 'actions' }, button('Verify', () => window.native.site.open('verifyEmail'), { kind: 'small' })))) : null,
 			h('div', { class: 'grid tiles home-tiles' }, tiles.map(rise)),
+			d.daily ? rise(daily.el) : null,
 			h('div', { class: 'stack' },
 				miniGames,
 				rise(chartCard),
 				h('div', { class: 'grid two' }, rise(xpCard), rise(friendsCard))));
+		if (d.daily) daily.update(d.daily, result.savedAt);
 		if (chart) requestAnimationFrame(() => chart.update(d.spin_history || []));
 		if (partsFor !== xp.total) loadParts(!parts);
 	}
@@ -235,6 +253,7 @@ export function mount(container, { app }) {
 			gone = true;
 			off();
 			counting.forEach(cancelAnimationFrame);
+			daily.destroy();
 			if (chart) chart.destroy();
 		}
 	};

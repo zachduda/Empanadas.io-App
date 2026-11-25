@@ -665,6 +665,7 @@ const ACTIONS = {
 	updateSetting: (p) => api.updateSetting(p.field, p.value),
 	sendFeedback: (p) => api.sendFeedback(p),
 	restoreSavePoint: (p) => api.restoreSavePoint(p.id),
+	claimDaily: () => api.claimDailyReward(),
 	deleteAccount: (p) => api.deleteAccount(p.confirmation)
 };
 

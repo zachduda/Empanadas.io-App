@@ -352,6 +352,18 @@ check('an answer from before a sign-out is not written back', () => {
 	assert.deepStrictEqual(withoutToken([1, 2]), [1, 2]);
 });
 
+check('a daily reward claim pays, or says it was already claimed', () => {
+	const daily = { claimed: true, streak: 5, day: 5, week: [] };
+	const paid = api.dailyClaimBody(JSON.stringify({ ok: true, api: 1, granted: 10, peppers: 138, daily }), 200);
+	assert.deepStrictEqual(paid, { granted: 10, peppers: 138, daily });
+	const again = api.dailyClaimBody(JSON.stringify({ ok: false, api: 1, reason: 'claimed', daily }), 409);
+	assert.deepStrictEqual(again, { granted: 0, peppers: null, daily });
+	assert.throws(() => api.dailyClaimBody('{"ok":false,"api":1,"reason":"csrf"}', 403), (e) => e.code === 'stale_token');
+	assert.throws(() => api.dailyClaimBody('{"ok":false,"api":1,"reason":"no_session"}', 401), (e) => e.code === 'signed_out');
+	assert.throws(() => api.dailyClaimBody('{"ok":false,"api":1,"reason":"review"}', 403), /demo account/);
+	assert.throws(() => api.dailyClaimBody('<html>', 404), (e) => e.code === 'unavailable');
+});
+
 Promise.all(pending).then(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 	if (failures.length) {

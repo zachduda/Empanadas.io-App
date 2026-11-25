@@ -190,6 +190,23 @@ async function main() {
 		// The games are symbols on their colours, not the one picture.
 		assert.strictEqual(await win.locator('.home .mini-game .game-art svg.game-glyph').count(), 3, 'a game has no symbol');
 		assert.strictEqual(await win.locator('.home .game-art img').count(), 0, 'a game still shows a picture');
+		// The daily reward, under the tiles: day 4 of a streak, three flames
+		// lit. Claim pays, lights day 4 and counts down to the next.
+		await win.waitForSelector('.home .daily-card .daily-claim');
+		assert.strictEqual(await win.locator('.home .daily-day').count(), 7, 'the week is not seven days');
+		assert.strictEqual(await win.locator('.home .daily-day.is-done').count(), 3, 'the days claimed are not lit');
+		await shot('03-home-daily');
+		await win.click('.home .daily-claim');
+		await win.waitForSelector('.home .daily-wait', { timeout: 10000 });
+		assert.strictEqual(await win.locator('.home .daily-day.is-done').count(), 4, 'today was not lit');
+		assert.match(await win.locator('.home .daily-streak').textContent(), /4-day streak/);
+		assert.match(await win.locator('.home .daily-wait').textContent(), /Next reward in 5h 1[12]m/);
+		const claimed = requests('/v2/app/daily.php');
+		assert.strictEqual(claimed.length, 1, 'the claim was not asked for once');
+		assert.match(claimed[0].cookie, /UAK=sess/, 'the claim went without the session');
+		await win.waitForSelector('.toast.success');
+		await wait(900);
+		await shot('03-home-daily-claimed');
 		await win.evaluate(() => { document.getElementById('content').scrollTop = 1e6; });
 		await shot('03-home-experience');
 		await win.evaluate(() => { document.getElementById('content').scrollTop = 0; });
