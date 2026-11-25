@@ -105,6 +105,7 @@ final class DashboardModel {
                 guard Self.belongs(fresh, to: expected) else {
                     // Still the wrong account: nothing shown, nothing kept,
                     // and the next refresh checks again.
+                    OfflineStore.remove(.dashboard)
                     error = .unavailable("signed in as someone else")
                     return
                 }
