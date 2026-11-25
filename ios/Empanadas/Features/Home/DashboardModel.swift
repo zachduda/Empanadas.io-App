@@ -129,6 +129,33 @@ final class DashboardModel {
         }
     }
 
+    /// A daily reward claim under way, for the card's button.
+    private(set) var isClaimingDaily = false
+
+    /// Claims today's daily reward and shows the answer at once (the streak,
+    /// the balance), then asks for the whole dashboard again so what is kept
+    /// for offline has it too. Returns the claim, or throws why it failed.
+    @discardableResult
+    func claimDaily(app: AppModel) async throws -> DailyClaim {
+        // One at a time; a second tap is not an error to show.
+        guard !isClaimingDaily else { throw CancellationError() }
+        guard app.session == .signedIn else { throw AccountError.signedOut }
+        isClaimingDaily = true
+        defer { isClaimingDaily = false }
+        let generation = self.generation
+        let claim = try await app.account.claimDailyReward()
+        // Signed out meanwhile: not this account's to show.
+        guard generation == self.generation, app.session == .signedIn else { return claim }
+        if var shown = data {
+            shown.daily = claim.daily
+            if let peppers = claim.peppers { shown.peppers = peppers }
+            data = shown
+            updatedAt = Date()
+        }
+        await reload(app: app)
+        return claim
+    }
+
     /// Signed out: nothing of the last account may show for the next.
     func reset() {
         generation += 1

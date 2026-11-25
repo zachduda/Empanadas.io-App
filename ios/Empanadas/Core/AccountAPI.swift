@@ -345,6 +345,42 @@ final class AccountAPI {
         }
     }
 
+    // MARK: - Daily reward
+
+    /// POST /v2/app/daily.php: claims today's daily reward. A day already
+    /// claimed (on the website, another device) is not an error: the answer
+    /// pays nothing and carries the reward as it stands.
+    func claimDailyReward() async throws -> DailyClaim {
+        try await withToken { csrf in
+            var request = URLRequest(url: SiteURLs.appDaily)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.formBody([("csrf", csrf)])
+            let (data, response) = try await self.sendNative(request)
+            return try Self.dailyClaimReply(data, status: response.statusCode)
+        }
+    }
+
+    /// A /v2/app/daily.php answer, or the error it stands for.
+    nonisolated static func dailyClaimReply(_ data: Data, status: Int) throws -> DailyClaim {
+        let reply = nativeReply(data)
+        switch reply?.reason {
+        case "csrf": throw AccountError.staleToken
+        case "review": throw AccountError.server("This is a demo account for App Review, so rewards aren't saved.")
+        case "claimed":
+            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let raw = object["daily"],
+                  let json = try? JSONSerialization.data(withJSONObject: raw) else {
+                throw AccountError.server("Today's reward is already yours. Come back tomorrow!")
+            }
+            let daily = try decode(Dashboard.Daily.self, json)
+            return DailyClaim(granted: 0, peppers: nil, daily: daily)
+        default:
+            let body = try nativeBody(data, reply: reply, status: status)
+            return try decode(DailyClaim.self, body)
+        }
+    }
+
     // MARK: - Updates
 
     /// GET api.empanadas.io/v1/updates.php: one announcement, the request the

@@ -82,6 +82,8 @@ enum SiteURLs {
     static let appLeaderboard = page(nativeAPIPath + "leaderboard.php")
     static let appSearch = page(nativeAPIPath + "search.php")
     static let appFeedback = page(nativeAPIPath + "feedback.php")
+    /// Claiming the daily reward (its status comes with the dashboard).
+    static let appDaily = page(nativeAPIPath + "daily.php")
     /// Where a sign-in run in the browser is redeemed (SignInRequest).
     static let appSignIn = page(nativeAPIPath + "signin.php")
     /// The save points behind the dashboard's Spin Progress chart, and

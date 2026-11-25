@@ -56,6 +56,80 @@ final class DashboardTests: XCTestCase {
         XCTAssertEqual(dashboard.spinHistory.count, 2)
     }
 
+    // MARK: - Daily reward
+
+    func testReadsTheDailyReward() throws {
+        let dashboard = try decode(Dashboard.self, """
+            {"ok":true,"account":{"username":"tester"},
+             "daily":{"claimed":true,"streak":8,"day":8,"reward":50,"tomorrow":50,"best":12,"total":30,
+                      "week":[{"day":2,"reward":10,"done":true,"today":false},
+                              {"day":8,"reward":50,"done":true,"today":true}],
+                      "base_reward":10,"streak_reward":50,"streak_days":7,"next_in":3600}}
+            """)
+        let daily = try XCTUnwrap(dashboard.daily)
+        XCTAssertTrue(daily.claimed)
+        XCTAssertEqual(daily.streak, 8)
+        XCTAssertEqual(daily.reward, 50)
+        XCTAssertEqual(daily.best, 12)
+        XCTAssertEqual(daily.week.count, 2)
+        XCTAssertEqual(daily.week.last?.day, 8)
+        XCTAssertTrue(daily.week.last?.today ?? false)
+        XCTAssertEqual(daily.nextIn, 3600)
+        XCTAssertTrue(daily.isOnFire, "a week in, every day pays the streak reward")
+    }
+
+    func testADashboardWithoutTheDailyRewardHasNoCard() throws {
+        let dashboard = try decode(Dashboard.self, #"{"ok":true,"account":{"username":"new"},"daily":null}"#)
+        XCTAssertNil(dashboard.daily)
+        let older = try decode(Dashboard.self, #"{"ok":true,"account":{"username":"new"}}"#)
+        XCTAssertNil(older.daily, "a site from before the daily reward")
+    }
+
+    func testTheDailyRewardIsDueAgainOnceTheDayTurnsOver() throws {
+        var daily = Dashboard.Daily()
+        daily.claimed = true
+        daily.nextIn = 600
+        let asOf = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertFalse(daily.isDueAgain(asOf: asOf, now: asOf.addingTimeInterval(599)))
+        XCTAssertTrue(daily.isDueAgain(asOf: asOf, now: asOf.addingTimeInterval(600)))
+        XCTAssertEqual(daily.nextRewardAt(asOf: asOf), asOf.addingTimeInterval(600))
+        XCTAssertFalse(daily.isDueAgain(asOf: nil), "no answer, no clock to go by")
+        daily.claimed = false
+        XCTAssertFalse(daily.isDueAgain(asOf: asOf, now: asOf.addingTimeInterval(9999)), "not claimed is just due")
+    }
+
+    func testAClaimPaysAndSaysWhatItPaid() throws {
+        let claim = try AccountAPI.dailyClaimReply(Data("""
+            {"ok":true,"api":1,"granted":10,"peppers":138,
+             "daily":{"claimed":true,"streak":5,"day":5,"reward":10,"tomorrow":10,"week":[]}}
+            """.utf8), status: 200)
+        XCTAssertEqual(claim.granted, 10)
+        XCTAssertEqual(claim.peppers, 138)
+        XCTAssertTrue(claim.daily.claimed)
+        XCTAssertEqual(claim.daily.streak, 5)
+    }
+
+    func testAClaimAlreadyMadeTodayPaysNothing() throws {
+        let claim = try AccountAPI.dailyClaimReply(Data("""
+            {"ok":false,"api":1,"reason":"claimed","daily":{"claimed":true,"streak":3,"day":3,"week":[]}}
+            """.utf8), status: 409)
+        XCTAssertEqual(claim.granted, 0)
+        XCTAssertNil(claim.peppers)
+        XCTAssertEqual(claim.daily.streak, 3)
+    }
+
+    func testAClaimRefusedSaysWhy() {
+        XCTAssertThrowsError(try AccountAPI.dailyClaimReply(Data(#"{"ok":false,"api":1,"reason":"csrf"}"#.utf8), status: 403)) {
+            XCTAssertEqual($0 as? AccountError, .staleToken, "asked again with a fresh token")
+        }
+        XCTAssertThrowsError(try AccountAPI.dailyClaimReply(Data(#"{"ok":false,"api":1,"reason":"no_session"}"#.utf8), status: 401)) {
+            XCTAssertEqual($0 as? AccountError, .signedOut)
+        }
+        XCTAssertThrowsError(try AccountAPI.dailyClaimReply(Data("<html>".utf8), status: 404)) {
+            XCTAssertEqual($0 as? AccountError, .unavailable("HTTP 404"), "a site without the endpoint")
+        }
+    }
+
     func testABareDashboardStillLoads() throws {
         let dashboard = try decode(Dashboard.self, #"{"ok":true,"account":{"username":"new"}}"#)
         XCTAssertEqual(dashboard.account.username, "new")
