@@ -51,8 +51,12 @@ struct Dashboard: Decodable, Equatable {
         var spins = 0
         /// Towards ascending at prestige 100, 0...100.
         var progress = 0.0
+        /// The achievements the player has unlocked, by the site's names for
+        /// them (givea() in its _spin.js): "first_spin", "prestige_ten".
+        /// They go to Game Center (SpinAchievement).
+        var achievements: [String] = []
 
-        enum CodingKeys: String, CodingKey { case lifetime, prestige, ascends, spins, progress }
+        enum CodingKeys: String, CodingKey { case lifetime, prestige, ascends, spins, progress, achievements }
 
         init() {}
 
@@ -63,6 +67,7 @@ struct Dashboard: Decodable, Equatable {
             ascends = c.lenient(.ascends, 0)
             spins = c.lenient(.spins, 0)
             progress = c.lenient(.progress, 0.0)
+            achievements = c.lenient(.achievements, [String]())
         }
     }
 

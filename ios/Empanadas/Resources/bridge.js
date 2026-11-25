@@ -179,6 +179,13 @@
     closeGame: function () { return call('closeGame'); },
     // 'spin' | 'flappy' | 'tower'
     openGame: function (game) { return call('openGame', { game: String(game) }); },
+    // A Spin Game achievement the player has ('first_spin', givea() in the
+    // site's _spin.js), for Game Center: with its banner when just earned,
+    // without when `quiet` (one a save already had). Resolves false for one
+    // the app does not know, or from anywhere but the Spin player.
+    achievement: function (id, quiet) {
+      return call('achievement', { id: String(id), quiet: quiet === true });
+    },
     // Opens the share sheet for an empanadas.io link.
     share: function (url) { return call('share', { url: String(url) }); },
     // Is empanadas.io reachable? Resolves { ok, status, pong }, as in the

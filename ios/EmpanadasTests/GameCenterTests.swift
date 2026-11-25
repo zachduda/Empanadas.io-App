@@ -36,4 +36,38 @@ final class GameCenterTests: XCTestCase {
     func testAGameNotPlayedYetIsNotReported() {
         XCTAssertEqual(GameCenter.due(["spin": 0, "flappy": 0, "tower": 3], reported: [:]), ["tower": 3])
     }
+
+    // MARK: - Achievements
+
+    func testEverySpinAchievementHasItsOwnID() {
+        XCTAssertEqual(SpinAchievement.allCases.count, 29, "givea() in the site's _spin.js has 29")
+        XCTAssertEqual(SpinAchievement.firstSpin.gameCenterID, "io.empanadas.app.achievement.spin.first_spin",
+                       "the ID in App Store Connect: a change here needs a new achievement there")
+        XCTAssertEqual(SpinAchievement(rawValue: "twentyfive_burnt"), .twentyFiveBurnt)
+        let ids = SpinAchievement.allCases.map(\.gameCenterID)
+        XCTAssertEqual(Set(ids).count, ids.count)
+        XCTAssertTrue(ids.allSatisfy { $0.count <= 100 }, "Game Center's limit on an ID")
+    }
+
+    func testTheDashboardListsTheUnlockedAchievements() throws {
+        let dashboard = try JSONDecoder().decode(Dashboard.self, from: Data("""
+            {"account":{"username":"tester"},
+             "spin":{"lifetime":1200,"achievements":["first_spin","one_thousand","a_new_one"]}}
+            """.utf8))
+        XCTAssertEqual(dashboard.spin.achievements, ["first_spin", "one_thousand", "a_new_one"])
+        XCTAssertEqual(dashboard.spin.achievements.compactMap(SpinAchievement.init(rawValue:)),
+                       [.firstSpin, .oneThousand], "one the app does not know yet is left out")
+
+        let older = try JSONDecoder().decode(Dashboard.self, from: Data("""
+            {"account":{"username":"tester"},"spin":{"lifetime":1200}}
+            """.utf8))
+        XCTAssertEqual(older.spin.achievements, [], "a site without the list costs nothing else")
+    }
+
+    func testEachAchievementIsUnlockedOnce() {
+        let first = SpinAchievement.firstSpin.gameCenterID
+        let medal = SpinAchievement.firstMedal.gameCenterID
+        XCTAssertEqual(GameCenter.due([first: false, medal: true], achieved: [first]), [medal: true])
+        XCTAssertEqual(GameCenter.due([first: true], achieved: [first]), [:])
+    }
 }
