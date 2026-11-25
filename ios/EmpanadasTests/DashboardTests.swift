@@ -80,6 +80,26 @@ final class DashboardTests: XCTestCase {
 
     // MARK: - The Games tab
 
+    // MARK: - Whose dashboard
+
+    func testADashboardBelongsToTheAccountSignedInTo() throws {
+        let dashboard = try decode(Dashboard.self, #"{"ok":true,"api":1,"account":{"username":"Tester"}}"#)
+        XCTAssertTrue(DashboardModel.belongs(dashboard, to: "Tester"))
+        // The site's usernames are matched without regard to case.
+        XCTAssertTrue(DashboardModel.belongs(dashboard, to: "tester"))
+        // The last account's, answered on a cookie it left behind.
+        XCTAssertFalse(DashboardModel.belongs(dashboard, to: "someoneelse"))
+    }
+
+    func testTheSignInSaysWhichAccount() {
+        let reply = Data(#"{"ok":true,"api":1,"account":{"username":"tester"}}"#.utf8)
+        XCTAssertEqual(AccountAPI.signedInUsername(reply), "tester")
+        // An older site, or an answer without one: nothing to check against.
+        XCTAssertNil(AccountAPI.signedInUsername(Data(#"{"ok":true,"api":1}"#.utf8)))
+        XCTAssertNil(AccountAPI.signedInUsername(Data(#"{"ok":true,"api":1,"account":{"username":""}}"#.utf8)))
+        XCTAssertNil(AccountAPI.signedInUsername(Data("not json".utf8)))
+    }
+
     func testThreeNumbersUnderEachGame() throws {
         let dashboard = try decode(Dashboard.self, """
             {"account":{"username":"tester"},

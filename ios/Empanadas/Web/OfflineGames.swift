@@ -33,6 +33,8 @@ final class OfflineGames {
     /// The save under way. A save that finds it has been replaced (forget())
     /// leaves no trace.
     @ObservationIgnored private var saveID: UUID?
+    /// The save under way's web view, for stop().
+    @ObservationIgnored private var fetcher: GameFileFetcher?
 
     init() {
         savedAt = OfflineGamesRecord.savedAt
@@ -53,10 +55,13 @@ final class OfflineGames {
         let id = UUID()
         saveID = id
         isSaving = true
+        let fetcher = GameFileFetcher()
+        self.fetcher = fetcher
         Task {
-            let complete = await GameFileFetcher().fetchAll()
+            let complete = await fetcher.fetchAll()
             guard saveID == id else { return }
             saveID = nil
+            self.fetcher = nil
             isSaving = false
             // Not when a file of the site's could not be fetched: the next
             // chance tries again.
@@ -68,11 +73,21 @@ final class OfflineGames {
         }
     }
 
+    /// Signed out: the save under way stops where it is. Its requests carry
+    /// the session's cookies, and an answer coming back after the sign-out
+    /// could put the last account's cookies back after they were deleted.
+    /// The next sign-in saves again (the save was not finished, so it is due).
+    func stop() {
+        saveID = nil
+        isSaving = false
+        fetcher?.stop()
+        fetcher = nil
+    }
+
     /// WebKit's cache was emptied (Settings' Clear Cache), and the saved
     /// games with it.
     func forget() {
-        saveID = nil
-        isSaving = false
+        stop()
         savedAt = nil
         OfflineGamesRecord.forget()
     }
@@ -109,6 +124,7 @@ enum OfflineGamesRecord {
 private final class GameFileFetcher: NSObject, WKNavigationDelegate {
     private let webView: WKWebView
     private var opening: CheckedContinuation<Bool, Never>?
+    private var stopped = false
 
     /// Each round's files are read for the files they name, up to this many
     /// rounds: pages, then their stylesheets and scripts, then the fonts in
@@ -126,7 +142,7 @@ private final class GameFileFetcher: NSObject, WKNavigationDelegate {
     /// fetched (no connection, the site down); Google Fonts not answering
     /// does not count, since the games fall back to a system font.
     func fetchAll() async -> Bool {
-        guard await open() else { return false }
+        guard !stopped, await open() else { return false }
 
         let pages = Set(OfflineAssets.pages)
         var seen = Set<URL>()
@@ -137,7 +153,7 @@ private final class GameFileFetcher: NSObject, WKNavigationDelegate {
             let batch = next.filter { seen.insert($0).inserted }
             guard !batch.isEmpty else { break }
             let reads = batch.filter { pages.contains($0) || OfflineAssets.namesMoreFiles($0) }
-            guard let results = await fetch(batch, reading: reads) else { return false }
+            guard !stopped, let results = await fetch(batch, reading: reads), !stopped else { return false }
 
             next = []
             for (url, result) in zip(batch, results) {
@@ -220,6 +236,16 @@ private final class GameFileFetcher: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// Leaves the page, which ends its fetches with it: the script's
+    /// callAsyncJavaScript then fails, and fetchAll() returns false.
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        opened(false)
+        webView.stopLoading()
+        webView.loadHTMLString("", baseURL: nil)
+    }
+
     // MARK: - The blank page
 
     private func open() async -> Bool {
@@ -235,8 +261,8 @@ private final class GameFileFetcher: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-        // The blank page, and nothing after it.
-        opening == nil ? .cancel : .allow
+        // The blank page, and nothing after it but stop()'s empty one.
+        opening != nil || stopped ? .allow : .cancel
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

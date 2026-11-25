@@ -589,7 +589,12 @@ final class AccountAPI {
     /// in with the code a sign-in in the browser came back with, and the
     /// verifier of the request it was for (SignInRequest). The site sets the
     /// signed-in session's cookies, which send() copies into WebKit's store.
-    func redeemSignIn(code: String, verifier: String) async throws {
+    ///
+    /// Returns the account's username as the site gives it, or nil if the
+    /// answer did not include one: what the first dashboard of the session
+    /// is checked against (DashboardModel.expect).
+    @discardableResult
+    func redeemSignIn(code: String, verifier: String) async throws -> String? {
         var request = URLRequest(url: SiteURLs.appSignIn)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -602,6 +607,15 @@ final class AccountAPI {
         }
         guard reply.ok else { throw SignInError(reason: reply.reason ?? "HTTP \(response.statusCode)") }
         token = nil
+        return Self.signedInUsername(data)
+    }
+
+    /// account.username from signin.php's answer.
+    nonisolated static func signedInUsername(_ data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let account = object["account"] as? [String: Any],
+              let username = account["username"] as? String, !username.isEmpty else { return nil }
+        return username
     }
 
     /// Does the site still consider this session signed in? Nil when it could
