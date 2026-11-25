@@ -2,7 +2,10 @@ import SwiftUI
 
 /// The daily reward on Home, as the banner on the site's homepage and
 /// dashboard shows it (daily.js there): the streak, this week of it with a
-/// flame for every day claimed, and the button for today's peppers. What it
+/// flame for every day claimed, and the button for today's peppers. On the
+/// site's wave banner, as the hero is, with bubbles drifting up behind it;
+/// orange is the fire's: the flames, the amounts, and a glow of embers along
+/// the bottom once a streak passes a week. What it
 /// pays and whether today is claimed are the site's (Dashboard.Daily); the
 /// claim goes through DashboardModel.claimDaily(app:).
 struct DailyRewardCard: View {
@@ -44,17 +47,19 @@ struct DailyRewardCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundStyle(.white)
-        .background(background, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: Color(hex: 0xD9342B).opacity(0.25), radius: 12, y: 6)
+        .background {
+            ZStack(alignment: .bottom) {
+                RisingBubbles()
+                // Embers, past a week.
+                EllipticalGradient(colors: [DailyColors.ember.opacity(0.38), DailyColors.ember.opacity(0)],
+                                   center: .bottom, startRadiusFraction: 0, endRadiusFraction: 0.6)
+                    .opacity(daily.isOnFire ? 1 : 0)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .allowsHitTesting(false)
+        }
+        .waveBanner(cornerRadius: 20)
         .animation(.smooth, value: daily)
-    }
-
-    private var background: LinearGradient {
-        LinearGradient(colors: daily.isOnFire
-                       ? [Color(hex: 0xFFB21A), Color(hex: 0xE0261B)]
-                       : [Color(hex: 0xFF7A1A), Color(hex: 0xD9342B)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     private var header: some View {
@@ -74,8 +79,7 @@ struct DailyRewardCard: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color.black.opacity(0.2), in: Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.28), lineWidth: 1))
+            .bannerInset(cornerRadius: 999)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(daily.streak) day streak" + (daily.best > daily.streak ? ", best \(daily.best)" : ""))
         }
@@ -113,20 +117,20 @@ struct DailyRewardCard: View {
                 .font(.body.weight(.bold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
-                .background(Color.black.opacity(0.22), in: Capsule())
+                .bannerInset(cornerRadius: 999)
         } else {
             let amount = dueAgain ? daily.tomorrow : daily.reward
             Button(action: claim) {
                 HStack(spacing: 8) {
                     if isClaiming {
-                        ProgressView().tint(Color(hex: 0xC1271D))
+                        ProgressView().tint(Palette.bannerTop)
                     } else {
-                        Image(systemName: "flame.fill")
+                        Image(systemName: "flame.fill").foregroundStyle(DailyColors.ember)
                     }
                     Text(isClaiming ? "Claiming..." : "Claim \(amount.formatted()) Peppers")
+                        .foregroundStyle(Palette.bannerTop)
                 }
                 .font(.body.weight(.heavy))
-                .foregroundStyle(Color(hex: 0xC1271D))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(Color.white, in: Capsule())
@@ -169,21 +173,32 @@ private struct DayTile: View {
                 .frame(height: 28)
             HStack(spacing: 2) {
                 Image(systemName: "flame.fill").font(.system(size: 8))
+                    .foregroundStyle(DailyColors.ember)
                 Text(day.reward, format: .number)
                     .font(.caption.weight(.heavy))
                     .monospacedDigit()
+                    .foregroundStyle(isBig ? DailyColors.gold : Color.white)
             }
-            .foregroundStyle(isBig && !day.done ? Color(hex: 0xFFE27A) : Color.white)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
         }
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
-        .background(day.done ? Color.white.opacity(0.2) : Color.black.opacity(0.16),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+            if day.done {
+                // A lit day: lighter, warmed from below by its flame.
+                shape.fill(Color.white.opacity(0.18))
+                    .overlay(shape.fill(LinearGradient(colors: [DailyColors.ember.opacity(0), DailyColors.ember.opacity(0.35)],
+                                                       startPoint: .center, endPoint: .bottom)))
+            } else {
+                shape.fill(Color.black.opacity(0.16))
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(day.today ? 1 : (day.done ? 0.4 : 0.16)), lineWidth: day.today ? 2 : 1)
+                .stroke(day.today ? Color.white : (day.done ? DailyColors.ember.opacity(0.6) : Color.white.opacity(0.16)),
+                        lineWidth: day.today ? 2 : 1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Day \(day.day), \(day.reward) peppers" + (day.done ? ", claimed" : day.today ? ", today" : ""))
@@ -227,5 +242,46 @@ struct FlameView: View {
     private static var fire: LinearGradient {
         LinearGradient(colors: [Color(hex: 0xFFE35C), Color(hex: 0xFF8A00), Color(hex: 0xFF3D00)],
                        startPoint: .bottom, endPoint: .top)
+    }
+}
+
+/// The fire's colours on the blue banner.
+enum DailyColors {
+    static let ember = Color(hex: 0xFF8A3D)
+    /// The bigger reward's amount (the site's .is-gold meter).
+    static let gold = Color(hex: 0xFFC861)
+}
+
+/// Translucent rounded squares drifting up and rounding off as they go, as
+/// on the site's sign-in pages. Still with Reduce Motion: none at all.
+private struct RisingBubbles: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Across the width (0...1), size, seconds to rise, and a head start.
+    private static let bubbles: [(x: Double, size: Double, duration: Double, offset: Double)] = [
+        (0.06, 54, 21, 0), (0.24, 18, 13, 5), (0.47, 38, 17, 11), (0.68, 70, 25, 3), (0.88, 24, 15, 8),
+    ]
+
+    var body: some View {
+        if !reduceMotion {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                Canvas { canvas, size in
+                    let now = context.date.timeIntervalSinceReferenceDate
+                    let travel = size.height + 160
+                    for bubble in Self.bubbles {
+                        let progress = ((now + bubble.offset) / bubble.duration).truncatingRemainder(dividingBy: 1)
+                        let side = bubble.size
+                        let rect = CGRect(x: -side / 2, y: -side / 2, width: side, height: side)
+                        var layer = canvas
+                        layer.opacity = 1 - progress
+                        layer.translateBy(x: bubble.x * size.width + side / 2,
+                                          y: size.height + 80 - progress * travel)
+                        layer.rotate(by: .degrees(progress * 360))
+                        let corner = side * (0.18 + 0.32 * progress)
+                        layer.fill(Path(roundedRect: rect, cornerRadius: corner), with: .color(.white.opacity(0.1)))
+                    }
+                }
+            }
+        }
     }
 }
