@@ -183,6 +183,8 @@ final class AccountAPI {
     private var messageKey: (account: Int, key: MessageCrypto.DeviceKey)?
     /// Each conversation's devices, from its last answer, to seal the next message for.
     private var conversationKeys: [String: MessageKeys] = [:]
+    /// Whether each conversation is end-to-end encrypted, from its last answer.
+    private var conversationE2ee: [String: Bool] = [:]
     /// Messages already opened, by id and edit.
     private var opened: [String: String] = [:]
 
@@ -331,6 +333,7 @@ final class AccountAPI {
         var thread = try Self.decode(MessageThread.self, Self.messagesBody(data, status: response.statusCode))
         remember(thread.csrf)
         conversationKeys[raw] = thread.keys
+        conversationE2ee[raw] = thread.e2ee.on
         var key: MessageCrypto.DeviceKey?
         if (thread.messages + thread.changed).contains(where: { $0.cipher != nil }) { key = try? await ownMessageKey() }
         thread.messages = thread.messages.map { reveal($0, key: key) }
@@ -346,10 +349,12 @@ final class AccountAPI {
         let body = MessageText.cleaned(text)
         guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
         let nonce = MessageText.isNonce(nonce) ? nonce : MessageText.nonce()
-        let reply = try await sealedPost(to, text: body, fields: [("action", "send"), ("to", to), ("nonce", nonce)])
+        let reply = try await wordsPost(to, text: body, fields: [("action", "send"), ("to", to), ("nonce", nonce)])
         var sent = try Self.decode(SentMessage.self, reply)
-        opened[Self.openedKey(sent.message.id, sent.message.edited)] = body
-        sent.message = reveal(sent.message, key: nil)
+        if sent.message.encrypted {
+            opened[Self.openedKey(sent.message.id, sent.message.edited)] = body
+            sent.message = reveal(sent.message, key: nil)
+        }
         return sent
     }
 
@@ -359,10 +364,23 @@ final class AccountAPI {
         guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
         let body = MessageText.cleaned(text)
         guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
-        let reply = try await sealedPost(with, text: body, fields: [("action", "edit"), ("message", String(messageID))])
+        let reply = try await wordsPost(with, text: body, fields: [("action", "edit"), ("message", String(messageID))])
         let message = try Self.decode(ChangedMessage.self, reply).message
+        guard message.encrypted else { return message }
         opened[Self.openedKey(message.id, message.edited)] = body
         return reveal(message, key: nil)
+    }
+
+    /// POST action=e2ee: end-to-end encryption on or off, for both of them.
+    /// This device's key goes first, so there is one to seal for.
+    func setEncrypted(_ on: Bool, with playerID: String) async throws -> ConversationEncryption {
+        let with = try Self.uuidField(playerID)
+        try await ownMessageKey()
+        let reply = try await messagesPost([("action", "e2ee"), ("with", with), ("on", on ? "1" : "0")])
+        let e2ee = try Self.decode(EncryptionChange.self, reply).e2ee
+        conversationE2ee[with] = e2ee.on
+        conversationKeys[with] = nil
+        return e2ee
     }
 
     /// POST action=delete: one of the player's own, for both of them.
@@ -388,6 +406,7 @@ final class AccountAPI {
     func forgetMessages() {
         messageKey = nil
         conversationKeys = [:]
+        conversationE2ee = [:]
         opened = [:]
     }
 
@@ -416,29 +435,32 @@ final class AccountAPI {
         return out
     }
 
-    /// Sealed for both players' devices and this one, and again for the
-    /// devices the site sends back if one is new since the last answer.
-    private func sealedPost(_ playerID: String, text: String, fields: [(String, String)]) async throws -> Data {
-        let key = try await ownMessageKey()
-        var keys: MessageKeys
-        if let known = conversationKeys[playerID] {
-            keys = known
-        } else {
-            keys = try await thread(with: playerID, after: Int(Int32.max)).keys
+    /// Plain text, or once the conversation is encrypted, sealed for both
+    /// players' devices and this one. Sealed again if the site says it was
+    /// turned on meanwhile, or that a device is new since the last answer.
+    private func wordsPost(_ playerID: String, text: String, fields: [(String, String)]) async throws -> Data {
+        if conversationE2ee[playerID] == nil || (conversationE2ee[playerID] == true && conversationKeys[playerID] == nil) {
+            _ = try await thread(with: playerID, after: Int(Int32.max))
         }
-        let own = MessageKeys.Device(device: key.device, key: key.publicKey)
-        for attempt in 0..<2 {
-            let cipher: String
-            do {
-                cipher = try MessageCrypto.seal(text, for: keys.all + [own])
-            } catch {
-                throw MessageRefusal(reason: "no_keys")
+        for _ in 0..<3 {
+            var form = fields + [("text", text)]
+            if conversationE2ee[playerID] == true {
+                let key = try await ownMessageKey()
+                let own = MessageKeys.Device(device: key.device, key: key.publicKey)
+                let cipher: String
+                do {
+                    cipher = try MessageCrypto.seal(text, for: (conversationKeys[playerID] ?? MessageKeys()).all + [own])
+                } catch {
+                    throw MessageRefusal(reason: "no_keys")
+                }
+                form = fields + [("cipher", cipher)]
             }
             do {
-                return try await messagesPost(fields + [("cipher", cipher)])
-            } catch let refusal as MessageRefusal where refusal.reason == "keys_changed" && attempt == 0 && refusal.keys != nil {
-                keys = refusal.keys ?? keys
-                conversationKeys[playerID] = keys
+                return try await messagesPost(form)
+            } catch let refusal as MessageRefusal
+                where (refusal.reason == "keys_changed" || refusal.reason == "encryption_required") && refusal.keys != nil {
+                conversationKeys[playerID] = refusal.keys
+                if let e2ee = refusal.e2ee { conversationE2ee[playerID] = e2ee.on }
             }
         }
         throw MessageRefusal(reason: "keys_changed")
@@ -531,8 +553,9 @@ final class AccountAPI {
         case "csrf": throw AccountError.staleToken
         case _ where MessageRefusal.reasons.contains(reason):
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            let keys = (try? JSONDecoder().decode(RefusalKeys.self, from: data))?.keys
-            throw MessageRefusal(reason: reason, maxLength: intValue(object?["max_length"]) ?? MessageText.maxLength, keys: keys)
+            let extra = try? JSONDecoder().decode(RefusalKeys.self, from: data)
+            throw MessageRefusal(reason: reason, maxLength: intValue(object?["max_length"]) ?? MessageText.maxLength,
+                                 keys: extra?.keys, e2ee: extra?.e2ee)
         default:
             if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
             throw AccountError.unavailable(reason)
@@ -1076,7 +1099,9 @@ final class AccountAPI {
     }
 }
 
-/// The devices a keys_changed or no_keys refusal names.
+/// The devices a keys_changed, no_keys or encryption_required refusal names,
+/// and with encryption_required, the conversation's encryption now.
 private struct RefusalKeys: Decodable {
     var keys: MessageKeys?
+    var e2ee: ConversationEncryption?
 }

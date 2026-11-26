@@ -7,7 +7,8 @@ import UIKit
 // pushed on it, or on whichever tab showed a friend's profile and its Message
 // button. A notification, a deep link or a link to /v2/messages opens the tab
 // (AppModel.navigate). Everything a player wrote is shown as text, never as
-// markup. Messages are end-to-end encrypted (MessageCrypto): AccountAPI
+// markup. A conversation can be end-to-end encrypted (MessageCrypto), off
+// until either player turns it on and then on for both: AccountAPI seals and
 // opens them, so what reaches the screens is already plain. The player's own
 // can be edited for a minute and deleted any time.
 
@@ -440,6 +441,7 @@ struct ConversationView: View {
     @State private var confirmingBlock = false
     @State private var showingProfile = false
     @State private var deleting: DirectMessage?
+    @State private var confirmingEncryption = false
     @FocusState private var typing: Bool
 
     init(id: String, name: String?) {
@@ -470,7 +472,7 @@ struct ConversationView: View {
 
     private var rows: [Row] {
         var out: [Row] = []
-        if conversation.loaded && (conversation.canMessage || conversation.messages.contains(where: \.encrypted)) {
+        if conversation.loaded && conversation.e2ee.on {
             out.append(.encrypted)
         }
         var previous: Date?
@@ -543,6 +545,10 @@ struct ConversationView: View {
                         Label("View Profile", systemImage: "person.crop.circle")
                     }
                     if conversation.loaded {
+                        Button { confirmingEncryption = true } label: {
+                            Label(conversation.e2ee.on ? "Turn Off End-to-End Encryption" : "Turn On End-to-End Encryption",
+                                  systemImage: conversation.e2ee.on ? "lock.open" : "lock")
+                        }
                         if conversation.blocked {
                             Button { Task { await conversation.setBlocked(false, app: model) } } label: {
                                 Label("Unblock \(name)", systemImage: "hand.raised.slash")
@@ -577,6 +583,17 @@ struct ConversationView: View {
                 guard !Task.isCancelled else { return }
                 await conversation.poll(app: model)
             }
+        }
+        .confirmationDialog(conversation.e2ee.on ? "Turn Off End-to-End Encryption?" : "Turn On End-to-End Encryption?",
+                            isPresented: $confirmingEncryption, titleVisibility: .visible) {
+            let on = !conversation.e2ee.on
+            Button(on ? "Turn On" : "Turn Off", role: on ? nil : .destructive) {
+                Task { await conversation.setEncrypted(on, app: model) }
+            }
+        } message: {
+            Text(conversation.e2ee.on
+                 ? "New messages between you and \(name) will be sent as plain text, for both of you. Messages already encrypted stay encrypted."
+                 : "New messages between you and \(name) can only be read on your devices, not by Empanadas.io. It's turned on for \(name) too, and either of you can turn it off.")
         }
         .confirmationDialog("Delete This Message?", isPresented: Binding(
             get: { deleting != nil },
@@ -634,7 +651,7 @@ struct ConversationView: View {
     private func rowView(_ row: Row) -> some View {
         switch row {
         case .encrypted:
-            Label("End-to-end encrypted. Only you and \(name) can read these.", systemImage: "lock.fill")
+            Label(encryptionNote, systemImage: "lock.fill")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -712,6 +729,15 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 4)
         }
+    }
+
+    private var encryptionNote: String {
+        let who = switch conversation.e2ee.by ?? "" {
+        case "me": " (you turned it on)"
+        case "them": " (\(name) turned it on)"
+        default: ""
+        }
+        return "End-to-end encryption is on\(who). New messages can only be read by you and \(name)."
     }
 
     @ViewBuilder

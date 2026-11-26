@@ -110,6 +110,31 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
     }
 }
 
+/// Whether a conversation is end-to-end encrypted: off until either player
+/// turns it on, then on for both. `by`: "me" or "them", whoever last changed it.
+struct ConversationEncryption: Decodable, Equatable {
+    var on = false
+    var by: String?
+
+    enum CodingKeys: String, CodingKey { case on, by }
+
+    init(on: Bool = false, by: String? = nil) {
+        self.on = on
+        self.by = by
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        on = c.lenient(.on, false)
+        by = (try? c.decodeIfPresent(String.self, forKey: .by)) ?? nil
+    }
+}
+
+/// POST action=e2ee: the conversation's encryption now.
+struct EncryptionChange: Decodable {
+    var e2ee: ConversationEncryption
+}
+
 /// Every device a message is sealed for: both players' (GET ?with=).
 struct MessageKeys: Decodable, Equatable {
     struct Device: Decodable, Equatable, Hashable {
@@ -232,6 +257,7 @@ struct MessageThread: Decodable, Equatable {
     var csrf = ""
     /// Both players' devices, to seal the next message for.
     var keys = MessageKeys()
+    var e2ee = ConversationEncryption()
     /// The site's clock when it answered: the next poll's `since`, and when
     /// an edit is still allowed.
     var now: Date?
@@ -239,7 +265,7 @@ struct MessageThread: Decodable, Equatable {
     var changed: [DirectMessage] = []
 
     enum CodingKeys: String, CodingKey {
-        case with, reason, blocked, messages, csrf, keys, now, changed
+        case with, reason, blocked, messages, csrf, keys, now, changed, e2ee
         case canMessage = "can_message"
         case hasMore = "has_more"
         case seenUpTo = "seen_up_to"
@@ -258,6 +284,7 @@ struct MessageThread: Decodable, Equatable {
         maxLength = c.lenient(.maxLength, MessageText.maxLength)
         csrf = c.lenient(.csrf, "")
         keys = c.lenient(.keys, MessageKeys())
+        e2ee = c.lenient(.e2ee, ConversationEncryption())
         now = (try? c.decodeIfPresent(Double.self, forKey: .now)).map { Date(timeIntervalSince1970: $0) }
         changed = c.lenient(.changed, [Lenient<DirectMessage>]()).compactMap(\.value)
     }
@@ -292,8 +319,10 @@ struct MessageRefusal: LocalizedError, Equatable {
     let reason: String
     var name = ""
     var maxLength = MessageText.maxLength
-    /// With keys_changed and no_keys: the devices there are now.
+    /// With keys_changed, no_keys and encryption_required: the devices there are now.
     var keys: MessageKeys?
+    /// With encryption_required: the conversation was turned on meanwhile.
+    var e2ee: ConversationEncryption?
 
     static let reasons: Set<String> = [
         "not_friends", "blocked", "unavailable", "unverified", "rate_limited", "too_long", "empty", "not_found", "self",
@@ -330,7 +359,7 @@ struct MessageRefusal: LocalizedError, Equatable {
         case "keys_changed": return "Their devices changed. Try again."
         case "too_late": return "Messages can only be edited for a minute after they're sent."
         case "deleted": return "That message was deleted."
-        case "encryption_required": return "Update Empanadas.io to send messages."
+        case "encryption_required": return "This conversation is end-to-end encrypted now. Try again."
         case "invalid": return "That message couldn't be sent. Try again."
         default: return "You can't message \(who)."
         }

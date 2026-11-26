@@ -165,7 +165,7 @@ final class MessagesTests: XCTestCase {
          "messages":[{"id":1,"from_me":true,"text":"locked","cipher":"{}","sent":100,"edited":130,"deleted":false,"editable_until":160},
                      {"id":2,"from_me":false,"text":"This message was deleted.","cipher":null,"deleted":true}],
          "changed":[{"id":1,"from_me":true,"text":"x","edited":140}],
-         "keys":{"mine":[{"device":"aa","key":"bb"}],"theirs":[{"device":"cc","key":"dd"},{"nope":1}]},"now":150}
+         "keys":{"mine":[{"device":"aa","key":"bb"}],"theirs":[{"device":"cc","key":"dd"},{"nope":1}]},"e2ee":{"on":true,"by":"them"},"now":150}
         """#))
         XCTAssertEqual(thread.messages[0].edited, Date(timeIntervalSince1970: 130))
         XCTAssertTrue(thread.messages[0].encrypted)
@@ -176,6 +176,9 @@ final class MessagesTests: XCTestCase {
         XCTAssertEqual(thread.changed.map(\.id), [1])
         XCTAssertEqual(thread.keys.all.map(\.device), ["aa", "cc"], "a bad device is dropped, alone")
         XCTAssertEqual(thread.now, Date(timeIntervalSince1970: 150))
+        XCTAssertEqual(thread.e2ee, ConversationEncryption(on: true, by: "them"))
+        XCTAssertFalse(try JSONDecoder().decode(MessageThread.self, from: json(#"{"with":{"username":"x"}}"#)).e2ee.on,
+                       "off until someone turns it on")
         var sealed = thread.messages[0]
         sealed.sealed = true
         XCTAssertEqual(sealed.shownText, "🔒 Can't be read on this device")
@@ -298,7 +301,7 @@ private final class MessagesSite: URLProtocol {
                 body = #"{"ok":true,"api":1,"message":{"id":9,"from_me":true,"text":"locked","cipher":"{}","sent":1764147600,"read":false},"duplicate":false}"#
             }
         } else if SiteURLs.queryValue("with", in: url) != nil {
-            body = #"{"ok":true,"api":1,"with":{"id":"ab12","username":"Jeff"},"messages":[],"keys":{"mine":[],"theirs":[{"device":""# + Self.theirs.device + #"","key":""# + Self.theirs.publicKey + #""}]},"now":1764147600,"csrf":"inbox-token"}"#
+            body = #"{"ok":true,"api":1,"with":{"id":"ab12","username":"Jeff"},"messages":[],"keys":{"mine":[],"theirs":[{"device":""# + Self.theirs.device + #"","key":""# + Self.theirs.publicKey + #""}]},"e2ee":{"on":true,"by":"them"},"now":1764147600,"csrf":"inbox-token"}"#
         } else {
             body = #"{"ok":true,"api":1,"conversations":[],"unread":0,"blocked":[],"max_length":1000,"csrf":"inbox-token"}"#
         }

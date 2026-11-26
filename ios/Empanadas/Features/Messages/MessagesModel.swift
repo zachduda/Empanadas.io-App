@@ -84,6 +84,8 @@ final class ConversationModel {
     private(set) var reason: String?
     /// The viewer blocked them.
     private(set) var blocked = false
+    /// End-to-end encryption, the same for both of them.
+    private(set) var e2ee = ConversationEncryption()
     private(set) var maxLength = MessageText.maxLength
     private(set) var isLoading = false
     private(set) var isLoadingOlder = false
@@ -197,6 +199,7 @@ final class ConversationModel {
         blocked = thread.blocked
         seenUpTo = thread.seenUpTo
         maxLength = thread.maxLength
+        e2ee = thread.e2ee
         if let now = thread.now {
             since = now
             skew = now.timeIntervalSinceNow
@@ -270,6 +273,24 @@ final class ConversationModel {
             if let index = pending.firstIndex(where: { $0.id == message.id }) {
                 pending[index].failed = words
             }
+        }
+    }
+
+    // MARK: - End-to-end encryption
+
+    /// On or off for both of them.
+    func setEncrypted(_ on: Bool, app: AppModel) async {
+        guard !working else { return }
+        working = true
+        defer { working = false }
+        do {
+            e2ee = try await app.account.setEncrypted(on, with: playerID)
+            Haptics.play("success")
+        } catch {
+            Haptics.play("error")
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = (error as? MessageRefusal).map { MessageRefusal.text($0.reason, name: with?.username ?? "") }
+                ?? error.localizedDescription
         }
     }
 

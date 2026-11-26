@@ -384,7 +384,8 @@ check('the inbox and a conversation are read from messages.php, and hand over th
 });
 
 // A fake messages.php with one device for the other player, and the keys it was handed.
-async function messagesSite({ stale = false } = {}) {
+async function messagesSite({ stale = false, e2ee = true, turnedOnMeanwhile = false } = {}) {
+	const state = { on: e2ee && !turnedOnMeanwhile };
 	const theirs = await dme2ee.newDeviceKey(true);
 	const later = await dme2ee.newDeviceKey(true);
 	let tokens = 0;
@@ -396,7 +397,7 @@ async function messagesSite({ stale = false } = {}) {
 	const site = fakeFetch([
 		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 'token' + (++tokens) })],
 		[/v2\/app\/messages\.php/, async (url, init) => {
-			if (!init.body) return json({ ok: true, api: 1, messages: [], keys: keys(), now: 1000, csrf: 'token' + tokens });
+			if (!init.body) return json({ ok: true, api: 1, messages: [], keys: keys(), e2ee: { on: state.on, by: null }, now: 1000, csrf: 'token' + tokens });
 			const form = Object.fromEntries(new URLSearchParams(init.body));
 			posted.push(form);
 			if (form.action === 'register_key') {
@@ -404,6 +405,15 @@ async function messagesSite({ stale = false } = {}) {
 				return json({ ok: true, api: 1, device: registered[registered.length - 1].device });
 			}
 			if (form.csrf === 'token1') return json({ ok: false, api: 1, reason: 'csrf' }, 403);
+			if (form.action === 'e2ee') {
+				state.on = form.on === '1';
+				return json({ ok: true, api: 1, e2ee: { on: state.on, by: 'me' }, keys: keys() });
+			}
+			if (turnedOnMeanwhile && form.text) {
+				state.on = true;
+				return json({ ok: false, api: 1, reason: 'encryption_required', e2ee: { on: true, by: 'them' }, keys: keys() }, 409);
+			}
+			if (form.text) return json({ ok: true, api: 1, message: { id: 8, from_me: true, text: form.text, cipher: null, sent: 1 } });
 			if (stale && !refusedOnce) {
 				refusedOnce = true;
 				return json({ ok: false, api: 1, reason: 'keys_changed', keys: keys() }, 409);
@@ -446,6 +456,24 @@ check('a device the site knows of and the app did not gets the message sealed ag
 	assert.strictEqual(sends.length, 2);
 	await assert.rejects(dme2ee.open(sends[0].cipher, later), (e) => e.message === 'not_for_device');
 	assert.strictEqual(await dme2ee.open(sends[1].cipher, later), 'for every device');
+	assert.strictEqual(sends[1].nonce, sends[0].nonce);
+});
+
+check('a conversation that isn\'t encrypted sends plain text; one turned on meanwhile is sealed after all', async () => {
+	const plain = await messagesSite({ e2ee: false });
+	const sent = await plain.client.sendMessage('ab12cd34000011112222333344445555', 'just text', 'nonce-plain1');
+	const form = plain.posted.find((p) => p.action === 'send' && p.csrf !== 'token1');
+	assert.deepStrictEqual([form.text, form.cipher, sent.message.text], ['just text', undefined, 'just text']);
+	const turned = await plain.client.setEncrypted('ab12cd34000011112222333344445555', true);
+	assert.deepStrictEqual([turned.e2ee.on, turned.keys], [true, undefined]);
+	await plain.client.sendMessage('ab12cd34000011112222333344445555', 'now sealed', 'nonce-plain2');
+	assert.strictEqual(await dme2ee.open(plain.posted[plain.posted.length - 1].cipher, plain.theirs), 'now sealed');
+
+	const raced = await messagesSite({ turnedOnMeanwhile: true });
+	await raced.client.sendMessage('ab12cd34000011112222333344445555', 'raced', 'nonce-race01');
+	const sends = raced.posted.filter((p) => p.action === 'send' && p.csrf !== 'token1');
+	assert.deepStrictEqual([sends[0].text, sends[1].text], ['raced', undefined]);
+	assert.strictEqual(await dme2ee.open(sends[1].cipher, raced.theirs), 'raced');
 	assert.strictEqual(sends[1].nonce, sends[0].nonce);
 });
 

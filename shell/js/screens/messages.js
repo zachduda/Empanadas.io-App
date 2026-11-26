@@ -2,9 +2,10 @@
 // /v2/app/messages.php (the conversations and messages screens' data in
 // main.js). Friends only, as the site decides. An open conversation asks for
 // what's new every few seconds; the inbox every twenty. Everything a player
-// wrote goes on the page as text. Messages are end-to-end encrypted: the main
-// process seals and opens them (lib/api.js), so text here is already plain.
-// Your own can be edited for a minute and deleted any time.
+// wrote goes on the page as text. A conversation can be end-to-end encrypted,
+// off until either player turns it on and then on for both: the main process
+// seals and opens them (lib/api.js), so text here is already plain. Your own
+// messages can be edited for a minute and deleted any time.
 //
 // { screen: 'messages' } opens the inbox, { screen: 'messages', id } the
 // conversation with that player (a profile's Message button,
@@ -250,7 +251,8 @@ export function mount(container, { app, params }) {
 		stopThreadPoll();
 		const convo = {
 			id: key(id), raw: String(id), with: preview || null, messages: [], pending: [], hasMore: false, seenUpTo: 0,
-			canMessage: false, reason: null, blocked: false, loaded: false, error: null, since: 0, editing: null
+			canMessage: false, reason: null, blocked: false, loaded: false, error: null, since: 0, editing: null,
+			e2ee: { on: false, by: null }
 		};
 		current = convo;
 		const head = h('header', { class: 'dm-head' });
@@ -282,6 +284,7 @@ export function mount(container, { app, params }) {
 		current.reason = data.reason || null;
 		current.blocked = !!data.blocked;
 		current.seenUpTo = Number(data.seen_up_to) || 0;
+		if (data.e2ee) current.e2ee = data.e2ee;
 		if (typeof data.now === 'number') {
 			current.since = data.now;
 			skew = data.now - Date.now() / 1000;
@@ -319,15 +322,20 @@ export function mount(container, { app, params }) {
 				h('div', { class: 'name' }, p.username || '…'),
 				p.label ? h('div', { class: 'sub' }, p.label) : null));
 		who.addEventListener('click', openProfile);
+		const lock = current.loaded ? button(current.e2ee.on ? 'Encrypted' : 'Encrypt', () => setEncrypted(!current.e2ee.on),
+			{ kind: 'small' + (current.e2ee.on ? ' primary' : ''), icon: 'lock',
+				title: current.e2ee.on ? 'End-to-end encryption is on. Turn it off' : 'Turn on end-to-end encryption' }) : null;
 		const more = current.loaded ? iconButton('more', 'More', () => app.contextMenu([
 			{ id: 'profile', label: 'View Profile' },
+			{ id: 'e2ee', label: current.e2ee.on ? 'Turn Off End-to-End Encryption…' : 'Turn On End-to-End Encryption…' },
 			{ type: 'separator' },
 			{ id: 'block', label: current.blocked ? 'Unblock ' + p.username : 'Block ' + p.username + '…' }
 		], (choice) => {
 			if (choice === 'profile') openProfile();
+			if (choice === 'e2ee') setEncrypted(!current.e2ee.on);
 			if (choice === 'block') setBlocked(current.with, !current.blocked);
 		})) : null;
-		replace(current.head, who, h('div', { class: 'spacer' }), more);
+		replace(current.head, who, h('div', { class: 'spacer' }), lock, more);
 	}
 
 	function drawMessages(toEnd) {
@@ -338,8 +346,11 @@ export function mount(container, { app, params }) {
 		if (current.hasMore) rows.push(h('div', { class: 'dm-older' }, button('Load Earlier Messages', loadOlder, { kind: 'small' })));
 		let previous = null;
 		const all = current.messages.concat(current.pending);
-		if (current.loaded && (current.canMessage || all.some((m) => m.encrypted))) {
-			rows.push(h('div', { class: 'dm-lock' }, icon('lock'), 'End-to-end encrypted. Only you and ' + ((current.with && current.with.username) || 'they') + ' can read these.'));
+		if (current.loaded && current.e2ee.on) {
+			const name = (current.with && current.with.username) || 'they';
+			rows.push(h('div', { class: 'dm-lock' }, icon('lock'), 'End-to-end encryption is on'
+				+ (current.e2ee.by === 'me' ? ' (you turned it on)' : current.e2ee.by === 'them' ? ' (' + name + ' turned it on)' : '')
+				+ '. New messages can only be read by you and ' + name + '.'));
 		}
 		let nextExpiry = Infinity;
 		for (const m of all) {
@@ -375,6 +386,31 @@ export function mount(container, { app, params }) {
 		if (nextExpiry !== Infinity) {
 			editTimer = setTimeout(() => { if (!destroyed && current) drawMessages(false); }, Math.max(500, (nextExpiry - serverNow()) * 1000 + 250));
 		}
+	}
+
+	// --- End-to-end encryption, for both -------------------------------------------
+
+	async function setEncrypted(on) {
+		const convo = current;
+		const name = (convo.with && convo.with.username) || 'them';
+		const ok = await app.confirm({
+			title: on ? 'Turn on end-to-end encryption?' : 'Turn off end-to-end encryption?',
+			message: on
+				? 'New messages between you and ' + name + ' can only be read on your devices, not by Empanadas.io. It\'s turned on for ' + name + ' too, and either of you can turn it off.'
+				: 'New messages between you and ' + name + ' will be sent as plain text, for both of you. Messages already encrypted stay encrypted.',
+			confirm: on ? 'Turn On' : 'Turn Off',
+			danger: !on
+		});
+		if (!ok) return;
+		const result = await window.native.data.act('setEncrypted', { id: convo.raw, on });
+		if (destroyed || current !== convo) return;
+		if (!result.ok) {
+			app.toast(result.error.code === 'no_keys' ? reasonText('no_keys', name) : result.error.message, 'error');
+			return;
+		}
+		if (result.data && result.data.e2ee) convo.e2ee = result.data.e2ee;
+		app.toast(on ? 'End-to-end encryption is on.' : 'End-to-end encryption is off.', 'success');
+		drawThread(false);
 	}
 
 	// --- Editing and deleting your own --------------------------------------------
@@ -584,13 +620,13 @@ export function mount(container, { app, params }) {
 		const last = convo.messages.length ? convo.messages[convo.messages.length - 1].id : 0;
 		const result = await window.native.data.load('messages', { id: convo.raw, after: last, since: convo.since || undefined });
 		if (destroyed || current !== convo || !result.ok) return;
-		const before = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label];
+		const before = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label, convo.e2ee.on];
 		const changed = (Array.isArray(result.data.changed) ? result.data.changed : []).some((m) => {
 			const had = convo.messages.find((x) => x.id === m.id);
 			return had && (had.deleted !== m.deleted || had.edited !== m.edited);
 		});
 		apply(result.data, true);
-		const after = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label];
+		const after = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label, convo.e2ee.on];
 		if (changed || before.some((v, i) => v !== after[i])) {
 			drawThread(false);
 			markRead();

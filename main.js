@@ -91,7 +91,7 @@ const MESSAGES_POLL = 60 * 1000;
 // 2: the Messages screen (the conversations and messages screens' data,
 // sendMessage, readMessages, blockPlayer and reportMessage).
 // 3: end-to-end encrypted messages, opened here (messages' since, editMessage,
-// deleteMessage, reportMessage's text, prepareMessages).
+// deleteMessage, reportMessage's text, prepareMessages, setEncrypted).
 const SHELL_API = 3;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
@@ -694,6 +694,7 @@ const ACTIONS = {
 	editMessage: (p) => api.editMessage(p.id, p.message, p.text),
 	deleteMessage: (p) => api.deleteMessage(p.message),
 	prepareMessages: () => api.prepareMessages(),
+	setEncrypted: (p) => api.setEncrypted(p.id, p.on === true),
 	reportMessage: (p) => api.reportMessage(p.message, p.reason, p.note, p.text),
 	deleteAccount: (p) => api.deleteAccount(p.confirmation)
 };
