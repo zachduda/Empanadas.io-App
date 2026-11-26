@@ -67,10 +67,11 @@ export function mount(container, { app, params }) {
 		const actions = self
 			? [button('Change Picture', () => window.native.site.open('picture'), { kind: 'small' }),
 				button('Edit Status', () => { editing = true; draw(); }, { kind: 'small', icon: 'pencil' })]
-			: relationButtons(app, { id: p.id, username: p.username, relation: rel.state, acceptsRequests: rel.accepts_requests !== false }, () => {
-				recent.clear();
-				refresh();
-			});
+			: [rel.state === 'friends' ? button('Message', () => app.navigate({ screen: 'messages', id: p.id }), { kind: 'primary small', icon: 'message' }) : null,
+				relationButtons(app, { id: p.id, username: p.username, relation: rel.state, acceptsRequests: rel.accepts_requests !== false }, () => {
+					recent.clear();
+					refresh();
+				})];
 
 		const presence = p.presence && p.presence.state ? presenceOf(p.presence.state) : null;
 		const head = h('div', { class: 'card', style: { marginBottom: '16px' } },

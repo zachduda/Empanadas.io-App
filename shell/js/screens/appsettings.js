@@ -1,15 +1,16 @@
-// App Settings: the app's own settings, apart from the account's. None of it
-// needs the site, so it opens offline and when the account can't be loaded:
-// updates, the cache, the games kept on this computer, Keep Spinning When
-// Closed, notifications, which versions of the app, Electron and Chromium
-// this is (for bug reports, as the 1.x account page showed), and how the
-// servers are (Server Status, as on iOS).
+// The app's own part of Settings, below the account's (settings.js mounts
+// it): updates, the cache, the games kept on this computer, Keep Spinning
+// When Closed, notifications, which versions of the app, Electron and
+// Chromium this is (for bug reports, as the 1.x account page showed), and how
+// the servers are (Server Status, as on iOS). None of it needs the site, so
+// it shows offline and when the account can't be loaded.
 
 import { h, replace, button, icon } from '../dom.js';
+import { setting, settingsGroup as group, settingSwitch as toggle } from '../components.js';
 import { num, ago, bytes, GAMES, GAME_ORDER } from '../format.js';
 import { levelOf, statusDot, openStatusSheet } from '../statussheet.js';
 
-// How often the light is asked about while App Settings is showing: the
+// How often the light is asked about while Settings is showing: the
 // main process caches Statuspage's answer for as long.
 const STATUS_EVERY = 60 * 1000;
 
@@ -30,10 +31,9 @@ const WORKING = ['checking', 'downloading', 'verifying', 'installing'];
 
 const PLATFORM = { darwin: 'Mac', win32: 'Windows', linux: 'Linux' };
 
-export function mount(container, { app }) {
-	const inner = h('div', { class: 'content-inner narrow' });
-	replace(container, inner);
-
+// Draws into `inner`, a part of the Settings screen; returns its refresh and
+// destroy.
+export function mountAppPart(inner, { app }) {
 	let info = app.state.info || {};
 	let games = app.state.games;
 	let bg = { available: false, enabled: false };
@@ -45,30 +45,6 @@ export function mount(container, { app }) {
 	let serverLevel = 'checking';
 	const hasStatus = !!(window.native && window.native.status);
 	const offs = [];
-
-	function setting(title, desc, control, leadIcon) {
-		return h('div', { class: 'setting' },
-			leadIcon ? icon(leadIcon, 'lead') : null,
-			h('div', { class: 'main' }, h('div', { class: 'title' }, title), desc ? h('div', { class: 'desc' }, desc) : null),
-			control ? h('div', { class: 'control' }, control) : null);
-	}
-
-	function group(title, rows) {
-		return h('section', { class: 'settings-group' }, h('h2', null, title), h('div', { class: 'card' }, rows));
-	}
-
-	function toggle(checked, onChange, { disabled = false, label } = {}) {
-		const input = h('input', { type: 'checkbox', class: 'switch', role: 'switch', 'aria-label': label, disabled });
-		input.checked = !!checked;
-		input.addEventListener('change', async () => {
-			const want = input.checked;
-			input.disabled = true;
-			const ok = await onChange(want);
-			input.disabled = false;
-			if (ok === false) input.checked = !want;
-		});
-		return input;
-	}
 
 	function updateRows() {
 		const s = update.status || 'idle';
@@ -244,7 +220,6 @@ export function mount(container, { app }) {
 
 	function draw() {
 		replace(inner,
-			h('div', { class: 'page-head' }, h('h1', null, 'App Settings')),
 			group('Updates', updateRows()),
 			group('This Computer', [
 				setting('Keep Spinning When Closed', bg.available
@@ -254,17 +229,14 @@ export function mount(container, { app }) {
 					bg = await window.native.background.set(on);
 					return bg.enabled === on;
 				}, { disabled: !bg.available, label: 'Keep Spinning When Closed' })),
-				setting('Friend Request Notifications', 'When the app is in the background.', toggle(prefs.notifications !== false, async (on) => {
+				setting('Notifications', 'Friend requests and messages, when the app is in the background.', toggle(prefs.notifications !== false, async (on) => {
 					prefs = await window.native.prefs.set({ notifications: on });
 					return true;
 				}, { label: 'Notifications' }))
 			]),
 			group('Storage', storageRows()),
 			group('About This App', aboutRows()),
-			hasStatus ? group('Server Status', statusRows()) : null,
-			h('section', { class: 'settings-group' }, h('div', { class: 'card' },
-				setting('Account Settings', 'Theme, privacy, email, passkeys and save points.',
-					button('Open', () => app.navigate({ screen: 'settings' }), { kind: 'small' }), 'user'))));
+			hasStatus ? group('Server Status', statusRows()) : null);
 	}
 
 	draw();
@@ -301,7 +273,6 @@ export function mount(container, { app }) {
 	offs.push(app.on('background', (s) => { bg = s; draw(); }));
 
 	return {
-		title: 'App Settings',
 		refresh: () => Promise.all([
 			window.native.cache.size().then((c) => { cacheBytes = c ? c.bytes : cacheBytes; draw(); }),
 			checkStatus(true)

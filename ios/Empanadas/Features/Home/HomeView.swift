@@ -109,8 +109,6 @@ struct HomeView: View {
         Menu {
             Button { show(.player(id: nil, name: nil)) } label: { Label("My Profile", systemImage: "person.crop.circle") }
             Button { show(.findFriends) } label: { Label("Find Friends", systemImage: "magnifyingglass") }
-            Button { model.navigate(to: .leaderboard) } label: { Label("Leaderboards", systemImage: "trophy") }
-            Button { model.navigate(to: .settings) } label: { Label("Settings", systemImage: "gearshape") }
         } label: {
             Avatar(url: data?.pictureURL, size: 30)
         }

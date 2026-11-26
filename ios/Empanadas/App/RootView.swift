@@ -55,6 +55,13 @@ struct RootView: View {
             model.saveGamesForOffline()
             await model.refreshTheme(maxAge: CacheAge.account)
         }
+        // Whether the player still lets the app notify them (they may have
+        // changed it in the Settings app), and the device's token, which APNs
+        // wants asked for at every launch.
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await PushNotifications.shared.refresh()
+        }
         // Whether the servers are all right, while the app is in front: at
         // once, then every five minutes.
         .task(id: scenePhase) {
@@ -135,7 +142,7 @@ struct MainTabView: View {
     @Environment(AppModel.self) private var model
 
     /// In the tab bar's order.
-    private static let tabs: [AppTab] = [.home, .games, .leaderboard, .settings]
+    private static let tabs: [AppTab] = [.home, .games, .messages, .leaderboard, .settings]
 
     var body: some View {
         @Bindable var model = model
@@ -151,6 +158,11 @@ struct MainTabView: View {
                 .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
                 .tag(AppTab.games)
+            MessagesTab()
+                .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
+                .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
+                .badge(model.unreadMessages)
+                .tag(AppTab.messages)
             LeaderboardView()
                 .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Leaderboards", systemImage: "trophy.fill") }

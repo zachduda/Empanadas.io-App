@@ -1,4 +1,4 @@
-// Server Status: the light App Settings shows, and the full status page in a
+// Server Status: the light Settings shows, and the full status page in a
 // sheet over the window, as the iOS app has them (ServerStatusViews.swift and
 // StatusPageView.swift). The sheet is drawn here, its title bar and all; the
 // page inside it is Statuspage's own, in a view of the app's laid over the
@@ -27,7 +27,7 @@ export function levelOf(name) {
 export function statusDot(level, { size = 'small' } = {}) {
 	const l = levelOf(level);
 	// The ring is timed from the clock, not from when the dot was drawn, so a
-	// screen drawn again (App Settings is, often) never sets it off again
+	// screen drawn again (Settings is, often) never sets it off again
 	// half way through one.
 	return h('span', {
 		class: 'status-dot ' + l.tone + (l.live ? ' live' : '') + (size === 'large' ? ' large' : ''),

@@ -38,42 +38,10 @@ export function mount(container, { app }) {
 		}
 	});
 
-	// What the experience came from, under the rank. The dashboard does not
-	// carry it (the profile does), so it is asked for after the dashboard, and
-	// again whenever the XP has moved since.
-	let parts = null; // [{ label, xp, percent }], or null until there are some
-	let partsFor = null; // the XP total they were asked for at
-	let partsBusy = false;
-	let partsHost = null; // where they go in the card on screen
-	let latestTotal = null;
-
-	function drawParts() {
-		if (!partsHost) return;
-		if (parts && parts.length) replace(partsHost, xpBreakdown(parts));
-		else if (partsBusy && !parts) replace(partsHost, skeleton(3, 12));
-		else if (!parts) replace(partsHost, h('div', { class: 'muted small' }, "The breakdown isn't available right now."));
-		else replace(partsHost);
-	}
-
-	async function loadParts(first) {
-		if (partsBusy || gone) return;
-		partsBusy = true;
-		if (!parts) drawParts(); // the skeleton, not the note for when it fails
-		const total = latestTotal;
-		const result = await load('profile', {}, (r) => {
-			const xp = r && r.data && r.data.xp;
-			if (xp && Array.isArray(xp.breakdown)) {
-				parts = xp.breakdown;
-				drawParts();
-			}
-		}, { cached: first });
-		partsBusy = false;
-		if (result && result.ok) {
-			partsFor = total;
-			// The XP moved while this was on its way: once more, for the new one.
-			if (!gone && latestTotal !== total) return loadParts(false);
-		}
-		drawParts();
+	// What the experience came from, under the rank: the dashboard's
+	// breakdown, as a profile has it.
+	function partsOf(xp) {
+		return Array.isArray(xp.breakdown) && xp.breakdown.length ? xpBreakdown(xp.breakdown) : null;
 	}
 
 	// A tile's number rolls up from zero, easing out, the first time Home shows.
@@ -169,14 +137,7 @@ export function mount(container, { app }) {
 		chart = spinChart(d.spin_history || []);
 		chartCard.appendChild(chart.el);
 
-		// A site that sends the breakdown with the dashboard needs no second ask.
-		latestTotal = xp.total;
-		if (Array.isArray(xp.breakdown)) {
-			parts = xp.breakdown;
-			partsFor = xp.total;
-		}
-		partsHost = h('div', { class: 'xp-parts' });
-		drawParts();
+		const partsHost = h('div', { class: 'xp-parts' }, partsOf(xp));
 
 		const xpCard = h('div', { class: 'card soft' },
 			h('div', { class: 'card-title' }, h('span', { class: 'title-chip gold' }, icon('star')), 'Experience', h('span', { class: 'aside' }, num(xp.total) + ' XP')),
@@ -235,7 +196,6 @@ export function mount(container, { app }) {
 				h('div', { class: 'grid two' }, rise(xpCard), rise(friendsCard))));
 		if (d.daily) daily.update(d.daily, result.savedAt);
 		if (chart) requestAnimationFrame(() => chart.update(d.spin_history || []));
-		if (partsFor !== xp.total) loadParts(!parts);
 	}
 
 	function refresh() {

@@ -61,6 +61,7 @@ struct SettingsView: View {
                 }
 
                 accountSection
+                notificationsSection
                 appSection
                 gameCenterSection
                 aboutSection
@@ -96,6 +97,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .glassNavigationBar()
             .profileDestinations()
+            .gameDataDestinations()
             .task { await settings.load(app: model, maxAge: CacheAge.account) }
             .refreshable {
                 Task { await model.serverStatus.refresh(force: true) }
@@ -252,6 +254,36 @@ struct SettingsView: View {
                     Label("Two-Factor Authentication", systemImage: "lock.shield")
                 }
             }
+            // As under Home's Spin Progress chart, and in the desktop app's
+            // Settings.
+            NavigationLink(value: GameDataRoute.savePoints) {
+                Label("Manage Game Data", systemImage: "externaldrive.fill.badge.timemachine")
+            }
+        }
+    }
+
+    /// Whether the app may notify the player of messages and friend
+    /// requests. Asked once by the system; after that only the Settings app
+    /// can change it.
+    private var notificationsSection: some View {
+        let push = PushNotifications.shared
+        return Section {
+            switch push.permission {
+            case .notAsked:
+                Button("Turn On Notifications") {
+                    Task { await push.requestPermission() }
+                }
+            case .on:
+                LabeledContent("Notifications", value: "On")
+                Button("Notification Settings") { push.openSystemSettings() }
+            case .off:
+                LabeledContent("Notifications", value: "Off")
+                Button("Turn On in Settings") { push.openSystemSettings() }
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text("A notification when a friend messages you, with Reply on it, and when someone asks to be your friend or accepts your request. Whether a message's words show on the lock screen is up to Show Previews in the Settings app.")
         }
     }
 

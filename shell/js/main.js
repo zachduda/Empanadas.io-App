@@ -11,23 +11,30 @@ import * as leaderboard from './screens/leaderboard.js';
 import * as friends from './screens/friends.js';
 import * as profile from './screens/profile.js';
 import * as settings from './screens/settings.js';
-import * as appsettings from './screens/appsettings.js';
 import * as updates from './screens/updates.js';
 import * as feedback from './screens/feedback.js';
 import * as savepoints from './screens/savepoints.js';
+import * as messages from './screens/messages.js';
 
 const native = window.native;
 
-const SCREENS = { home, games, leaderboard, friends, profile, settings, appsettings, updates, feedback, savepoints };
+const SCREENS = { home, games, leaderboard, friends, messages, profile, settings, updates, feedback, savepoints };
 
-// The sidebar: one of these is always the section a screen belongs to.
+// The sidebar: one of these is always the section a screen belongs to, in
+// the Go menu's order (⌘1 to ⌘6). Your account, at the bottom, is Settings.
 const SECTIONS = [
 	{ screen: 'home', label: 'Home', icon: 'home' },
 	{ screen: 'games', label: 'Games', icon: 'games' },
 	{ screen: 'leaderboard', label: 'Leaderboards', icon: 'trophy' },
 	{ screen: 'friends', label: 'Friends', icon: 'users' },
+	{ screen: 'messages', label: 'Messages', icon: 'message' },
 	{ screen: 'profile', label: 'My Profile', icon: 'user' }
 ];
+
+// Screens that are part of another: App Settings is the app's part of
+// Settings now (empanadas-io://appsettings, and older apps' App Settings…
+// menu item, which these screens can be shown in).
+const ALIASES = { appsettings: { screen: 'settings', section: 'app' } };
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,6 +48,7 @@ const state = {
 	stack: [],
 	current: null,
 	pendingFriends: 0,
+	unreadMessages: 0,
 	hasNewUpdates: false,
 	signin: null
 };
@@ -53,9 +61,10 @@ export const app = {
 	// Opens a screen. A sidebar section starts afresh; anything else is
 	// pushed on top of what is showing, and Back returns to it.
 	navigate(route, { replaceTop = false } = {}) {
+		if (route && ALIASES[route.screen]) route = Object.assign({}, route, ALIASES[route.screen]);
 		if (!route || !SCREENS[route.screen]) return;
 		const isSection = SECTIONS.some((s) => s.screen === route.screen) && !route.id;
-		if (isSection || route.screen === 'settings' || route.screen === 'appsettings') {
+		if (isSection || route.screen === 'settings') {
 			state.stack = [];
 		} else if (!replaceTop) {
 			state.stack.push(state.route);
@@ -146,6 +155,13 @@ export const app = {
 		drawTitlebar();
 	},
 
+	setUnreadMessages(count) {
+		const n = Math.max(0, Number(count) || 0);
+		if (n === state.unreadMessages) return;
+		state.unreadMessages = n;
+		drawSidebar();
+	},
+
 	setHasNewUpdates(value) {
 		state.hasNewUpdates = !!value;
 		drawTitlebar();
@@ -168,7 +184,6 @@ export const app = {
 // --- Showing a screen -----------------------------------------------------
 
 function show(route) {
-	closeAccountMenu();
 	const content = $('content');
 	if (state.current && state.current.destroy) {
 		try { state.current.destroy(); } catch (err) { console.error(err); }
@@ -198,8 +213,9 @@ function refreshScreen() {
 
 function sectionOf(route) {
 	if (route.screen === 'profile' && !route.id) return 'profile';
+	if (route.screen === 'messages') return 'messages';
 	if (SECTIONS.some((s) => s.screen === route.screen)) return route.screen;
-	if (route.screen === 'settings' || route.screen === 'appsettings' || route.screen === 'savepoints') return 'settings';
+	if (route.screen === 'settings' || route.screen === 'savepoints') return 'settings';
 	const below = state.stack.length ? state.stack[0] : null;
 	return below ? sectionOf(below) : null;
 }
@@ -218,7 +234,8 @@ function drawSidebar() {
 			class: 'nav-item',
 			'aria-current': current === section.screen ? 'page' : null
 		}, icon(section.icon), h('span', null, section.label),
-		section.screen === 'friends' && state.pendingFriends ? h('span', { class: 'count', title: state.pendingFriends + ' friend requests' }, String(state.pendingFriends)) : null);
+		section.screen === 'friends' && state.pendingFriends ? h('span', { class: 'count', title: state.pendingFriends + ' friend requests' }, String(state.pendingFriends)) : null,
+		section.screen === 'messages' && state.unreadMessages ? h('span', { class: 'count', title: state.unreadMessages + ' unread' }, state.unreadMessages > 99 ? '99+' : String(state.unreadMessages)) : null);
 		b.addEventListener('click', () => app.navigate({ screen: section.screen }));
 		if (current === section.screen) active = b;
 		return b;
@@ -226,7 +243,7 @@ function drawSidebar() {
 
 	const account = state.dashboard && state.dashboard.account;
 	const name = (account && account.username) || state.session.username || 'You';
-	const who = h('button', { type: 'button', class: 'nav-account', title: 'Settings' },
+	const who = h('button', { type: 'button', class: 'nav-account', title: 'Settings', 'aria-current': current === 'settings' ? 'page' : null },
 		avatar(account && account.pfp, 'md'),
 		h('span', { class: 'who' },
 			h('div', { class: 'name' }, name),
@@ -306,92 +323,6 @@ function drawTitlebar() {
 	const bell = iconButton('bell', 'Updates', () => app.navigate({ screen: 'updates' }));
 	if (state.hasNewUpdates) bell.appendChild(h('span', { class: 'dot' }));
 	trail.appendChild(bell);
-	trail.appendChild(titlebarAvatar());
-}
-
-// Your picture at the top right, beside the bell: a menu with My Profile,
-// Settings (the account's), App Settings (updates, cache, versions) and
-// Sign Out.
-let accountMenu = null;
-
-function titlebarAvatar() {
-	const account = state.dashboard && state.dashboard.account;
-	const name = (account && account.username) || state.session.username || 'You';
-	const b = h('button', {
-		type: 'button',
-		class: 'titlebar-avatar' + (accountMenu ? ' open' : ''),
-		'aria-label': 'Account: ' + name,
-		'aria-haspopup': 'menu',
-		'aria-expanded': accountMenu ? 'true' : 'false'
-	}, avatar(account && account.pfp, 'sm'),
-	h('span', { class: 'presence ' + (navigator.onLine ? 'online' : 'offline') }));
-	b.addEventListener('click', (e) => {
-		e.stopPropagation();
-		if (accountMenu) closeAccountMenu();
-		else openAccountMenu(b, e.detail === 0);
-	});
-	return b;
-}
-
-function openAccountMenu(anchor, fromKeyboard) {
-	closeAccountMenu();
-	const item = (label, iconName, run, kind) => {
-		const el = h('button', { type: 'button', role: 'menuitem', class: 'menu-item' + (kind ? ' ' + kind : ''), tabindex: '-1' }, icon(iconName), h('span', null, label));
-		el.addEventListener('click', () => { closeAccountMenu(); run(); });
-		return el;
-	};
-	const menu = h('div', { class: 'account-menu', role: 'menu', 'aria-label': 'Account' },
-		item('My Profile', 'user', () => app.navigate({ screen: 'profile' })),
-		item('Settings', 'settings', () => app.navigate({ screen: 'settings' })),
-		item('App Settings', 'sliders', () => app.navigate({ screen: 'appsettings' })),
-		h('div', { class: 'menu-divider', role: 'separator' }),
-		item('Sign Out', 'logout', () => app.signOut(), 'danger'));
-	const r = anchor.getBoundingClientRect();
-	menu.style.top = Math.round(r.bottom + 8) + 'px';
-	menu.style.right = Math.round(window.innerWidth - r.right) + 'px';
-	document.body.appendChild(menu);
-
-	const items = [...menu.querySelectorAll('.menu-item')];
-	const focusAt = (i) => items[(i + items.length) % items.length].focus();
-	const onKey = (e) => {
-		const at = items.indexOf(document.activeElement);
-		if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAccountMenu(); anchor.isConnected && anchor.focus(); }
-		else if (e.key === 'ArrowDown') { e.preventDefault(); focusAt(at + 1); }
-		else if (e.key === 'ArrowUp') { e.preventDefault(); focusAt(at < 0 ? -1 : at - 1); }
-		else if (e.key === 'Home') { e.preventDefault(); focusAt(0); }
-		else if (e.key === 'End') { e.preventDefault(); focusAt(-1); }
-		else if (e.key === 'Tab') closeAccountMenu();
-	};
-	const onDown = (e) => { if (!menu.contains(e.target) && !e.target.closest('.titlebar-avatar')) closeAccountMenu(); };
-	document.addEventListener('keydown', onKey, true);
-	document.addEventListener('mousedown', onDown, true);
-	window.addEventListener('blur', closeAccountMenu);
-	window.addEventListener('resize', closeAccountMenu);
-	accountMenu = {
-		menu,
-		close() {
-			document.removeEventListener('keydown', onKey, true);
-			document.removeEventListener('mousedown', onDown, true);
-			window.removeEventListener('blur', closeAccountMenu);
-			window.removeEventListener('resize', closeAccountMenu);
-			menu.classList.add('closing');
-			setTimeout(() => menu.remove(), 120);
-		}
-	};
-	anchor.classList.add('open');
-	anchor.setAttribute('aria-expanded', 'true');
-	if (fromKeyboard) focusAt(0);
-}
-
-function closeAccountMenu() {
-	if (!accountMenu) return;
-	accountMenu.close();
-	accountMenu = null;
-	const b = document.querySelector('.titlebar-avatar');
-	if (b) {
-		b.classList.remove('open');
-		b.setAttribute('aria-expanded', 'false');
-	}
 }
 
 // --- Signed in or out -----------------------------------------------------
@@ -402,7 +333,6 @@ function applySession(session) {
 	const root = $('app');
 	root.classList.toggle('signed-out', !state.session.signedIn);
 	if (!state.session.signedIn) {
-		closeAccountMenu();
 		state.stack = [];
 		state.dashboard = null;
 		if (state.current && state.current.destroy) state.current.destroy();
@@ -447,7 +377,9 @@ async function start() {
 		if (key === 'dashboard' && result && result.data) {
 			state.dashboard = result.data;
 			app.setPendingFriends(result.data.friends && result.data.friends.pending);
+			if (result.data.messages) app.setUnreadMessages(result.data.messages.unread);
 		}
+		if (key === 'conversations' && result && result.ok && result.data) app.setUnreadMessages(result.data.unread);
 		app.emit(key, result);
 	});
 	native.on('games', (status) => {
@@ -475,7 +407,10 @@ async function start() {
 	state.game = gameState;
 	state.games = games;
 	const kept = session.signedIn ? await native.data.cached('dashboard') : null;
-	if (kept && kept.data) state.dashboard = kept.data;
+	if (kept && kept.data) {
+		state.dashboard = kept.data;
+		if (kept.data.messages) state.unreadMessages = Math.max(0, Number(kept.data.messages.unread) || 0);
+	}
 	applySession(session);
 	root.classList.remove('booting');
 	root.removeAttribute('aria-busy');

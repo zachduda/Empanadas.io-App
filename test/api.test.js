@@ -364,6 +364,115 @@ check('a daily reward claim pays, or says it was already claimed', () => {
 	assert.throws(() => api.dailyClaimBody('<html>', 404), (e) => e.code === 'unavailable');
 });
 
+// --- direct messages -------------------------------------------------------
+
+check('the inbox and a conversation are read from messages.php, and hand over the token', async () => {
+	const site = fakeFetch([[/v2\/app\/messages\.php/, (url) => json({ ok: true, api: 1, url, conversations: [], messages: [], csrf: 'msg-token' })]]);
+	const client = api.createApi({ fetch: site.fetch });
+	await client.conversations();
+	assert.strictEqual(site.calls[0].url, 'https://empanadas.io/v2/app/messages.php');
+	await client.thread('AB12CD34-0000-1111-2222-333344445555');
+	assert.strictEqual(site.calls[1].url, 'https://empanadas.io/v2/app/messages.php?with=ab12cd34000011112222333344445555');
+	await client.thread('ab12cd34000011112222333344445555', { before: 40 });
+	assert.ok(site.calls[2].url.endsWith('&before=40'));
+	await client.thread('ab12cd34000011112222333344445555', { after: '41', before: 'nope' });
+	assert.ok(site.calls[3].url.endsWith('with=ab12cd34000011112222333344445555&after=41'));
+	assert.ok(client.hasToken);
+	await assert.rejects(client.thread('../x'), (e) => e.code === 'invalid');
+	assert.strictEqual(site.calls.length, 4);
+});
+
+check('a message is posted with its nonce and the token, and once more with a fresh token if stale', async () => {
+	let tokens = 0;
+	const posted = [];
+	const site = fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, csrf: 'token' + (++tokens) })],
+		[/v2\/app\/messages\.php/, (url, init) => {
+			const form = Object.fromEntries(new URLSearchParams(init.body));
+			posted.push(form);
+			if (form.csrf === 'token1') return json({ ok: false, api: 1, reason: 'csrf' }, 403);
+			return json({ ok: true, api: 1, message: { id: 7, from_me: true, text: form.text, sent: 1, read: false }, duplicate: false });
+		}]
+	]);
+	const client = api.createApi({ fetch: site.fetch });
+	const reply = await client.sendMessage('AB12CD34-0000-1111-2222-333344445555', '  hey\r\n\r\n\r\nthere  ', 'nonce-abc123');
+	assert.strictEqual(reply.message.text, 'hey\n\nthere');
+	assert.strictEqual(posted.length, 2);
+	assert.deepStrictEqual(posted[0], { action: 'send', to: 'ab12cd34000011112222333344445555', text: 'hey\n\nthere', nonce: 'nonce-abc123', csrf: 'token1' });
+	// The retry is the same message: the same nonce.
+	assert.deepStrictEqual(posted[1], Object.assign({}, posted[0], { csrf: 'token2' }));
+	await client.sendMessage('ab12cd34000011112222333344445555', 'again', 'bad nonce!');
+	assert.ok(/^[0-9a-f]{32}$/.test(posted[2].nonce), 'a nonce that is not one is replaced: ' + posted[2].nonce);
+});
+
+check('a message with nothing in it is refused before anything is sent', async () => {
+	const site = fakeFetch([]);
+	const client = api.createApi({ fetch: site.fetch });
+	await assert.rejects(client.sendMessage('ab12cd34000011112222333344445555', ' \n\t '), (e) => e.code === 'empty');
+	await assert.rejects(client.sendMessage('nope', 'hi'), (e) => e.code === 'invalid');
+	await assert.rejects(client.reportMessage('x', 'spam'), (e) => e.code === 'invalid');
+	assert.strictEqual(site.calls.length, 0);
+});
+
+check('read, block, unblock and report post what the site takes', async () => {
+	const posted = [];
+	const site = fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, csrf: 't' })],
+		[/v2\/app\/messages\.php/, (url, init) => {
+			posted.push(Object.fromEntries(new URLSearchParams(init.body)));
+			return json({ ok: true, api: 1, unread: 0 });
+		}]
+	]);
+	const client = api.createApi({ fetch: site.fetch });
+	const id = 'ab12cd34000011112222333344445555';
+	await client.readMessages(id, 12);
+	await client.readMessages(id);
+	await client.blockPlayer(id, true);
+	await client.blockPlayer(id, false);
+	await client.reportMessage(99, 'harassment', 'not nice\r\n');
+	await client.reportMessage('100', 'made-up');
+	assert.deepStrictEqual(posted, [
+		{ action: 'read', with: id, up_to: '12', csrf: 't' },
+		{ action: 'read', with: id, csrf: 't' },
+		{ action: 'block', with: id, csrf: 't' },
+		{ action: 'unblock', with: id, csrf: 't' },
+		{ action: 'report', message: '99', reason: 'harassment', note: 'not nice', csrf: 't' },
+		{ action: 'report', message: '100', reason: 'other', note: '', csrf: 't' }
+	]);
+});
+
+check('the site\'s reasons for a message become sentences the screen can switch on', () => {
+	const refused = (reason, extra = {}, status = 403) => {
+		try {
+			api.messagesBody(JSON.stringify(Object.assign({ ok: false, api: 1, reason }, extra)), status);
+		} catch (err) {
+			return err;
+		}
+		throw new Error(reason + ' was not refused');
+	};
+	assert.strictEqual(refused('not_friends').code, 'not_friends');
+	assert.strictEqual(refused('not_friends').message, 'You can only message friends.');
+	assert.strictEqual(refused('unavailable').code, 'unavailable');
+	assert.strictEqual(refused('unverified').code, 'unverified');
+	assert.strictEqual(refused('rate_limited', {}, 429).code, 'rate_limited');
+	assert.strictEqual(refused('too_long', { max_length: 1000 }, 400).message, 'That message is too long. Keep it under 1,000 characters.');
+	assert.strictEqual(refused('csrf').code, 'stale_token');
+	assert.strictEqual(refused('no_session', {}, 401).code, 'signed_out');
+	assert.strictEqual(refused('server_error', {}, 500).code, 'server');
+	assert.throws(() => api.messagesBody('<html>404</html>', 404), (e) => e.code === 'unavailable');
+	assert.deepStrictEqual(api.messagesBody('{"ok":true,"api":1,"x":1}', 200), { ok: true, api: 1, x: 1 });
+});
+
+check('a message is tidied as the site tidies it', () => {
+	assert.strictEqual(api.messageText('  a\r\nb\rc\t d  \n\n\n\ne  '), 'a\nb\nc  d\n\ne');
+	assert.strictEqual(api.messageText(null), '');
+	assert.strictEqual(api.messageText('<b>x</b> & y'), '<b>x</b> & y');
+	assert.ok(api.isMessageNonce('a1b2c3d4'));
+	assert.ok(!api.isMessageNonce('a1b2c3d'));
+	assert.ok(!api.isMessageNonce('x'.repeat(33)));
+	assert.strictEqual(api.MESSAGE_MAX, 1000);
+});
+
 Promise.all(pending).then(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 	if (failures.length) {

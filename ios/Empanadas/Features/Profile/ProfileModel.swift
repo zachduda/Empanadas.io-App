@@ -11,6 +11,8 @@ enum ProfileRoute: Hashable {
 
 extension View {
     /// Lets NavigationLink(value: ProfileRoute) work in this navigation stack.
+    /// Messages too (messagesDestinations()): a friend's profile has a
+    /// Message button, and a conversation a View Profile.
     func profileDestinations() -> some View {
         navigationDestination(for: ProfileRoute.self) { route in
             switch route {
@@ -18,6 +20,7 @@ extension View {
             case .findFriends: FindFriendsView()
             }
         }
+        .messagesDestinations()
     }
 }
 

@@ -4,6 +4,7 @@ import SwiftUI
 enum AppTab: Hashable {
     case home
     case games
+    case messages
     case leaderboard
     case settings
 }
@@ -34,6 +35,9 @@ final class AppModel {
     /// Here so a profile link from anywhere (a site page, a deep link) can
     /// open on it.
     var homePath = NavigationPath()
+    /// What is pushed on the Messages tab: a conversation, and what it opens.
+    /// Here so a notification or a link can open a conversation on it.
+    var messagesPath = NavigationPath()
     var activeGame: Game? {
         didSet {
             guard activeGame != oldValue else { return }
@@ -148,6 +152,7 @@ final class AppModel {
         WebEnvironment.readUserAgent()
         if session == .signedIn { gameCenter.start() }
         updateHomeScreen()
+        PushNotifications.shared.app = self
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
@@ -203,6 +208,7 @@ final class AppModel {
             gameCenter.start()
             saveGamesForOffline()
             updateHomeScreen()
+            PushNotifications.shared.signedIn()
             Task { await self.refreshTheme() }
         case .signedOut:
             activeGame = nil
@@ -214,6 +220,7 @@ final class AppModel {
             offlineGames.stop()
             selectedTab = .home
             homePath = NavigationPath()
+            messagesPath = NavigationPath()
             leaderboardGame = .spin
             account.forgetToken()
             // What was saved describes this account; the next one must not
@@ -222,6 +229,11 @@ final class AppModel {
             leaderboard.reset()
             settings.reset()
             ProfileCache.clear()
+            unreadMessages = 0
+            openConversation = nil
+            unsentReply = nil
+            // This device stops getting the account's notifications.
+            PushNotifications.shared.signedOut()
             updates.reset()
             gameCenter.reset()
             lastPlayed = [:]
@@ -337,6 +349,9 @@ final class AppModel {
         case .home:
             activeGame = nil
             selectedTab = .home
+        case .games:
+            activeGame = nil
+            selectedTab = .games
         case .leaderboard:
             activeGame = nil
             selectedTab = .leaderboard
@@ -366,6 +381,14 @@ final class AppModel {
             activeGame = nil
             selectedTab = .home
             homePath.append(post.map { UpdatesRoute.post($0) } ?? .all)
+        case .messages(let id):
+            guard session == .signedIn else { return }
+            activeGame = nil
+            selectedTab = .messages
+            // The inbox, with the conversation on it: Back goes to the inbox
+            // whatever the tab was showing before.
+            messagesPath = NavigationPath()
+            if let id { messagesPath.append(MessagesRoute.conversation(id: id, name: nil)) }
         }
     }
 
@@ -380,10 +403,13 @@ final class AppModel {
 
     /// A friend was added, accepted or let go: the dashboard's friends card
     /// and counts should say so.
-    func friendsChanged() {
+    /// The task is the dashboard's reload, for a caller that must wait for
+    /// it (a notification's Accept, before the app is suspended again).
+    @discardableResult
+    func friendsChanged() -> Task<Void, Never> {
         // Every profile kept says where the player stands with its owner.
         ProfileCache.clear()
-        Task {
+        return Task {
             guard session == .signedIn, isOnline else { return }
             await dashboard.reload(app: self)
         }
@@ -654,6 +680,49 @@ final class AppModel {
     func dashboardUpdated() {
         guard session == .signedIn else { return }
         HomeScreenWidget.update(dashboard: dashboard.data, lastPlayed: lastPlayed)
+        if let unread = dashboard.data?.messagesUnread { unreadMessages = max(0, unread) }
+        updateBadge()
+    }
+
+    // MARK: - Messages
+
+    /// Direct messages waiting to be read, for the badge on Home's Messages
+    /// button: the dashboard's count, then the Messages screens' own as they
+    /// read and mark read.
+    private(set) var unreadMessages = 0
+
+    func setUnreadMessages(_ count: Int?) {
+        guard let count, session == .signedIn else { return }
+        unreadMessages = max(0, count)
+        updateBadge()
+    }
+
+    /// What waits on the player, as the site's notifications count it for
+    /// the app icon's badge (pushCounts() in its v2/_push.php), and the
+    /// desktop app's Dock badge: messages unread and friend requests to
+    /// answer.
+    var badgeCount: Int {
+        unreadMessages + (dashboard.data?.friends.pending ?? 0)
+    }
+
+    private func updateBadge() {
+        guard session == .signedIn else { return }
+        PushNotifications.shared.setBadge(badgeCount)
+    }
+
+    /// The player whose conversation is on screen: its notifications aren't
+    /// shown while it is (PushNotifications).
+    @ObservationIgnored var openConversation: String?
+
+    /// A reply from a notification that didn't go, for its conversation's
+    /// box: set by a tap on the app's notification saying so.
+    @ObservationIgnored var unsentReply: (playerID: String, text: String)?
+
+    /// The unsent reply to `playerID`, once.
+    func takeUnsentReply(for playerID: String) -> String? {
+        guard let reply = unsentReply, PlayerID.same(reply.playerID, playerID) else { return nil }
+        unsentReply = nil
+        return reply.text
     }
 
     // MARK: - Offline games

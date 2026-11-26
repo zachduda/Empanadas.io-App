@@ -545,17 +545,25 @@ private struct BannerFriendActions: View {
     private var buttons: some View {
         switch data.relationship {
         case .friends:
-            Menu {
-                Button(role: .destructive) {
-                    remove(Removal(playerID: player.id, username: player.username, isRequest: false))
-                } label: {
-                    Label("Unfriend", systemImage: "person.badge.minus")
+            HStack(spacing: 10) {
+                NavigationLink(value: MessagesRoute.conversation(id: player.id, name: player.username)) {
+                    filled("Message", systemImage: "bubble.left.fill")
                 }
-            } label: {
-                outlined("Friends", systemImage: "person.2.fill", more: true)
+                .buttonStyle(.plain)
+                .disabled(player.id.isEmpty)
+                .accessibilityLabel("Message \(player.username)")
+                Menu {
+                    Button(role: .destructive) {
+                        remove(Removal(playerID: player.id, username: player.username, isRequest: false))
+                    } label: {
+                        Label("Unfriend", systemImage: "person.badge.minus")
+                    }
+                } label: {
+                    outlined("Friends", systemImage: "person.2.fill", more: true)
+                }
+                .accessibilityLabel("Friends with \(player.username)")
+                .accessibilityHint("Offers to unfriend them")
             }
-            .accessibilityLabel("Friends with \(player.username)")
-            .accessibilityHint("Offers to unfriend them")
         case .incoming:
             HStack(spacing: 10) {
                 Button {

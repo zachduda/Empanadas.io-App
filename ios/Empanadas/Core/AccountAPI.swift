@@ -292,6 +292,135 @@ final class AccountAPI {
             .trimmingCharacters(in: .whitespaces)
     }
 
+    // MARK: - Messages
+
+    /// GET /v2/app/messages.php: the inbox, newest conversation first.
+    func conversations() async throws -> Inbox {
+        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appMessages))
+        let inbox = try Self.decode(Inbox.self, Self.messagesBody(data, status: response.statusCode))
+        remember(inbox.csrf)
+        return inbox
+    }
+
+    /// GET /v2/app/messages.php?with=: one conversation, oldest first. With
+    /// `after`, only what is newer than that message (an open conversation
+    /// asks every few seconds); with `before`, the page older than it.
+    func thread(with playerID: String, before: Int? = nil, after: Int? = nil) async throws -> MessageThread {
+        _ = try Self.uuidField(playerID)
+        let url = SiteURLs.appMessages(with: playerID, before: before, after: after)
+        let (data, response) = try await sendNative(URLRequest(url: url))
+        let thread = try Self.decode(MessageThread.self, Self.messagesBody(data, status: response.statusCode))
+        remember(thread.csrf)
+        return thread
+    }
+
+    /// POST action=send. `nonce` is the message's own id on this device, the
+    /// same for every retry of it, so the site stores it once.
+    func sendMessage(to playerID: String, text: String, nonce: String) async throws -> SentMessage {
+        let to = try Self.uuidField(playerID)
+        let body = MessageText.cleaned(text)
+        guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
+        let nonce = MessageText.isNonce(nonce) ? nonce : MessageText.nonce()
+        let reply = try await messagesPost([("action", "send"), ("to", to), ("text", body), ("nonce", nonce)])
+        return try Self.decode(SentMessage.self, reply)
+    }
+
+    /// POST action=read: what `playerID` sent, up to and including message
+    /// `upTo` (all of it without one), is read. Returns the messages still
+    /// unread across every conversation, when the site says.
+    @discardableResult
+    func markMessagesRead(from playerID: String, upTo: Int? = nil) async throws -> Int? {
+        let with = try Self.uuidField(playerID)
+        var fields = [("action", "read"), ("with", with)]
+        if let upTo, upTo > 0 { fields.append(("up_to", String(upTo))) }
+        let reply = try await messagesPost(fields)
+        return Self.unreadCount(reply)
+    }
+
+    /// POST action=block or unblock. Blocking also ends the friendship, and
+    /// neither can message the other or send a friend request; they aren't
+    /// told. Returns the unread count, when the site says.
+    @discardableResult
+    func setBlocked(_ playerID: String, _ blocked: Bool) async throws -> Int? {
+        let with = try Self.uuidField(playerID)
+        let reply = try await messagesPost([("action", blocked ? "block" : "unblock"), ("with", with)])
+        return Self.unreadCount(reply)
+    }
+
+    /// POST action=report: files a message the player received in the
+    /// admin panel's User Feedback.
+    func reportMessage(_ messageID: Int, reason: ReportReason, note: String) async throws {
+        guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
+        let note = String(MessageText.cleaned(note).prefix(500))
+        _ = try await messagesPost([("action", "report"), ("message", String(messageID)),
+                                    ("reason", reason.rawValue), ("note", note)])
+    }
+
+    /// One change to messages, with the session's token (and once more with
+    /// a fresh one if the site has moved on).
+    private func messagesPost(_ fields: [(String, String)]) async throws -> Data {
+        try await withToken { csrf in
+            var request = URLRequest(url: SiteURLs.appMessages)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.formBody(fields + [("csrf", csrf)])
+            let (data, response) = try await self.sendNative(request)
+            return try Self.messagesBody(data, status: response.statusCode)
+        }
+    }
+
+    // MARK: - Push notifications
+
+    /// POST /v2/app/push.php action=register: the account's notifications go
+    /// to this device (a token another account had here becomes this one's).
+    func registerPush(token: String, environment: String) async throws {
+        try await withToken { csrf in
+            var request = URLRequest(url: SiteURLs.appPush)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.formBody([("action", "register"), ("token", token),
+                                              ("environment", environment), ("csrf", csrf)])
+            let (data, response) = try await self.sendNative(request)
+            _ = try Self.messagesBody(data, status: response.statusCode)
+        }
+    }
+
+    /// POST /v2/app/push.php action=unregister: no more notifications on this
+    /// device. Needs no session, so it works after the site has signed out.
+    func unregisterPush(token: String) async throws {
+        var request = URLRequest(url: SiteURLs.appPush)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.formBody([("action", "unregister"), ("token", token)])
+        let (data, response) = try await sendNative(request)
+        _ = try Self.messagesBody(data, status: response.statusCode)
+    }
+
+    /// The body of a /v2/app/messages.php answer that worked, or the error
+    /// it stands for: a MessageRefusal for the reasons the screens explain.
+    nonisolated static func messagesBody(_ data: Data, status: Int) throws -> Data {
+        let reply = nativeReply(data)
+        if status == 429 && reply == nil { throw AccountError.rateLimited }
+        guard let reply, !reply.ok, let reason = reply.reason else {
+            return try nativeBody(data, reply: reply, status: status)
+        }
+        switch reason {
+        case "no_session": throw AccountError.signedOut
+        case "csrf": throw AccountError.staleToken
+        case _ where MessageRefusal.reasons.contains(reason):
+            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            throw MessageRefusal(reason: reason, maxLength: intValue(object?["max_length"]) ?? MessageText.maxLength)
+        default:
+            if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
+            throw AccountError.unavailable(reason)
+        }
+    }
+
+    nonisolated static func unreadCount(_ data: Data) -> Int? {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return intValue(object?["unread"])
+    }
+
     // MARK: - Feedback
 
     /// GET /v2/app/feedback.php: the Send Feedback form, with the session's

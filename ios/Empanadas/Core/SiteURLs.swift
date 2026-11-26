@@ -84,6 +84,12 @@ enum SiteURLs {
     static let appFeedback = page(nativeAPIPath + "feedback.php")
     /// Claiming the daily reward (its status comes with the dashboard).
     static let appDaily = page(nativeAPIPath + "daily.php")
+    /// Direct messages: the inbox, a conversation, and every change to them.
+    static let appMessages = page(nativeAPIPath + "messages.php")
+    /// This device's token, for push notifications.
+    static let appPush = page(nativeAPIPath + "push.php")
+    /// The site's Messages page (?with=<id> opens a conversation).
+    static let messagesPaths: Set<String> = ["/v2/messages", "/v2/messages.php"]
     /// Where a sign-in run in the browser is redeemed (SignInRequest).
     static let appSignIn = page(nativeAPIPath + "signin.php")
     /// The save points behind the dashboard's Spin Progress chart, and
@@ -128,6 +134,17 @@ enum SiteURLs {
         guard let id, !id.isEmpty else { return page(nativeAPIPath + "profile.php") }
         var components = URLComponents(url: page(nativeAPIPath + "profile.php"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "id", value: id.lowercased())]
+        return components.url!
+    }
+
+    /// One conversation: its newest page, the page older than message
+    /// `before`, or only what is newer than message `after`.
+    static func appMessages(with id: String, before: Int? = nil, after: Int? = nil) -> URL {
+        var components = URLComponents(url: appMessages, resolvingAgainstBaseURL: false)!
+        var items = [URLQueryItem(name: "with", value: PlayerID.raw(id) ?? id.lowercased())]
+        if let before, before > 0 { items.append(URLQueryItem(name: "before", value: String(before))) }
+        if let after, after > 0 { items.append(URLQueryItem(name: "after", value: String(after))) }
+        components.queryItems = items
         return components.url!
     }
 

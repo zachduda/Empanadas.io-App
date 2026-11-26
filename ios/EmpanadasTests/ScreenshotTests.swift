@@ -35,6 +35,7 @@ final class ScreenshotTests: XCTestCase {
     private static let screens = [
         Screen(name: "home"),
         Screen(name: "games", tab: .games),
+        Screen(name: "messages", tab: .messages),
         Screen(name: "leaderboard", tab: .leaderboard),
         Screen(name: "settings", tab: .settings),
         Screen(name: "profile", route: ProfileRoute.player(id: nil, name: nil)),
@@ -217,6 +218,7 @@ private enum Fixtures {
         case "/v2/app/profile.php": json(profile)
         case "/v1/updates.php": updates(url)
         case "/v2/gamehistory.php": json(savePoints)
+        case "/v2/app/messages.php": json(inbox)
         default: nil
         }
     }
@@ -260,6 +262,23 @@ private enum Fixtures {
         reply["current"] = current
         reply["points"] = points
         return reply
+    }
+
+    /// /v2/app/messages.php's inbox: three friends' conversations, the
+    /// newest with two unread.
+    static var inbox: [String: Any] {
+        let now = Int(Date().timeIntervalSince1970)
+        func row(_ friend: [String: Any], _ preview: String, minutesAgo: Int, fromMe: Bool, unread: Int) -> [String: Any] {
+            ["with": friend, "unread": unread, "can_message": true, "reason": NSNull(),
+             "last": ["id": 500 - minutesAgo, "from_me": fromMe, "preview": preview, "sent": now - minutesAgo * 60,
+                      "read": fromMe || unread == 0] as [String: Any]]
+        }
+        return ["ok": true, "api": 1, "unread": 2, "blocked": [] as [Any], "max_length": 1000, "csrf": "fixture",
+                "conversations": [
+                    row(friends[0], "race you to 25? loser buys empanadas", minutesAgo: 3, fromMe: false, unread: 2),
+                    row(friends[1], "gg, that last ascension was wild", minutesAgo: 95, fromMe: true, unread: 0),
+                    row(friends[2], "see you on the leaderboard 👀", minutesAgo: 60 * 30, fromMe: false, unread: 0),
+                ]]
     }
 
     /// The announcements, newest first, as the admin panel would have saved

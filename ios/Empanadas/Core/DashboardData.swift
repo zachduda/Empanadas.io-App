@@ -284,10 +284,17 @@ struct Dashboard: Decodable, Equatable {
     /// Nil from a site without the daily reward, or when it could not be read:
     /// Home then leaves the card out.
     var daily: Daily?
+    /// Direct messages waiting to be read ("messages": {"unread": n}); nil
+    /// from a site without messages, or when it could not be read.
+    var messagesUnread: Int?
 
     enum CodingKeys: String, CodingKey {
-        case account, peppers, pumpkins, spin, flappy, tower, xp, friends, daily
+        case account, peppers, pumpkins, spin, flappy, tower, xp, friends, daily, messages
         case spinHistory = "spin_history"
+    }
+
+    private struct Messages: Decodable {
+        let unread: Int
     }
 
     init(account: Account) {
@@ -307,6 +314,7 @@ struct Dashboard: Decodable, Equatable {
         // One bad day must not take the rest of the chart with it.
         spinHistory = (c.lenient(.spinHistory, [LenientDay]())).compactMap(\.day)
         daily = try? c.decodeIfPresent(Daily.self, forKey: .daily)
+        messagesUnread = (try? c.decodeIfPresent(Messages.self, forKey: .messages))?.unread
     }
 
     var pictureURL: URL? { SiteURLs.resolve(account.pfp) }

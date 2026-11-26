@@ -2,7 +2,7 @@
 // requests to answer, the ones sent, and the friends themselves, online
 // first - all from the player's own profile.
 
-import { h, replace, icon } from '../dom.js';
+import { h, replace, icon, iconButton } from '../dom.js';
 import { num } from '../format.js';
 import { load, staleBanner, errorState, skeleton } from '../data.js';
 import { playerRow, badges } from '../components.js';
@@ -112,6 +112,7 @@ export function mount(container, { app, params }) {
 			incoming.length ? section('Friend Requests', incoming.map(row), '') : null,
 			section('Your Friends', friends.map((f) => playerRow(f, {
 				subtitle: f.label || null,
+				trail: iconButton('message', 'Message ' + f.username, () => app.navigate({ screen: 'messages', id: f.id })),
 				onOpen: () => app.navigate({ screen: 'profile', id: f.id })
 			})), 'No friends yet. Search for someone above.'),
 			outgoing.length ? section('Requests You Sent', outgoing.map(row), '') : null);
