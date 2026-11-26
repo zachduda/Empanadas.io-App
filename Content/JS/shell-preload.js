@@ -40,7 +40,10 @@ contextBridge.exposeInMainWorld('native', {
 
 	// key: account, dashboard, leaderboard, profile ({ id }), search
 	// ({ q, page }), feedbackForm, savePoints ({ before }), announcement
-	// ({ page, id, fresh }). Each resolves { ok, data, savedAt, fresh, error }.
+	// ({ page, id, fresh }), conversations, messages ({ id, before, after }).
+	// Each resolves { ok, data, savedAt, fresh, error }. Actions include
+	// sendMessage ({ id, text, nonce }), readMessages ({ id, upTo }),
+	// blockPlayer ({ id, block }) and reportMessage ({ message, reason, note }).
 	data: {
 		cached: (key, params) => invoke('data:cached', String(key), params || {}),
 		load: (key, params) => invoke('data:load', String(key), params || {}),

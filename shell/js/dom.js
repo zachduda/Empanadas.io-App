@@ -77,6 +77,7 @@ const ICONS = {
 	info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
 	alert: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01',
 	message: 'M21 12a8 8 0 0 1-11.8 7L3 21l2-6.2A8 8 0 1 1 21 12z',
+	send: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z',
 	fullscreen: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 	exitFullscreen: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
 	pencil: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4',

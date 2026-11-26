@@ -15,10 +15,11 @@ import * as appsettings from './screens/appsettings.js';
 import * as updates from './screens/updates.js';
 import * as feedback from './screens/feedback.js';
 import * as savepoints from './screens/savepoints.js';
+import * as messages from './screens/messages.js';
 
 const native = window.native;
 
-const SCREENS = { home, games, leaderboard, friends, profile, settings, appsettings, updates, feedback, savepoints };
+const SCREENS = { home, games, leaderboard, friends, messages, profile, settings, appsettings, updates, feedback, savepoints };
 
 // The sidebar: one of these is always the section a screen belongs to.
 const SECTIONS = [
@@ -26,7 +27,8 @@ const SECTIONS = [
 	{ screen: 'games', label: 'Games', icon: 'games' },
 	{ screen: 'leaderboard', label: 'Leaderboards', icon: 'trophy' },
 	{ screen: 'friends', label: 'Friends', icon: 'users' },
-	{ screen: 'profile', label: 'My Profile', icon: 'user' }
+	{ screen: 'profile', label: 'My Profile', icon: 'user' },
+	{ screen: 'messages', label: 'Messages', icon: 'message' }
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -41,6 +43,7 @@ const state = {
 	stack: [],
 	current: null,
 	pendingFriends: 0,
+	unreadMessages: 0,
 	hasNewUpdates: false,
 	signin: null
 };
@@ -146,6 +149,13 @@ export const app = {
 		drawTitlebar();
 	},
 
+	setUnreadMessages(count) {
+		const n = Math.max(0, Number(count) || 0);
+		if (n === state.unreadMessages) return;
+		state.unreadMessages = n;
+		drawSidebar();
+	},
+
 	setHasNewUpdates(value) {
 		state.hasNewUpdates = !!value;
 		drawTitlebar();
@@ -198,6 +208,7 @@ function refreshScreen() {
 
 function sectionOf(route) {
 	if (route.screen === 'profile' && !route.id) return 'profile';
+	if (route.screen === 'messages') return 'messages';
 	if (SECTIONS.some((s) => s.screen === route.screen)) return route.screen;
 	if (route.screen === 'settings' || route.screen === 'appsettings' || route.screen === 'savepoints') return 'settings';
 	const below = state.stack.length ? state.stack[0] : null;
@@ -218,7 +229,8 @@ function drawSidebar() {
 			class: 'nav-item',
 			'aria-current': current === section.screen ? 'page' : null
 		}, icon(section.icon), h('span', null, section.label),
-		section.screen === 'friends' && state.pendingFriends ? h('span', { class: 'count', title: state.pendingFriends + ' friend requests' }, String(state.pendingFriends)) : null);
+		section.screen === 'friends' && state.pendingFriends ? h('span', { class: 'count', title: state.pendingFriends + ' friend requests' }, String(state.pendingFriends)) : null,
+		section.screen === 'messages' && state.unreadMessages ? h('span', { class: 'count', title: state.unreadMessages + ' unread' }, state.unreadMessages > 99 ? '99+' : String(state.unreadMessages)) : null);
 		b.addEventListener('click', () => app.navigate({ screen: section.screen }));
 		if (current === section.screen) active = b;
 		return b;
@@ -447,7 +459,9 @@ async function start() {
 		if (key === 'dashboard' && result && result.data) {
 			state.dashboard = result.data;
 			app.setPendingFriends(result.data.friends && result.data.friends.pending);
+			if (result.data.messages) app.setUnreadMessages(result.data.messages.unread);
 		}
+		if (key === 'conversations' && result && result.ok && result.data) app.setUnreadMessages(result.data.unread);
 		app.emit(key, result);
 	});
 	native.on('games', (status) => {
@@ -475,7 +489,10 @@ async function start() {
 	state.game = gameState;
 	state.games = games;
 	const kept = session.signedIn ? await native.data.cached('dashboard') : null;
-	if (kept && kept.data) state.dashboard = kept.data;
+	if (kept && kept.data) {
+		state.dashboard = kept.data;
+		if (kept.data.messages) state.unreadMessages = Math.max(0, Number(kept.data.messages.unread) || 0);
+	}
 	applySession(session);
 	root.classList.remove('booting');
 	root.removeAttribute('aria-busy');

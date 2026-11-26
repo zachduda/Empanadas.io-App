@@ -254,7 +254,7 @@ export function mount(container, { app }) {
 					bg = await window.native.background.set(on);
 					return bg.enabled === on;
 				}, { disabled: !bg.available, label: 'Keep Spinning When Closed' })),
-				setting('Friend Request Notifications', 'When the app is in the background.', toggle(prefs.notifications !== false, async (on) => {
+				setting('Notifications', 'Friend requests and messages, when the app is in the background.', toggle(prefs.notifications !== false, async (on) => {
 					prefs = await window.native.prefs.set({ notifications: on });
 					return true;
 				}, { label: 'Notifications' }))

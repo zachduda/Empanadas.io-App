@@ -31,6 +31,11 @@ check('deep links open the app\'s screens', () => {
 	assert.deepStrictEqual(deepLinkRoute('empanadas-io://feedback?reason=5'), { screen: 'feedback', reason: 5 });
 	assert.deepStrictEqual(deepLinkRoute('empanadas-io://updates/abc123'), { screen: 'updates', id: 'abc123' });
 	assert.deepStrictEqual(deepLinkRoute('empanadas-io://appsettings'), { screen: 'appsettings' });
+	assert.deepStrictEqual(deepLinkRoute('empanadas-io://messages'), { screen: 'messages' });
+	assert.deepStrictEqual(deepLinkRoute('empanadas-io://messages/' + ID.toUpperCase()), { screen: 'messages', id: ID });
+	assert.deepStrictEqual(deepLinkRoute('empanadas-io://messages/' + ID.replace(/-/g, '')), { screen: 'messages', id: ID.replace(/-/g, '') });
+	assert.strictEqual(deepLinkRoute('empanadas-io://messages/nobody'), null);
+	assert.strictEqual(deepLinkRoute('empanadas-io://messages/' + ID + '/more'), null);
 });
 
 check('anything else is not a route', () => {
@@ -54,6 +59,10 @@ check('a game\'s own close button closes it', () => {
 
 check('links to the site open the app\'s own screen where it has one', () => {
 	assert.deepStrictEqual(siteRoute('https://empanadas.io/v2/profile/' + ID), { screen: 'profile', id: ID });
+	assert.deepStrictEqual(siteRoute('https://empanadas.io/v2/messages'), { screen: 'messages' });
+	assert.deepStrictEqual(siteRoute('https://empanadas.io/v2/messages.php?with=' + ID.toUpperCase()), { screen: 'messages', id: ID });
+	assert.deepStrictEqual(siteRoute('https://empanadas.io/v2/messages?with=<script>'), { screen: 'messages' });
+	assert.strictEqual(siteRoute('https://evil.example/v2/messages'), null);
 	assert.deepStrictEqual(siteRoute('https://empanadas.io/v2/profile?search=1'), { screen: 'friends' });
 	assert.deepStrictEqual(siteRoute('https://empanadas.io/v2/feedback?reason=5'), { screen: 'feedback', reason: 5 });
 	assert.deepStrictEqual(siteRoute('https://empanadas.io/leaderboard.html'), { screen: 'leaderboard' });

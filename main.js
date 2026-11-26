@@ -3,7 +3,7 @@
 // Empanadas.io for the desktop: the main process.
 //
 // The app is native rather than the website in a window. Its screens - Home,
-// Games, Leaderboards, Friends, Profiles, Settings, Updates - are its own
+// Games, Leaderboards, Friends, Messages, Profiles, Settings, Updates - are its own
 // (shell/, served from app://shell), drawn from the site's JSON API for
 // native apps (lib/api.js), and kept for offline (lib/answers.js). Signing in
 // happens in the player's own browser (lib/signin.js). The games are still
@@ -78,12 +78,18 @@ const BUNDLE_RESYNC = 6 * 60 * 60 * 1000;
 const BUNDLE_FRESH_FOR_PLAY = 30 * 60 * 1000;
 // Home is kept fresh while the app is open: friend requests, presence.
 const DASHBOARD_POLL = 3 * 60 * 1000;
+// How often the inbox is asked about while the app is open, for the Dock
+// badge, the sidebar and a notification of a new message. An open
+// conversation asks far more often itself (shell/js/screens/messages.js).
+const MESSAGES_POLL = 60 * 1000;
 
 // The screens' own files can come from the site (lib/resources.js). SHELL_API
 // is the contract between them and this main process and its preload: bump
 // it whenever the screens need something new of either (an IPC channel, a
 // field of one), and publish the screens to the site's new folder for it.
-const SHELL_API = 1;
+// 2: the Messages screen (the conversations and messages screens' data,
+// sendMessage, readMessages, blockPlayer and reportMessage).
+const SHELL_API = 2;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
 // (the check finishes in the background, for the next launch).
@@ -149,6 +155,12 @@ let prefs = null;
 let playHistory = null;
 let userAgent = '';
 let lastPending = null;
+// What the badge adds up: friend requests waiting, messages unread.
+let pendingFriends = 0;
+let unreadMessages = 0;
+// The newest message received the inbox has shown, so a newer one can be
+// told about; null until the first answer since signing in.
+let lastMessageId = null;
 let pendingRoute = null;
 let pendingPlay = null;
 let resources = null;
@@ -597,6 +609,9 @@ function markSignedOut(why) {
 	playHistory.reset();
 	api.forgetToken();
 	lastPending = null;
+	pendingFriends = 0;
+	unreadMessages = 0;
+	lastMessageId = null;
 	setBadge(0);
 	notifySession({ why });
 }
@@ -618,6 +633,8 @@ function forShell(body) {
 
 const LOADERS = {
 	account: () => api.account(),
+	conversations: () => api.conversations(),
+	messages: (params) => api.thread(params && params.id, { before: params && params.before, after: params && params.after }),
 	dashboard: () => api.dashboard(),
 	leaderboard: () => api.leaderboard(),
 	profile: (params) => api.profile(params && params.id),
@@ -631,7 +648,7 @@ const LOADERS = {
 function keepAs(key, params) {
 	if (key === 'profile') return params && params.id ? null : 'profile';
 	if (key === 'announcement') return params && !params.id && !params.page ? 'updates' : null;
-	return ['account', 'dashboard', 'leaderboard'].includes(key) ? key : null;
+	return ['account', 'dashboard', 'leaderboard', 'conversations'].includes(key) ? key : null;
 }
 
 function cachedScreen(key, params) {
@@ -650,6 +667,7 @@ async function loadScreen(key, params) {
 		if (kept) answers.save(kept, body, generation);
 		if (key === 'dashboard') afterDashboard(body);
 		if (key === 'account') afterAccount(body);
+		if (key === 'conversations') afterConversations(body);
 		return { ok: true, data: forShell(body), savedAt: Date.now(), fresh: true };
 	} catch (err) {
 		const cached = cachedScreen(key, params);
@@ -666,6 +684,10 @@ const ACTIONS = {
 	sendFeedback: (p) => api.sendFeedback(p),
 	restoreSavePoint: (p) => api.restoreSavePoint(p.id),
 	claimDaily: () => api.claimDailyReward(),
+	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
+	readMessages: (p) => api.readMessages(p.id, p.upTo),
+	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
+	reportMessage: (p) => api.reportMessage(p.message, p.reason, p.note),
 	deleteAccount: (p) => api.deleteAccount(p.confirmation)
 };
 
@@ -675,6 +697,7 @@ async function act(action, params) {
 	try {
 		const reply = await run(params);
 		if (action === 'updateSetting' && params.field === 'theme') applyTheme(Number(params.value));
+		if (reply && Number.isInteger(reply.unread)) setUnreadMessages(reply.unread);
 		if (action === 'deleteAccount') {
 			await Promise.all([clearSiteCookies(session.defaultSession.cookies), clearSiteCookies(play.cookies)]);
 			markSignedOut('deleted');
@@ -697,13 +720,45 @@ function afterDashboard(body) {
 		accountState.set({ username: body.account.username });
 	}
 	const pending = Math.max(0, Number(body.friends && body.friends.pending) || 0);
-	setBadge(pending);
+	pendingFriends = pending;
+	if (body.messages && Number.isInteger(body.messages.unread)) unreadMessages = Math.max(0, body.messages.unread);
+	updateBadge();
 	if (lastPending !== null && pending > lastPending && prefs.get().notifications !== false &&
 		(!win || win.isDestroyed() || !win.isFocused())) {
 		notify(pending - lastPending === 1 ? 'New friend request' : (pending - lastPending) + ' new friend requests',
 			'Open Empanadas.io to see who wants to be your friend.', { screen: 'friends' });
 	}
 	lastPending = pending;
+}
+
+function updateBadge() {
+	setBadge(pendingFriends + unreadMessages);
+}
+
+function setUnreadMessages(count) {
+	unreadMessages = Math.max(0, Number(count) || 0);
+	updateBadge();
+}
+
+// The inbox's answer: the badge, and a notification for a message newer than
+// any it has shown, while the window isn't in front. One conversation's is
+// its sender and words; more than one, how many.
+function afterConversations(body) {
+	const list = body && Array.isArray(body.conversations) ? body.conversations : null;
+	if (!list) return;
+	if (Number.isInteger(body.unread)) setUnreadMessages(body.unread);
+	const incoming = list.filter((c) => c && c.with && c.last && !c.last.from_me && Number(c.unread) > 0);
+	const newest = incoming.reduce((most, c) => Math.max(most, Number(c.last.id) || 0), 0);
+	if (lastMessageId !== null && newest > lastMessageId && prefs.get().notifications !== false &&
+		(!win || win.isDestroyed() || !win.isFocused())) {
+		const fresh = incoming.filter((c) => Number(c.last.id) > lastMessageId);
+		if (fresh.length === 1) {
+			notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
+		} else if (fresh.length > 1) {
+			notify('New messages', 'From ' + fresh.length + ' friends.', { screen: 'messages' });
+		}
+	}
+	lastMessageId = Math.max(lastMessageId || 0, newest);
 }
 
 function setBadge(count) {
@@ -733,6 +788,7 @@ function notify(title, body, route) {
 }
 
 let dashboardTimer = null;
+let messagesTimer = null;
 
 function startDashboardPoll() {
 	if (dashboardTimer) return;
@@ -742,6 +798,16 @@ function startDashboardPoll() {
 		sendToShell('data', { key: 'dashboard', result });
 	}, DASHBOARD_POLL);
 	if (dashboardTimer.unref) dashboardTimer.unref();
+
+	const checkMessages = async () => {
+		if (!isSignedIn() || bg || !win || win.isDestroyed() || !net.isOnline()) return;
+		const result = await loadScreen('conversations');
+		if (result.ok) sendToShell('data', { key: 'conversations', result });
+	};
+	messagesTimer = setInterval(checkMessages, MESSAGES_POLL);
+	if (messagesTimer.unref) messagesTimer.unref();
+	// Soon after launch too, so the badge and a first notification don't wait a minute.
+	setTimeout(checkMessages, 8000).unref?.();
 }
 
 // --- The kept games ----------------------------------------------------------
@@ -2501,6 +2567,7 @@ function buildAppMenu() {
 			{ label: 'Leaderboards', accelerator: mod + '+3', enabled: signedIn, click: go('leaderboard') },
 			{ label: 'Friends', accelerator: mod + '+4', enabled: signedIn, click: go('friends') },
 			{ label: 'My Profile', accelerator: mod + '+5', enabled: signedIn, click: go('profile') },
+			{ label: 'Messages', accelerator: mod + '+6', enabled: signedIn, click: go('messages') },
 			{ label: 'Updates', enabled: signedIn, click: go('updates') },
 			sep,
 			{ label: 'Find Friends…', accelerator: mod + '+F', enabled: signedIn, click: () => goTo({ screen: 'friends', search: true }) },

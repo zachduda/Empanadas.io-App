@@ -16,6 +16,9 @@ const path = require('path');
 const resourcesLib = require('../../lib/resources');
 
 const ME = '1a2b3c4d-0000-4000-8000-00000000c0de';
+// The screens' contract the app speaks (SHELL_API in main.js): the site's
+// copy of the screens for it is the one the over-the-air checks change.
+const SHELL_API = Number(/const SHELL_API = (\d+);/.exec(fs.readFileSync(path.join(__dirname, '..', '..', 'main.js'), 'utf8'))[1]);
 const FRIENDS = [
 	['ab12cd34-1111-4111-8111-111111111111', 'SpinQueen', 'online', 'Online'],
 	['ab12cd34-2222-4222-8222-222222222222', 'FlappyFan', 'away', 'Active 4m ago'],
@@ -50,6 +53,15 @@ function createFakeSite({ siteDir, certDir }) {
 		friends: new Set(FRIENDS.map((f) => f[0])),
 		incoming: new Set(['ab12cd34-4444-4444-8444-444444444444']),
 		saves: [],
+		// Direct messages, by the other player's id: SpinQueen has written,
+		// and it hasn't been read. What the app sends lands here too.
+		messages: new Map([[FRIENDS[0][0], [
+			{ id: 1, from_me: true, text: 'gg on that last prestige!', sent: Math.floor(Date.now() / 1000) - 7200, read: true },
+			{ id: 2, from_me: false, text: 'thanks!! want to race to 25?', sent: Math.floor(Date.now() / 1000) - 600, read: false }
+		]]]),
+		messageId: 2,
+		blocked: new Set(),
+		reports: [],
 		// The app's screens as the site has them (html/Content/Desktop/), with
 		// these files changed: rel => contents. A deploy since the app shipped.
 		resourceOverrides: new Map(),
@@ -73,7 +85,7 @@ function createFakeSite({ siteDir, certDir }) {
 			}
 		};
 		walk(dir, '');
-		if (shell === 1) for (const [rel, body] of state.resourceOverrides) files.set(rel, Buffer.from(body));
+		if (shell === SHELL_API) for (const [rel, body] of state.resourceOverrides) files.set(rel, Buffer.from(body));
 		let app = '';
 		try { app = JSON.parse(fs.readFileSync(path.join(dir, '_release.json'), 'utf8')).app || ''; } catch (err) { /* none */ }
 		return { files, app };
@@ -167,6 +179,71 @@ function createFakeSite({ siteDir, certDir }) {
 			csrf
 		};
 	}
+
+	// /v2/app/messages.php, as the site's _messages.php shapes it.
+	const person = (id) => {
+		const f = FRIENDS.find((x) => x[0] === id) || [id, 'MasaMaster', 'offline', ''];
+		const friends = state.friends.has(id);
+		return { id, username: f[1], pfp: pfp(f[1]), default_pfp: false, relation: friends ? 'friends' : 'none', state: friends ? f[2] : null, label: friends ? f[3] : null };
+	};
+	const canMessage = (id) => (state.blocked.has(id) ? 'blocked' : state.friends.has(id) ? null : 'not_friends');
+	const dashed = (raw) => String(raw || '').toLowerCase().replace(/-/g, '').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+
+	function messages(req, url, form) {
+		if (req.method !== 'POST') {
+			const id = url.searchParams.get('with');
+			if (!id) {
+				const conversations = [...state.messages].map(([other, list]) => {
+					const last = list[list.length - 1];
+					return { with: person(other), last: { id: last.id, from_me: last.from_me, preview: last.text, sent: last.sent, read: last.read },
+						unread: list.filter((m) => !m.from_me && !m.read).length, can_message: !canMessage(other), reason: canMessage(other) };
+				}).sort((a, b) => b.last.id - a.last.id);
+				return { ok: true, api: 1, conversations, unread: conversations.reduce((n, c) => n + c.unread, 0),
+					blocked: [...state.blocked].map((b) => person(b)), max_length: 1000, csrf };
+			}
+			const other = dashed(id);
+			const list = state.messages.get(other) || [];
+			const after = Number(url.searchParams.get('after')) || 0;
+			return { ok: true, api: 1, with: person(other), can_message: !canMessage(other), reason: canMessage(other), blocked: state.blocked.has(other),
+				messages: list.filter((m) => m.id > after), has_more: false,
+				seen_up_to: list.filter((m) => m.from_me && m.read).reduce((n, m) => Math.max(n, m.id), 0), max_length: 1000, csrf };
+		}
+		if (form.get('csrf') !== csrf) return { status: 403, body: { ok: false, api: 1, reason: 'csrf' } };
+		const action = form.get('action');
+		const other = dashed(form.get('to') || form.get('with'));
+		if (action === 'send') {
+			if (canMessage(other)) return { status: 403, body: { ok: false, api: 1, reason: canMessage(other) } };
+			const list = state.messages.get(other) || [];
+			const again = list.find((m) => m.nonce && m.nonce === form.get('nonce'));
+			if (again) return { ok: true, api: 1, message: again, duplicate: true };
+			const message = { id: ++state.messageId, from_me: true, text: form.get('text'), sent: Math.floor(Date.now() / 1000), read: false, nonce: form.get('nonce') };
+			list.push(message);
+			state.messages.set(other, list);
+			return { ok: true, api: 1, message, duplicate: false };
+		}
+		if (action === 'read') {
+			for (const m of state.messages.get(other) || []) if (!m.from_me) m.read = true;
+			const unread = [...state.messages.values()].flat().filter((m) => !m.from_me && !m.read).length;
+			return { ok: true, api: 1, marked: 1, unread };
+		}
+		if (action === 'block' || action === 'unblock') {
+			if (action === 'block') { state.blocked.add(other); state.friends.delete(other); } else state.blocked.delete(other);
+			return { ok: true, api: 1, blocked: action === 'block', unread: 0 };
+		}
+		if (action === 'report') {
+			state.reports.push({ message: Number(form.get('message')), reason: form.get('reason'), note: form.get('note') });
+			return { ok: true, api: 1, reported: true };
+		}
+		return { status: 400, body: { ok: false, api: 1, reason: 'unknown_action' } };
+	}
+
+	// A reply from a friend, as the e2e run asks for one.
+	state.reply = (id, text) => {
+		const list = state.messages.get(id) || [];
+		list.push({ id: ++state.messageId, from_me: false, text, sent: Math.floor(Date.now() / 1000), read: false });
+		state.messages.set(id, list);
+		for (const m of list) if (m.from_me) m.read = true;
+	};
 
 	function signedIn(req) {
 		const cookie = req.headers.cookie || '';
@@ -267,9 +344,9 @@ function createFakeSite({ siteDir, certDir }) {
 			for (const [rel, body] of [...files].sort()) listed[rel] = { sha256: crypto.createHash('sha256').update(body).digest('hex'), size: body.length };
 			return send(res, 200, { ok: true, api: 1, shell, app, revision: resourcesLib.revisionOf(listed), files: listed });
 		}
-		const desktop = /^\/Content\/Desktop\/v1\/(.+)$/.exec(p);
-		if (desktop && state.resourceOverrides.has(desktop[1])) {
-			return send(res, 200, state.resourceOverrides.get(desktop[1]), { 'content-type': TYPES[path.extname(p)] || 'application/octet-stream' });
+		const desktop = /^\/Content\/Desktop\/v(\d+)\/(.+)$/.exec(p);
+		if (desktop && Number(desktop[1]) === SHELL_API && state.resourceOverrides.has(desktop[2])) {
+			return send(res, 200, state.resourceOverrides.get(desktop[2]), { 'content-type': TYPES[path.extname(p)] || 'application/octet-stream' });
 		}
 
 		if (p === '/v2/app/signin.php') {
@@ -346,6 +423,10 @@ function createFakeSite({ siteDir, certDir }) {
 				}
 				return send(res, 200, { result: 1 });
 			}
+			case '/v2/app/messages.php': {
+				const answer = messages(req, url, form);
+				return answer.status ? send(res, answer.status, answer.body) : send(res, 200, answer);
+			}
 			case '/v2/app/daily.php': {
 				if (req.method !== 'POST') return send(res, 405, { ok: false, api: 1, reason: 'wrong_method' });
 				if (form.get('csrf') !== csrf) return send(res, 403, { ok: false, api: 1, reason: 'csrf' });
@@ -400,4 +481,5 @@ function createFakeSite({ siteDir, certDir }) {
 	};
 }
 
-module.exports = { createFakeSite, ME };
+module.exports = {
+	SHELL_API, createFakeSite, ME };
