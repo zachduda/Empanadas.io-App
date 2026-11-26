@@ -92,6 +92,15 @@ final class ConversationModel {
     private(set) var working = false
     var draft = ""
     var actionError: String?
+    /// One of the viewer's own being edited in the box, while it still can be.
+    private(set) var editing: DirectMessage?
+    /// The site's clock minus this device's, from the last answer.
+    private var skew: TimeInterval = 0
+    /// The last answer's `now`: a poll asks what changed since.
+    private var since: Date?
+
+    /// Now, by the site's clock: when an edit is still allowed.
+    var serverNow: Date { Date().addingTimeInterval(skew) }
 
     /// How often an open conversation asks for what's new.
     static let pollInterval: Duration = .seconds(4)
@@ -109,7 +118,7 @@ final class ConversationModel {
     /// What the box can send now: something, and not too much.
     var canSend: Bool {
         let length = MessageText.length(draft)
-        return canMessage && length > 0 && length <= maxLength
+        return (canMessage || editing != nil) && length > 0 && length <= maxLength
     }
 
     /// Shown under the box as the limit nears.
@@ -149,8 +158,9 @@ final class ConversationModel {
     func poll(app: AppModel) async {
         guard loaded, app.session == .signedIn, app.isOnline, !isLoading else { return }
         do {
-            let thread = try await app.account.thread(with: playerID, after: messages.last?.id)
+            let thread = try await app.account.thread(with: playerID, after: messages.last?.id, since: since)
             apply(thread)
+            for message in thread.changed { replace(message) }
             let known = Set(messages.map(\.id))
             let fresh = thread.messages.filter { !known.contains($0.id) }
             if !fresh.isEmpty {
@@ -187,6 +197,17 @@ final class ConversationModel {
         blocked = thread.blocked
         seenUpTo = thread.seenUpTo
         maxLength = thread.maxLength
+        if let now = thread.now {
+            since = now
+            skew = now.timeIntervalSinceNow
+        }
+    }
+
+    /// An edit or delete, from this device or the other side's.
+    private func replace(_ message: DirectMessage) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index] = message
+        if message.deleted, editing?.id == message.id { stopEditing() }
     }
 
     /// Marks what they sent read, once it's been seen here.
@@ -203,6 +224,12 @@ final class ConversationModel {
 
     func send(app: AppModel) {
         guard canSend else { return }
+        if let editing {
+            let text = MessageText.cleaned(draft)
+            stopEditing()
+            Task { await saveEdit(editing, text: text, app: app) }
+            return
+        }
         let message = PendingMessage(nonce: MessageText.nonce(), text: MessageText.cleaned(draft), at: Date())
         draft = ""
         pending.append(message)
@@ -246,6 +273,60 @@ final class ConversationModel {
         }
     }
 
+    // MARK: - Editing and deleting the viewer's own
+
+    func canEdit(_ message: DirectMessage) -> Bool {
+        message.canEdit(serverNow: serverNow)
+    }
+
+    /// Puts one of the viewer's own in the box to change it.
+    func startEditing(_ message: DirectMessage) {
+        guard canEdit(message) else {
+            actionError = MessageRefusal.text("too_late")
+            return
+        }
+        editing = message
+        draft = message.text
+    }
+
+    func stopEditing() {
+        guard editing != nil else { return }
+        editing = nil
+        draft = ""
+    }
+
+    private func saveEdit(_ message: DirectMessage, text: String, app: AppModel) async {
+        guard text != message.text, let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index].text = text
+        do {
+            let updated = try await app.account.editMessage(message.id, with: playerID, text: text)
+            replace(updated)
+            Haptics.play("light")
+        } catch {
+            Haptics.play("error")
+            if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index].text = message.text }
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = (error as? MessageRefusal).map { MessageRefusal.text($0.reason, name: with?.username ?? "") }
+                ?? error.localizedDescription
+        }
+    }
+
+    /// Deleted for both of them.
+    func delete(_ message: DirectMessage, app: AppModel) async {
+        guard !working else { return }
+        working = true
+        defer { working = false }
+        do {
+            let updated = try await app.account.deleteMessage(message.id)
+            replace(updated)
+            Haptics.play("success")
+        } catch {
+            Haptics.play("error")
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = error.localizedDescription
+        }
+    }
+
     // MARK: - Block and report
 
     func setBlocked(_ block: Bool, app: AppModel) async {
@@ -271,7 +352,9 @@ final class ConversationModel {
         working = true
         defer { working = false }
         do {
-            try await app.account.reportMessage(message.id, reason: reason, note: note)
+            // The site can't read it: the report carries it as this device opened it.
+            try await app.account.reportMessage(message.id, reason: reason, note: note,
+                                                text: message.encrypted && !message.sealed ? message.text : "")
             Haptics.play("success")
             return true
         } catch {

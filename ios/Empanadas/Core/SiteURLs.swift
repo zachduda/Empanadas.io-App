@@ -139,11 +139,14 @@ enum SiteURLs {
 
     /// One conversation: its newest page, the page older than message
     /// `before`, or only what is newer than message `after`.
-    static func appMessages(with id: String, before: Int? = nil, after: Int? = nil) -> URL {
+    static func appMessages(with id: String, before: Int? = nil, after: Int? = nil, since: Date? = nil) -> URL {
         var components = URLComponents(url: appMessages, resolvingAgainstBaseURL: false)!
         var items = [URLQueryItem(name: "with", value: PlayerID.raw(id) ?? id.lowercased())]
         if let before, before > 0 { items.append(URLQueryItem(name: "before", value: String(before))) }
         if let after, after > 0 { items.append(URLQueryItem(name: "after", value: String(after))) }
+        if let after, after > 0, let since, since.timeIntervalSince1970 >= 1 {
+            items.append(URLQueryItem(name: "since", value: String(Int(since.timeIntervalSince1970))))
+        }
         components.queryItems = items
         return components.url!
     }

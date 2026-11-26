@@ -23,7 +23,7 @@
 
 const {
 	app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification,
-	powerMonitor, protocol, screen, shell, session, systemPreferences, Tray
+	powerMonitor, protocol, safeStorage, screen, shell, session, systemPreferences, Tray
 } = require('electron');
 const fs = require('fs');
 const os = require('os');
@@ -40,6 +40,7 @@ const background = require('./lib/background');
 const jsonfile = require('./lib/jsonfile');
 const signin = require('./lib/signin');
 const { createApi, ApiError } = require('./lib/api');
+const { createKeyStore } = require('./lib/dmkeys');
 const { createAnswers } = require('./lib/answers');
 const gamebundle = require('./lib/gamebundle');
 const { createGameHandler } = require('./lib/gameprotocol');
@@ -89,7 +90,9 @@ const MESSAGES_POLL = 60 * 1000;
 // field of one), and publish the screens to the site's new folder for it.
 // 2: the Messages screen (the conversations and messages screens' data,
 // sendMessage, readMessages, blockPlayer and reportMessage).
-const SHELL_API = 2;
+// 3: end-to-end encrypted messages, opened here (messages' since, editMessage,
+// deleteMessage, reportMessage's text, prepareMessages).
+const SHELL_API = 3;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
 // (the check finishes in the background, for the next launch).
@@ -453,7 +456,8 @@ function setUpSessions() {
 	api = createApi({
 		fetch: (url, init) => main.fetch(url, Object.assign({ bypassCustomProtocolHandlers: true }, init)),
 		userAgent: () => userAgent,
-		onSignedOut: () => markSignedOut('expired')
+		onSignedOut: () => markSignedOut('expired'),
+		dmKeys: createKeyStore(path.join(userData, 'message-keys.json'), safeStorage)
 	});
 
 	let lastEmit = 0;
@@ -634,7 +638,7 @@ function forShell(body) {
 const LOADERS = {
 	account: () => api.account(),
 	conversations: () => api.conversations(),
-	messages: (params) => api.thread(params && params.id, { before: params && params.before, after: params && params.after }),
+	messages: (params) => api.thread(params && params.id, { before: params && params.before, after: params && params.after, since: params && params.since }),
 	dashboard: () => api.dashboard(),
 	leaderboard: () => api.leaderboard(),
 	profile: (params) => api.profile(params && params.id),
@@ -687,7 +691,10 @@ const ACTIONS = {
 	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
 	readMessages: (p) => api.readMessages(p.id, p.upTo),
 	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
-	reportMessage: (p) => api.reportMessage(p.message, p.reason, p.note),
+	editMessage: (p) => api.editMessage(p.id, p.message, p.text),
+	deleteMessage: (p) => api.deleteMessage(p.message),
+	prepareMessages: () => api.prepareMessages(),
+	reportMessage: (p) => api.reportMessage(p.message, p.reason, p.note, p.text),
 	deleteAccount: (p) => api.deleteAccount(p.confirmation)
 };
 

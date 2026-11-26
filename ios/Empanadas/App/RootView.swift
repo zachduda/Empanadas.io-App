@@ -62,6 +62,12 @@ struct RootView: View {
             guard scenePhase == .active else { return }
             await PushNotifications.shared.refresh()
         }
+        // This device's message key, so friends' messages are sealed for it
+        // (once a launch; AccountAPI keeps it after that).
+        .task(id: scenePhase) {
+            guard scenePhase == .active, model.session == .signedIn, model.isOnline else { return }
+            _ = try? await model.account.ownMessageKey()
+        }
         // Whether the servers are all right, while the app is in front: at
         // once, then every five minutes.
         .task(id: scenePhase) {

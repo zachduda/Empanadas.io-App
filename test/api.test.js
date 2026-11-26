@@ -10,6 +10,7 @@ const os = require('os');
 const path = require('path');
 
 const api = require('../lib/api');
+const dme2ee = require('../lib/dme2ee');
 const signin = require('../lib/signin');
 const { createAnswers, withoutToken } = require('../lib/answers');
 
@@ -382,27 +383,96 @@ check('the inbox and a conversation are read from messages.php, and hand over th
 	assert.strictEqual(site.calls.length, 4);
 });
 
-check('a message is posted with its nonce and the token, and once more with a fresh token if stale', async () => {
+// A fake messages.php with one device for the other player, and the keys it was handed.
+async function messagesSite({ stale = false } = {}) {
+	const theirs = await dme2ee.newDeviceKey(true);
+	const later = await dme2ee.newDeviceKey(true);
 	let tokens = 0;
+	let refusedOnce = false;
 	const posted = [];
+	const registered = [];
+	const keys = () => ({ mine: registered.map((k) => ({ device: k.device, key: k.key })), theirs: [{ device: theirs.device, key: theirs.publicKey }]
+		.concat(stale && refusedOnce ? [{ device: later.device, key: later.publicKey }] : []) });
 	const site = fakeFetch([
-		[/v2\/app\/account/, () => json({ ok: true, api: 1, csrf: 'token' + (++tokens) })],
-		[/v2\/app\/messages\.php/, (url, init) => {
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 'token' + (++tokens) })],
+		[/v2\/app\/messages\.php/, async (url, init) => {
+			if (!init.body) return json({ ok: true, api: 1, messages: [], keys: keys(), now: 1000, csrf: 'token' + tokens });
 			const form = Object.fromEntries(new URLSearchParams(init.body));
 			posted.push(form);
+			if (form.action === 'register_key') {
+				registered.push({ key: form.public_key, device: await dme2ee.deviceId(form.public_key) });
+				return json({ ok: true, api: 1, device: registered[registered.length - 1].device });
+			}
 			if (form.csrf === 'token1') return json({ ok: false, api: 1, reason: 'csrf' }, 403);
-			return json({ ok: true, api: 1, message: { id: 7, from_me: true, text: form.text, sent: 1, read: false }, duplicate: false });
+			if (stale && !refusedOnce) {
+				refusedOnce = true;
+				return json({ ok: false, api: 1, reason: 'keys_changed', keys: keys() }, 409);
+			}
+			if (form.action === 'delete') return json({ ok: true, api: 1, message: { id: Number(form.message), from_me: true, text: 'This message was deleted.', cipher: null, deleted: true } });
+			return json({ ok: true, api: 1, message: { id: Number(form.message) || 7, from_me: true, text: 'locked', cipher: form.cipher, sent: 1, read: false,
+				edited: form.action === 'edit' ? 2 : null }, duplicate: false });
 		}]
 	]);
-	const client = api.createApi({ fetch: site.fetch });
+	const store = new Map();
+	const dmKeys = { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) };
+	return { site, posted, theirs, later, store, client: api.createApi({ fetch: site.fetch, dmKeys }) };
+}
+
+check('a message is sealed for both players\' devices, posted with its nonce and the token, and once more with a fresh token if stale', async () => {
+	const { posted, theirs, store, client } = await messagesSite();
 	const reply = await client.sendMessage('AB12CD34-0000-1111-2222-333344445555', '  hey\r\n\r\n\r\nthere  ', 'nonce-abc123');
 	assert.strictEqual(reply.message.text, 'hey\n\nthere');
-	assert.strictEqual(posted.length, 2);
-	assert.deepStrictEqual(posted[0], { action: 'send', to: 'ab12cd34000011112222333344445555', text: 'hey\n\nthere', nonce: 'nonce-abc123', csrf: 'token1' });
+	assert.strictEqual(reply.message.cipher, undefined, 'the screens never get the envelope');
+	const sends = posted.filter((p) => p.action === 'send');
+	assert.strictEqual(sends.length, 2);
+	assert.strictEqual(sends[0].text, undefined, 'the words never go to the site');
+	assert.strictEqual(await dme2ee.open(sends[0].cipher, theirs), 'hey\n\nthere');
+	const mine = store.get('42');
+	assert.ok(mine && mine.jwk && mine.device, 'this computer keeps its key');
+	assert.strictEqual(await dme2ee.open(sends[0].cipher, { privateKey: await dme2ee.importPrivate(mine.jwk), publicKey: mine.publicKey, device: mine.device }), 'hey\n\nthere');
+	assert.deepStrictEqual(Object.assign({}, sends[0], { cipher: '' }), { action: 'send', to: 'ab12cd34000011112222333344445555', nonce: 'nonce-abc123', csrf: 'token1', cipher: '' });
 	// The retry is the same message: the same nonce.
-	assert.deepStrictEqual(posted[1], Object.assign({}, posted[0], { csrf: 'token2' }));
+	assert.strictEqual(sends[1].nonce, 'nonce-abc123');
+	assert.strictEqual(sends[1].csrf, 'token2');
 	await client.sendMessage('ab12cd34000011112222333344445555', 'again', 'bad nonce!');
-	assert.ok(/^[0-9a-f]{32}$/.test(posted[2].nonce), 'a nonce that is not one is replaced: ' + posted[2].nonce);
+	assert.ok(/^[0-9a-f]{32}$/.test(posted[posted.length - 1].nonce), 'a nonce that is not one is replaced');
+	assert.strictEqual(posted.filter((p) => p.action === 'register_key').length, 1, 'the key is handed to the site once');
+});
+
+check('a device the site knows of and the app did not gets the message sealed again', async () => {
+	const { posted, later, client } = await messagesSite({ stale: true });
+	await client.sendMessage('ab12cd34000011112222333344445555', 'for every device', 'nonce-stale1');
+	const sends = posted.filter((p) => p.action === 'send' && p.csrf !== 'token1');
+	assert.strictEqual(sends.length, 2);
+	await assert.rejects(dme2ee.open(sends[0].cipher, later), (e) => e.message === 'not_for_device');
+	assert.strictEqual(await dme2ee.open(sends[1].cipher, later), 'for every device');
+	assert.strictEqual(sends[1].nonce, sends[0].nonce);
+});
+
+check('a conversation is opened here; an edit is sealed again, and a delete has nothing in it', async () => {
+	const { posted, client } = await messagesSite();
+	const id = 'ab12cd34000011112222333344445555';
+	const sent = await client.sendMessage(id, 'first try', 'nonce-edit01');
+	const sealed = posted.find((p) => p.action === 'send').cipher;
+	const edited = await client.editMessage(id, sent.message.id, 'second try');
+	assert.strictEqual(edited.message.text, 'second try');
+	assert.strictEqual(posted[posted.length - 1].action, 'edit');
+	assert.strictEqual(posted[posted.length - 1].text, undefined);
+	const removed = await client.deleteMessage(7);
+	assert.deepStrictEqual([removed.message.deleted, removed.message.text], [true, 'Message deleted']);
+	await assert.rejects(client.editMessage(id, 'x', 'hi'), (e) => e.code === 'invalid');
+	const other = await dme2ee.newDeviceKey(true);
+	// Read by another computer: its own sealed message opens, one for another device doesn't.
+	const elsewhere = await dme2ee.seal('not for you', [{ device: other.device, key: other.publicKey }]);
+	const reveal = api.createApi({ fetch: fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 't' })],
+		[/v2\/app\/messages\.php/, (url, init) => init.body ? json({ ok: true, api: 1 })
+			: json({ ok: true, api: 1, messages: [{ id: 1, cipher: sealed }, { id: 2, cipher: elsewhere }, { id: 3, text: 'from before' }], csrf: 't' })]
+	]).fetch, dmKeys: { load: () => null, save: () => {} } });
+	const body = await reveal.thread(id);
+	assert.deepStrictEqual(body.messages.map((m) => [m.text, !!m.sealed]), [["\u{1F512} Can't be read on this computer", true],
+		["\u{1F512} Can't be read on this computer", true], ['from before', false]]);
+	assert.ok(body.messages.every((m) => m.cipher === undefined));
 });
 
 check('a message with nothing in it is refused before anything is sent', async () => {
@@ -436,8 +506,8 @@ check('read, block, unblock and report post what the site takes', async () => {
 		{ action: 'read', with: id, csrf: 't' },
 		{ action: 'block', with: id, csrf: 't' },
 		{ action: 'unblock', with: id, csrf: 't' },
-		{ action: 'report', message: '99', reason: 'harassment', note: 'not nice', csrf: 't' },
-		{ action: 'report', message: '100', reason: 'other', note: '', csrf: 't' }
+		{ action: 'report', message: '99', reason: 'harassment', note: 'not nice', text: '', csrf: 't' },
+		{ action: 'report', message: '100', reason: 'other', note: '', text: '', csrf: 't' }
 	]);
 });
 

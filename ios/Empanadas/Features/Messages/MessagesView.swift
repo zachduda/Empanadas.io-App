@@ -7,7 +7,9 @@ import UIKit
 // pushed on it, or on whichever tab showed a friend's profile and its Message
 // button. A notification, a deep link or a link to /v2/messages opens the tab
 // (AppModel.navigate). Everything a player wrote is shown as text, never as
-// markup.
+// markup. Messages are end-to-end encrypted (MessageCrypto): AccountAPI
+// opens them, so what reaches the screens is already plain. The player's own
+// can be edited for a minute and deleted any time.
 
 extension View {
     /// Lets NavigationLink(value: MessagesRoute) work in this navigation
@@ -285,7 +287,9 @@ private struct NotificationsCard: View {
 
 // MARK: - New message
 
-/// One of the player's friends, to start or carry on a conversation with.
+/// One of the player's friends, to start or carry on a conversation with;
+/// under them, players with a public profile who aren't friends yet, which
+/// open the profile (only friends can be messaged).
 private struct NewMessageSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -294,6 +298,9 @@ private struct NewMessageSheet: View {
     @State private var friends: [PlayerProfile.Friend]?
     @State private var error: Error?
     @State private var filter = ""
+    @State private var others: [PlayerSearch.Result] = []
+    @State private var searchedFor = ""
+    @State private var profile: PlayerSearch.Result?
 
     private var shown: [PlayerProfile.Friend] {
         let list = friends ?? []
@@ -301,26 +308,83 @@ private struct NewMessageSheet: View {
         return term.isEmpty ? list : list.filter { $0.username.localizedCaseInsensitiveContains(term) }
     }
 
+    private var shownOthers: [PlayerSearch.Result] {
+        searchedFor == filter.trimmingCharacters(in: .whitespaces) ? others : []
+    }
+
     var body: some View {
         NavigationStack {
-            List(shown) { friend in
-                Button {
-                    pick(MessagePerson(playerID: friend.playerID, username: friend.username, pfp: friend.pfp))
-                } label: {
-                    HStack(spacing: 12) {
-                        Avatar(url: friend.pictureURL, size: 40)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(friend.username)
-                                .foregroundStyle(.primary)
-                            if let label = friend.label {
-                                Text(label)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+            List {
+                Section {
+                    ForEach(shown) { friend in
+                        Button {
+                            pick(MessagePerson(playerID: friend.playerID, username: friend.username, pfp: friend.pfp))
+                        } label: {
+                            HStack(spacing: 12) {
+                                Avatar(url: friend.pictureURL, size: 40)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(friend.username)
+                                        .foregroundStyle(.primary)
+                                    if let label = friend.label {
+                                        Text(label)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                         }
+                        .disabled(friend.playerID.isEmpty)
                     }
                 }
-                .disabled(friend.playerID.isEmpty)
+                if !shownOthers.isEmpty {
+                    Section {
+                        ForEach(shownOthers) { player in
+                            Button { profile = player } label: {
+                                HStack(spacing: 12) {
+                                    Avatar(url: player.pictureURL, size: 40)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(player.username)
+                                            .foregroundStyle(.primary)
+                                        Text(Self.note(for: player.relation))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .disabled(player.playerID.isEmpty)
+                        }
+                    } header: {
+                        Text("Other Players")
+                    } footer: {
+                        Text("You can message players once you're friends.")
+                    }
+                }
+            }
+            .navigationDestination(item: $profile) { player in
+                ProfileView(id: player.playerID, name: player.username)
+            }
+            .profileDestinations()
+            .task(id: filter) {
+                let term = filter.trimmingCharacters(in: .whitespaces)
+                guard let query = PlayerSearch.term(term) else {
+                    others = []
+                    searchedFor = term
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                let found = (try? await model.account.searchPlayers(query))?.results ?? []
+                guard !Task.isCancelled else { return }
+                let friendIDs = Set((friends ?? []).map { PlayerID.raw($0.playerID) ?? $0.playerID })
+                others = found.filter { player in
+                    !player.isPrivate && player.relation != .me && player.relation != .friends
+                        && !friendIDs.contains(PlayerID.raw(player.playerID) ?? player.playerID)
+                }
+                searchedFor = term
             }
             .overlay {
                 if friends == nil, let error {
@@ -328,14 +392,14 @@ private struct NewMessageSheet: View {
                                            description: Text(error.localizedDescription))
                 } else if friends == nil {
                     ProgressView()
-                } else if friends?.isEmpty == true {
+                } else if friends?.isEmpty == true && filter.isEmpty {
                     ContentUnavailableView("No Friends Yet", systemImage: "person.2",
-                                           description: Text("Once you have friends, you can message them here. Find them from Home."))
-                } else if shown.isEmpty {
+                                           description: Text("Once you have friends, you can message them here. Search for players above."))
+                } else if shown.isEmpty && shownOthers.isEmpty && searchedFor == filter.trimmingCharacters(in: .whitespaces) {
                     ContentUnavailableView.search(text: filter)
                 }
             }
-            .searchable(text: $filter, prompt: "Search your friends")
+            .searchable(text: $filter, prompt: "Search friends and players")
             .navigationTitle("New Message")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -354,6 +418,14 @@ private struct NewMessageSheet: View {
             }
         }
     }
+
+    private static func note(for relation: Relationship) -> String {
+        switch relation {
+        case .outgoing: "Friend request sent"
+        case .incoming: "Wants to be friends"
+        default: "Not a friend yet"
+        }
+    }
 }
 
 // MARK: - A conversation
@@ -367,6 +439,7 @@ struct ConversationView: View {
     @State private var offeringBlock = false
     @State private var confirmingBlock = false
     @State private var showingProfile = false
+    @State private var deleting: DirectMessage?
     @FocusState private var typing: Bool
 
     init(id: String, name: String?) {
@@ -378,6 +451,7 @@ struct ConversationView: View {
     /// What the scroll view shows, in order: the time before a message far
     /// from the one before it, the messages, the ones on their way, and Seen.
     private enum Row: Identifiable {
+        case encrypted
         case gap(Date)
         case message(DirectMessage)
         case pending(PendingMessage)
@@ -385,6 +459,7 @@ struct ConversationView: View {
 
         var id: String {
             switch self {
+            case .encrypted: "encrypted"
             case .gap(let date): "gap-\(date.timeIntervalSince1970)"
             case .message(let message): "m-\(message.id)"
             case .pending(let message): "p-\(message.id)"
@@ -395,6 +470,9 @@ struct ConversationView: View {
 
     private var rows: [Row] {
         var out: [Row] = []
+        if conversation.loaded && (conversation.canMessage || conversation.messages.contains(where: \.encrypted)) {
+            out.append(.encrypted)
+        }
         var previous: Date?
         for message in conversation.messages {
             if let sent = message.sent, previous.map({ sent.timeIntervalSince($0) > MessageTime.gapAfter }) ?? true {
@@ -500,6 +578,16 @@ struct ConversationView: View {
                 await conversation.poll(app: model)
             }
         }
+        .confirmationDialog("Delete This Message?", isPresented: Binding(
+            get: { deleting != nil },
+            set: { if !$0 { deleting = nil } }
+        ), titleVisibility: .visible, presenting: deleting) { message in
+            Button("Delete for Everyone", role: .destructive) {
+                Task { await conversation.delete(message, app: model) }
+            }
+        } message: { _ in
+            Text("It will be deleted for you and \(name).")
+        }
         .confirmationDialog("Block \(name)?", isPresented: $confirmingBlock, titleVisibility: .visible) {
             Button("Block", role: .destructive) {
                 Task { await conversation.setBlocked(true, app: model) }
@@ -545,6 +633,12 @@ struct ConversationView: View {
     @ViewBuilder
     private func rowView(_ row: Row) -> some View {
         switch row {
+        case .encrypted:
+            Label("End-to-end encrypted. Only you and \(name) can read these.", systemImage: "lock.fill")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 6)
         case .gap(let date):
             Text(MessageTime.gap(date))
                 .font(.caption2.weight(.semibold))
@@ -552,23 +646,49 @@ struct ConversationView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
         case .message(let message):
-            Bubble(text: message.text, fromMe: message.fromMe, sent: message.sent, faded: false, sender: name)
-                .contextMenu {
-                    Button {
-                        UIPasteboard.general.string = message.text
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                    if !message.fromMe {
-                        Menu {
-                            ForEach(ReportReason.allCases) { reason in
-                                Button(reason.title) { reporting = (message, reason) }
+            VStack(alignment: message.fromMe ? .trailing : .leading, spacing: 2) {
+                Bubble(text: message.shownText, fromMe: message.fromMe, sent: message.sent, faded: false, sender: name,
+                       muted: message.deleted || message.sealed,
+                       highlighted: conversation.editing?.id == message.id)
+                    .contextMenu {
+                        if !message.deleted && !message.sealed {
+                            Button {
+                                UIPasteboard.general.string = message.text
+                            } label: {
+                                Label("Copy", systemImage: "doc.on.doc")
                             }
-                        } label: {
-                            Label("Report…", systemImage: "exclamationmark.bubble")
+                        }
+                        if message.fromMe && !message.deleted {
+                            if conversation.canEdit(message) {
+                                Button {
+                                    conversation.startEditing(message)
+                                    typing = true
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                            }
+                            Button(role: .destructive) { deleting = message } label: {
+                                Label("Delete…", systemImage: "trash")
+                            }
+                        }
+                        if !message.fromMe && !message.deleted {
+                            Menu {
+                                ForEach(ReportReason.allCases) { reason in
+                                    Button(reason.title) { reporting = (message, reason) }
+                                }
+                            } label: {
+                                Label("Report…", systemImage: "exclamationmark.bubble")
+                            }
                         }
                     }
+                if message.edited != nil && !message.deleted {
+                    Text("Edited")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
                 }
+            }
+            .frame(maxWidth: .infinity, alignment: message.fromMe ? .trailing : .leading)
         case .pending(let message):
             VStack(alignment: .trailing, spacing: 3) {
                 Bubble(text: message.text, fromMe: true, sent: message.at, faded: message.failed == nil, sender: name)
@@ -634,6 +754,18 @@ struct ConversationView: View {
                 .background(.bar)
         } else if conversation.loaded {
             VStack(alignment: .trailing, spacing: 2) {
+                if conversation.editing != nil {
+                    HStack(spacing: 6) {
+                        Label("Editing Message", systemImage: "pencil")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button("Cancel") { conversation.stopEditing() }
+                            .font(.caption.weight(.semibold))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 4)
+                }
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("Message \(name)", text: $conversation.draft, axis: .vertical)
                         .lineLimit(1...6)
@@ -645,12 +777,12 @@ struct ConversationView: View {
                     Button {
                         conversation.send(app: model)
                     } label: {
-                        Image(systemName: "arrow.up.circle.fill")
+                        Image(systemName: conversation.editing == nil ? "arrow.up.circle.fill" : "checkmark.circle.fill")
                             .font(.system(size: 34))
                             .symbolRenderingMode(.hierarchical)
                     }
                     .disabled(!conversation.canSend || !model.isOnline)
-                    .accessibilityLabel("Send")
+                    .accessibilityLabel(conversation.editing == nil ? "Send" : "Save Edit")
                 }
                 if let left = conversation.charactersLeft {
                     Text("\(left)")
@@ -678,17 +810,31 @@ private struct Bubble: View {
     /// On its way.
     let faded: Bool
     let sender: String
+    /// Deleted, or not for this device: an outline in place of the bubble.
+    var muted = false
+    /// Being edited in the box.
+    var highlighted = false
 
     var body: some View {
         HStack {
             if fromMe { Spacer(minLength: 48) }
             Text(verbatim: text)
+                .italic(muted)
                 .textSelection(.enabled)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 8)
-                .foregroundStyle(fromMe ? Color.white : Color.primary)
-                .background(fromMe ? Color.accentColor : Color(uiColor: .secondarySystemBackground),
+                .foregroundStyle(muted ? Color.secondary : (fromMe ? Color.white : Color.primary))
+                .background(muted ? Color.clear : (fromMe ? Color.accentColor : Color(uiColor: .secondarySystemBackground)),
                             in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    if muted {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    } else if highlighted {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.orange, lineWidth: 2)
+                    }
+                }
                 .opacity(faded ? 0.6 : 1)
             if !fromMe { Spacer(minLength: 48) }
         }

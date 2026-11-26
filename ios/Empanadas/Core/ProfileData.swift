@@ -398,7 +398,7 @@ struct PlayerProfile: Decodable, Equatable {
 
 /// GET /v2/app/search.php: one page of players whose name has the search in it.
 struct PlayerSearch: Decodable, Equatable {
-    struct Result: Decodable, Equatable, Identifiable {
+    struct Result: Decodable, Equatable, Hashable, Identifiable {
         /// Their profile id.
         var playerID = ""
         var username = ""

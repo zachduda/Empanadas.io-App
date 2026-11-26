@@ -1118,6 +1118,14 @@ button.dm-conv:hover { background: var(--surface-2); }
 .dm-row:hover .dm-more, .dm-more:focus-visible { opacity: 1; }
 .dm-status { align-self: flex-end; margin: 3px 4px 0; font-size: 11.5px; color: var(--muted); }
 .dm-status.error { color: var(--danger); }
+.dm-row.deleted .dm-bubble, .dm-row.sealed .dm-bubble { background: transparent; color: var(--muted); border: 1px dashed var(--border); font-style: italic; }
+.dm-row.editing .dm-bubble { outline: 2px solid var(--warning, #f5b544); outline-offset: 2px; }
+.dm-edited { margin: 1px 8px 0; font-size: 11px; color: var(--muted); }
+.dm-edited.me { align-self: flex-end; }
+.dm-lock { align-self: center; display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 11.5px; color: var(--muted); }
+.dm-lock .icon { width: 13px; height: 13px; }
+.dm-editing { display: flex; align-items: center; gap: 8px; padding: 0 4px 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.dm-editing .icon { width: 13px; height: 13px; }
 .dm-status .link { border: 0; background: none; padding: 0; color: var(--danger); font: inherit; font-weight: 700; text-decoration: underline; }
 .dm-hello { margin: auto; padding: 30px; text-align: center; }
 

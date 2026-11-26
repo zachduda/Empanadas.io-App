@@ -179,6 +179,12 @@ struct SignInError: LocalizedError, Equatable {
 final class AccountAPI {
     private let session: URLSession
     private let cookieStore: WKHTTPCookieStore
+    /// This device's message key for the signed-in account, once the site has it.
+    private var messageKey: (account: Int, key: MessageCrypto.DeviceKey)?
+    /// Each conversation's devices, from its last answer, to seal the next message for.
+    private var conversationKeys: [String: MessageKeys] = [:]
+    /// Messages already opened, by id and edit.
+    private var opened: [String: String] = [:]
 
     /// `protocolClasses` answer instead of the site: the screenshot tests'
     /// made-up account.
@@ -294,35 +300,148 @@ final class AccountAPI {
 
     // MARK: - Messages
 
-    /// GET /v2/app/messages.php: the inbox, newest conversation first.
+    /// GET /v2/app/messages.php: the inbox, newest conversation first, with
+    /// each last message opened here for its preview.
     func conversations() async throws -> Inbox {
         let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appMessages))
-        let inbox = try Self.decode(Inbox.self, Self.messagesBody(data, status: response.statusCode))
+        var inbox = try Self.decode(Inbox.self, Self.messagesBody(data, status: response.statusCode))
         remember(inbox.csrf)
+        var key: MessageCrypto.DeviceKey?
+        if inbox.conversations.contains(where: { $0.last.cipher != nil }) { key = try? await ownMessageKey() }
+        for index in inbox.conversations.indices {
+            let last = inbox.conversations[index].last
+            guard !last.deleted, let cipher = last.cipher else { continue }
+            if let text = openMessage(cipher, id: last.id, edited: nil, key: key) {
+                inbox.conversations[index].last.preview = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            } else {
+                inbox.conversations[index].last.preview = "\u{1F512} Encrypted message"
+            }
+        }
         return inbox
     }
 
     /// GET /v2/app/messages.php?with=: one conversation, oldest first. With
     /// `after`, only what is newer than that message (an open conversation
-    /// asks every few seconds); with `before`, the page older than it.
-    func thread(with playerID: String, before: Int? = nil, after: Int? = nil) async throws -> MessageThread {
-        _ = try Self.uuidField(playerID)
-        let url = SiteURLs.appMessages(with: playerID, before: before, after: after)
+    /// asks every few seconds), and with `since` too, what was edited or
+    /// deleted since the last answer's `now`; with `before`, the page older.
+    func thread(with playerID: String, before: Int? = nil, after: Int? = nil, since: Date? = nil) async throws -> MessageThread {
+        let raw = try Self.uuidField(playerID)
+        let url = SiteURLs.appMessages(with: playerID, before: before, after: after, since: since)
         let (data, response) = try await sendNative(URLRequest(url: url))
-        let thread = try Self.decode(MessageThread.self, Self.messagesBody(data, status: response.statusCode))
+        var thread = try Self.decode(MessageThread.self, Self.messagesBody(data, status: response.statusCode))
         remember(thread.csrf)
+        conversationKeys[raw] = thread.keys
+        var key: MessageCrypto.DeviceKey?
+        if (thread.messages + thread.changed).contains(where: { $0.cipher != nil }) { key = try? await ownMessageKey() }
+        thread.messages = thread.messages.map { reveal($0, key: key) }
+        thread.changed = thread.changed.map { reveal($0, key: key) }
         return thread
     }
 
-    /// POST action=send. `nonce` is the message's own id on this device, the
+    /// POST action=send, sealed for both players' devices: the site never
+    /// has the words. `nonce` is the message's own id on this device, the
     /// same for every retry of it, so the site stores it once.
     func sendMessage(to playerID: String, text: String, nonce: String) async throws -> SentMessage {
         let to = try Self.uuidField(playerID)
         let body = MessageText.cleaned(text)
         guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
         let nonce = MessageText.isNonce(nonce) ? nonce : MessageText.nonce()
-        let reply = try await messagesPost([("action", "send"), ("to", to), ("text", body), ("nonce", nonce)])
-        return try Self.decode(SentMessage.self, reply)
+        let reply = try await sealedPost(to, text: body, fields: [("action", "send"), ("to", to), ("nonce", nonce)])
+        var sent = try Self.decode(SentMessage.self, reply)
+        opened[Self.openedKey(sent.message.id, sent.message.edited)] = body
+        sent.message = reveal(sent.message, key: nil)
+        return sent
+    }
+
+    /// POST action=edit: one of the player's own, within a minute of sending.
+    func editMessage(_ messageID: Int, with playerID: String, text: String) async throws -> DirectMessage {
+        let with = try Self.uuidField(playerID)
+        guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
+        let body = MessageText.cleaned(text)
+        guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
+        let reply = try await sealedPost(with, text: body, fields: [("action", "edit"), ("message", String(messageID))])
+        let message = try Self.decode(ChangedMessage.self, reply).message
+        opened[Self.openedKey(message.id, message.edited)] = body
+        return reveal(message, key: nil)
+    }
+
+    /// POST action=delete: one of the player's own, for both of them.
+    func deleteMessage(_ messageID: Int) async throws -> DirectMessage {
+        guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
+        let reply = try await messagesPost([("action", "delete"), ("message", String(messageID))])
+        return try Self.decode(ChangedMessage.self, reply).message
+    }
+
+    /// This device's key, handed to the site once a launch so messages are
+    /// sealed for it. Called at sign-in, and before anything is opened.
+    @discardableResult
+    func ownMessageKey() async throws -> MessageCrypto.DeviceKey {
+        if let messageKey { return messageKey.key }
+        let account = try await snapshot().account.id
+        guard let key = MessageKeychain.key(for: account) else { throw AccountError.unavailable("no message key") }
+        _ = try await messagesPost([("action", "register_key"), ("public_key", key.publicKey)])
+        messageKey = (account, key)
+        return key
+    }
+
+    /// Signed out, or someone else in: the last account's key and conversations go.
+    func forgetMessages() {
+        messageKey = nil
+        conversationKeys = [:]
+        opened = [:]
+    }
+
+    private nonisolated static func openedKey(_ id: Int, _ edited: Date?) -> String {
+        "\(id):\(Int(edited?.timeIntervalSince1970 ?? 0))"
+    }
+
+    private func openMessage(_ cipher: String, id: Int, edited: Date?, key: MessageCrypto.DeviceKey?) -> String? {
+        let cacheKey = Self.openedKey(id, edited)
+        if let known = opened[cacheKey] { return known }
+        guard let key, let text = try? MessageCrypto.open(cipher, with: key) else { return nil }
+        opened[cacheKey] = text
+        return text
+    }
+
+    private func reveal(_ message: DirectMessage, key: MessageCrypto.DeviceKey?) -> DirectMessage {
+        var out = message
+        guard !out.deleted, let cipher = out.cipher else { return out }
+        if let text = openMessage(cipher, id: out.id, edited: out.edited, key: key) {
+            out.text = text
+            out.sealed = false
+        } else {
+            out.text = ""
+            out.sealed = true
+        }
+        return out
+    }
+
+    /// Sealed for both players' devices and this one, and again for the
+    /// devices the site sends back if one is new since the last answer.
+    private func sealedPost(_ playerID: String, text: String, fields: [(String, String)]) async throws -> Data {
+        let key = try await ownMessageKey()
+        var keys: MessageKeys
+        if let known = conversationKeys[playerID] {
+            keys = known
+        } else {
+            keys = try await thread(with: playerID, after: Int(Int32.max)).keys
+        }
+        let own = MessageKeys.Device(device: key.device, key: key.publicKey)
+        for attempt in 0..<2 {
+            let cipher: String
+            do {
+                cipher = try MessageCrypto.seal(text, for: keys.all + [own])
+            } catch {
+                throw MessageRefusal(reason: "no_keys")
+            }
+            do {
+                return try await messagesPost(fields + [("cipher", cipher)])
+            } catch let refusal as MessageRefusal where refusal.reason == "keys_changed" && attempt == 0 && refusal.keys != nil {
+                keys = refusal.keys ?? keys
+                conversationKeys[playerID] = keys
+            }
+        }
+        throw MessageRefusal(reason: "keys_changed")
     }
 
     /// POST action=read: what `playerID` sent, up to and including message
@@ -349,11 +468,14 @@ final class AccountAPI {
 
     /// POST action=report: files a message the player received in the
     /// admin panel's User Feedback.
-    func reportMessage(_ messageID: Int, reason: ReportReason, note: String) async throws {
+    /// `text`: an encrypted message as this device opened it, since the site
+    /// can't read it.
+    func reportMessage(_ messageID: Int, reason: ReportReason, note: String, text: String = "") async throws {
         guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
         let note = String(MessageText.cleaned(note).prefix(500))
         _ = try await messagesPost([("action", "report"), ("message", String(messageID)),
-                                    ("reason", reason.rawValue), ("note", note)])
+                                    ("reason", reason.rawValue), ("note", note),
+                                    ("text", String(MessageText.cleaned(text).prefix(MessageText.maxLength)))])
     }
 
     /// One change to messages, with the session's token (and once more with
@@ -409,7 +531,8 @@ final class AccountAPI {
         case "csrf": throw AccountError.staleToken
         case _ where MessageRefusal.reasons.contains(reason):
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            throw MessageRefusal(reason: reason, maxLength: intValue(object?["max_length"]) ?? MessageText.maxLength)
+            let keys = (try? JSONDecoder().decode(RefusalKeys.self, from: data))?.keys
+            throw MessageRefusal(reason: reason, maxLength: intValue(object?["max_length"]) ?? MessageText.maxLength, keys: keys)
         default:
             if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
             throw AccountError.unavailable(reason)
@@ -594,6 +717,7 @@ final class AccountAPI {
     func forgetSession() async {
         token = nil
         keptForm = nil
+        forgetMessages()
         for cookie in await cookieStore.allCookies() where Self.isAccountCookie(cookie) {
             await cookieStore.deleteCookie(cookie)
         }
@@ -950,4 +1074,9 @@ final class AccountAPI {
             .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+/// The devices a keys_changed or no_keys refusal names.
+private struct RefusalKeys: Decodable {
+    var keys: MessageKeys?
 }
