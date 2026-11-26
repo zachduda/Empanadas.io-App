@@ -86,6 +86,8 @@ enum SiteURLs {
     static let appDaily = page(nativeAPIPath + "daily.php")
     /// Direct messages: the inbox, a conversation, and every change to them.
     static let appMessages = page(nativeAPIPath + "messages.php")
+    /// This device's token, for push notifications.
+    static let appPush = page(nativeAPIPath + "push.php")
     /// The site's Messages page (?with=<id> opens a conversation).
     static let messagesPaths: Set<String> = ["/v2/messages", "/v2/messages.php"]
     /// Where a sign-in run in the browser is redeemed (SignInRequest).

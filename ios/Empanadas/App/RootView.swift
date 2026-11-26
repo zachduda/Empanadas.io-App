@@ -55,6 +55,13 @@ struct RootView: View {
             model.saveGamesForOffline()
             await model.refreshTheme(maxAge: CacheAge.account)
         }
+        // Whether the player still lets the app notify them (they may have
+        // changed it in the Settings app), and the device's token, which APNs
+        // wants asked for at every launch.
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await PushNotifications.shared.refresh()
+        }
         // Whether the servers are all right, while the app is in front: at
         // once, then every five minutes.
         .task(id: scenePhase) {

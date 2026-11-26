@@ -83,6 +83,11 @@ struct MessagesView: View {
 
     var body: some View {
         List {
+            if PushNotifications.shared.permission == .notAsked && inbox.inbox != nil {
+                Section {
+                    NotificationsCard()
+                }
+            }
             if let data = inbox.inbox {
                 if !data.conversations.isEmpty {
                     Section {
@@ -256,6 +261,36 @@ private struct PresenceAvatar: View {
     }
 }
 
+/// Asks to notify the player of new messages: in the inbox, until they've
+/// answered the system's question.
+private struct NotificationsCard: View {
+    @State private var asking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Know when friends message you", systemImage: "bell.badge.fill")
+                .font(.headline)
+                .symbolRenderingMode(.multicolor)
+            Text("Get a notification for each new message, even when the app is closed.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button {
+                asking = true
+                Task {
+                    await PushNotifications.shared.requestPermission()
+                    asking = false
+                }
+            } label: {
+                Text("Turn On Notifications")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(asking)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
 // MARK: - New message
 
 /// One of the player's friends, to start or carry on a conversation with.
@@ -411,6 +446,18 @@ struct ConversationView: View {
             .onChange(of: typing) { _, focused in
                 if focused { withAnimation(.smooth) { proxy.scrollTo("end", anchor: .bottom) } }
             }
+        }
+        // Its notifications aren't shown while it is on screen, and the ones
+        // already delivered have been seen.
+        .onAppear {
+            model.openConversation = conversation.playerID
+            PushNotifications.shared.conversationOpened(with: conversation.playerID)
+        }
+        .onDisappear {
+            if model.openConversation == conversation.playerID { model.openConversation = nil }
+        }
+        .onChange(of: conversation.messages.count) { _, _ in
+            PushNotifications.shared.conversationOpened(with: conversation.playerID)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { footer }
         .background(Color(uiColor: .systemBackground))

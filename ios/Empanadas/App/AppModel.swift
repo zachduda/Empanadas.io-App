@@ -148,6 +148,7 @@ final class AppModel {
         WebEnvironment.readUserAgent()
         if session == .signedIn { gameCenter.start() }
         updateHomeScreen()
+        PushNotifications.shared.app = self
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).
@@ -203,6 +204,7 @@ final class AppModel {
             gameCenter.start()
             saveGamesForOffline()
             updateHomeScreen()
+            PushNotifications.shared.signedIn()
             Task { await self.refreshTheme() }
         case .signedOut:
             activeGame = nil
@@ -223,6 +225,9 @@ final class AppModel {
             settings.reset()
             ProfileCache.clear()
             unreadMessages = 0
+            openConversation = nil
+            // This device stops getting the account's notifications.
+            PushNotifications.shared.signedOut()
             updates.reset()
             gameCenter.reset()
             lastPlayed = [:]
@@ -674,7 +679,12 @@ final class AppModel {
     func setUnreadMessages(_ count: Int?) {
         guard let count, session == .signedIn else { return }
         unreadMessages = max(0, count)
+        PushNotifications.shared.setBadge(unreadMessages)
     }
+
+    /// The player whose conversation is on screen: its notifications aren't
+    /// shown while it is (PushNotifications).
+    @ObservationIgnored var openConversation: String?
 
     // MARK: - Offline games
 

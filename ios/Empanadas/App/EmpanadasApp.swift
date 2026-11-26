@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct EmpanadasApp: App {
@@ -58,7 +59,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         NavigationTitles.usePoppins()
+        // Before anything else: a launch from a notification's tap is told
+        // to the delegate straight after this.
+        UNUserNotificationCenter.current().delegate = PushNotifications.shared
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        PushNotifications.shared.didRegister(deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // No token this time (a simulator, no connection): asked again at the
+        // next launch or return to the front.
     }
 
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,

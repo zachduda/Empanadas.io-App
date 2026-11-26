@@ -369,6 +369,33 @@ final class AccountAPI {
         }
     }
 
+    // MARK: - Push notifications
+
+    /// POST /v2/app/push.php action=register: the account's notifications go
+    /// to this device (a token another account had here becomes this one's).
+    func registerPush(token: String, environment: String) async throws {
+        try await withToken { csrf in
+            var request = URLRequest(url: SiteURLs.appPush)
+            request.httpMethod = "POST"
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.formBody([("action", "register"), ("token", token),
+                                              ("environment", environment), ("csrf", csrf)])
+            let (data, response) = try await self.sendNative(request)
+            _ = try Self.messagesBody(data, status: response.statusCode)
+        }
+    }
+
+    /// POST /v2/app/push.php action=unregister: no more notifications on this
+    /// device. Needs no session, so it works after the site has signed out.
+    func unregisterPush(token: String) async throws {
+        var request = URLRequest(url: SiteURLs.appPush)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.formBody([("action", "unregister"), ("token", token)])
+        let (data, response) = try await sendNative(request)
+        _ = try Self.messagesBody(data, status: response.statusCode)
+    }
+
     /// The body of a /v2/app/messages.php answer that worked, or the error
     /// it stands for: a MessageRefusal for the reasons the screens explain.
     nonisolated static func messagesBody(_ data: Data, status: Int) throws -> Data {
