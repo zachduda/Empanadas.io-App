@@ -108,7 +108,7 @@ function createFakeSite({ siteDir, certDir }) {
 			spin: { lifetime, prestige: 23, ascends: 4, spins: 61234, progress: 22.61 },
 			flappy: { high: 87, recent: 64, played: 412, progress: 73.56 },
 			tower: { high: 142, recent: 97, played: 203, progress: 68.3 },
-			xp: { total: 48250, rank: 'Golden Folder', icon: '🥟', next: 60000, next_rank: 'Empanada Legend', progress: 61.2 },
+			xp: { total: 48250, rank: 'Golden Folder', icon: '🥟', next: 60000, next_rank: 'Empanada Legend', progress: 61.2, breakdown: [{ label: 'Lifetime Spins', xp: 30120, percent: 62 }, { label: 'Flappy Highscore', xp: 8700, percent: 18 }, { label: 'Tower Highscore', xp: 6430, percent: 13 }, { label: 'Account Longevity', xp: 3000, percent: 7 }] },
 			friends: {
 				total: state.friends.size, online: 1, pending: state.incoming.size,
 				list: FRIENDS.filter((f) => state.friends.has(f[0])).map((f) => ({ username: f[1], uuid: f[0], pfp: pfp(f[1]), default_pfp: false, state: f[2], label: f[3] }))

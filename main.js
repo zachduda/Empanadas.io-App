@@ -1185,7 +1185,7 @@ function finishBrowserConnect(link) {
 }
 
 // --- Server status ------------------------------------------------------------
-// The light in App Settings (lib/serverstatus.js), and the full status page
+// The light in Settings (lib/serverstatus.js), and the full status page
 // behind it in a sheet over the window, as the iOS app's StatusPageView: the
 // screens draw the sheet (its title bar with Done, and Back once a link has
 // been followed) and say where its body is (status:layout); the page itself
@@ -2513,7 +2513,6 @@ function buildAppMenu() {
 
 	const appItems = [
 		{ label: 'Settings…', accelerator: mod + '+,', enabled: signedIn, click: go('settings') },
-		{ label: 'App Settings…', accelerator: mod + '+Alt+,', enabled: signedIn, click: go('appsettings') },
 		{ label: 'Check for Updates…', click: () => updater.checkFromRenderer() },
 		sep,
 		{
@@ -2566,8 +2565,8 @@ function buildAppMenu() {
 			{ label: 'Games', accelerator: mod + '+2', enabled: signedIn, click: go('games') },
 			{ label: 'Leaderboards', accelerator: mod + '+3', enabled: signedIn, click: go('leaderboard') },
 			{ label: 'Friends', accelerator: mod + '+4', enabled: signedIn, click: go('friends') },
-			{ label: 'My Profile', accelerator: mod + '+5', enabled: signedIn, click: go('profile') },
-			{ label: 'Messages', accelerator: mod + '+6', enabled: signedIn, click: go('messages') },
+			{ label: 'Messages', accelerator: mod + '+5', enabled: signedIn, click: go('messages') },
+			{ label: 'My Profile', accelerator: mod + '+6', enabled: signedIn, click: go('profile') },
 			{ label: 'Updates', enabled: signedIn, click: go('updates') },
 			sep,
 			{ label: 'Find Friends…', accelerator: mod + '+F', enabled: signedIn, click: () => goTo({ screen: 'friends', search: true }) },

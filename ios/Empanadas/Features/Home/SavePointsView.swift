@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// What the Home tab pushes for Manage Game Data.
+/// What Home (under the Spin Progress chart) and Settings push for Manage
+/// Game Data.
 enum GameDataRoute: Hashable {
     case savePoints
 }

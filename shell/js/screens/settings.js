@@ -1,41 +1,34 @@
-// Settings: the account and its settings from /v2/app/account.php, changed
-// through account_edit.php; sign out and delete. The app's own settings
-// (updates, the cache, the kept games, versions) are App Settings
-// (appsettings.js), which needs no account and works offline.
-// Email and username, connections, passkeys, two-factor and the picture are
-// the site's own pages, in a window of their own.
+// Settings: one screen for the account's settings and the app's. The account
+// and its settings come from /v2/app/account.php, changed through
+// account_edit.php. The app's own settings (updates, the cache, the kept
+// games, versions, Server Status: appsettings.js) are drawn below them and
+// need no account, so they show offline and when the account can't load.
+// Sign out and delete at the end. Email and username, connections, passkeys,
+// two-factor and the picture are the site's own pages, in a window of their
+// own.
 
 import { h, replace, button, icon, avatar } from '../dom.js';
 import { num } from '../format.js';
 import { load, staleBanner, errorState, skeleton } from '../data.js';
+import { setting, settingsGroup as group, settingSwitch as toggle } from '../components.js';
+import { mountAppPart } from './appsettings.js';
 
-export function mount(container, { app }) {
+// `params.section` 'app' starts at the app's part: empanadas-io://appsettings,
+// from when App Settings was a screen of its own.
+export function mount(container, { app, params = {} }) {
 	const inner = h('div', { class: 'content-inner narrow' });
+	const accountPart = h('div', { class: 'settings-part' });
+	const appPart = h('div', { class: 'settings-part settings-app' });
 	replace(container, inner);
+	replace(inner, h('div', { class: 'page-head' }, h('h1', null, 'Settings')), accountPart, appPart, endPart());
 
 	let last = null;
-	function setting(title, desc, control, leadIcon) {
-		return h('div', { class: 'setting' },
-			leadIcon ? icon(leadIcon, 'lead') : null,
-			h('div', { class: 'main' }, h('div', { class: 'title' }, title), desc ? h('div', { class: 'desc' }, desc) : null),
-			h('div', { class: 'control' }, control));
-	}
-
-	function group(title, rows) {
-		return h('section', { class: 'settings-group' }, h('h2', null, title), h('div', { class: 'card' }, rows));
-	}
-
-	function toggle(checked, onChange, { disabled = false, label } = {}) {
-		const input = h('input', { type: 'checkbox', class: 'switch', role: 'switch', 'aria-label': label, disabled });
-		input.checked = !!checked;
-		input.addEventListener('change', async () => {
-			const want = input.checked;
-			input.disabled = true;
-			const ok = await onChange(want);
-			input.disabled = false;
-			if (ok === false) input.checked = !want;
-		});
-		return input;
+	// Once the account's part has its height, so the app's stays in place.
+	let scrollToApp = params.section === 'app';
+	function scrollIfAsked() {
+		if (!scrollToApp) return;
+		scrollToApp = false;
+		requestAnimationFrame(() => appPart.scrollIntoView({ block: 'start' }));
 	}
 
 	// One account setting, saved as it changes; put back if the site refuses.
@@ -72,14 +65,13 @@ export function mount(container, { app }) {
 	function draw() {
 		const result = last;
 		if (!result) {
-			replace(inner, skeleton(6, 30));
+			replace(accountPart, skeleton(6, 30));
 			return;
 		}
 		if (!result.data) {
-			// The app's own settings don't need the account.
-			replace(inner, errorState(result, refresh),
-				h('div', { class: 'row-flex', style: { justifyContent: 'center', marginTop: '12px' } },
-					button('App Settings', () => app.navigate({ screen: 'appsettings' }), { kind: 'small', icon: 'sliders' })));
+			// The app's own settings, below, don't need the account.
+			replace(accountPart, errorState(result, refresh));
+			scrollIfAsked();
 			return;
 		}
 		const d = result.data;
@@ -100,8 +92,7 @@ export function mount(container, { app }) {
 					button('View Profile', () => app.navigate({ screen: 'profile' }), { kind: 'small' }),
 					button('Change Picture', () => window.native.site.open('picture'), { kind: 'small' }))));
 
-		replace(inner,
-			h('div', { class: 'page-head' }, h('h1', null, 'Settings')),
+		replace(accountPart,
 			staleBanner(result, refresh),
 			header,
 			group('Account', [
@@ -124,25 +115,27 @@ export function mount(container, { app }) {
 				setting('News and Promotions', null, accountToggle('promoemails', s)),
 				setting('Everything Else', null, accountToggle('otheremails', s))
 			]),
-			group('App', [
-				setting('App Settings', 'Updates, the cache, the games on this computer, and which version this is.',
-					button('Open', () => app.navigate({ screen: 'appsettings' }), { kind: 'small' }), 'sliders'),
+			group('Game Data', [
 				setting('Save Points', 'Missing or overwrote your progress? Put an earlier save back.',
 					button('Manage', () => app.navigate({ screen: 'savepoints' }), { kind: 'small' }), 'history')
-			]),
-			group('About', [
+			]));
+		scrollIfAsked();
+	}
+
+	// The end of the screen, account or not: the site's pages, sign out and
+	// delete.
+	function endPart() {
+		return h('div', { class: 'settings-part' },
+			group('Empanadas.io', [
 				setting('Send Feedback', 'Ideas, problems, questions.', button('Write', () => app.navigate({ screen: 'feedback' }), { kind: 'small' }), 'message'),
 				setting('Website', null, button('Open', () => window.native.external.open('website'), { kind: 'small', icon: 'external' })),
 				setting('Privacy Policy', null, button('Open', () => window.native.external.open('privacy'), { kind: 'small', icon: 'external' })),
 				setting('Terms of Service', null, button('Open', () => window.native.external.open('terms'), { kind: 'small', icon: 'external' }))
 			]),
-			h('section', { class: 'settings-group' }, h('div', { class: 'card' },
+			group(null, [
 				setting('Sign Out', 'Your games stay downloaded on this computer.', button('Sign Out', async (e) => {
-				const btn = e.currentTarget;
-					const sure = await app.confirm({ title: 'Sign out of Empanadas.io?', confirm: 'Sign Out' });
-					if (!sure) return;
-					btn.disabled = true;
-					await window.native.session.signOut();
+					const btn = e.currentTarget;
+					if (await app.signOut()) btn.disabled = true;
 				}, { kind: 'small', icon: 'logout' })),
 				setting('Delete Account', 'Deletes your account, saves and friends for good.', button('Delete…', async () => {
 					const typed = await app.confirm({
@@ -155,7 +148,8 @@ export function mount(container, { app }) {
 					if (typed !== 'DELETE') return;
 					const r = await window.native.data.act('deleteAccount', { confirmation: typed });
 					if (!r.ok) app.toast(r.error.message, 'error');
-				}, { kind: 'small danger' })))));
+				}, { kind: 'small danger' }))
+			]));
 	}
 
 	function render(result) {
@@ -170,9 +164,11 @@ export function mount(container, { app }) {
 
 	draw();
 	load('account', {}, render);
+	const appSettings = mountAppPart(appPart, { app });
 
 	return {
 		title: 'Settings',
-		refresh
+		refresh: () => Promise.all([refresh(), appSettings.refresh()]),
+		destroy: () => appSettings.destroy()
 	};
 }

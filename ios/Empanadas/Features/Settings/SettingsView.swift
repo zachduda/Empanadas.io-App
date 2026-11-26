@@ -97,6 +97,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .glassNavigationBar()
             .profileDestinations()
+            .gameDataDestinations()
             .task { await settings.load(app: model, maxAge: CacheAge.account) }
             .refreshable {
                 Task { await model.serverStatus.refresh(force: true) }
@@ -252,6 +253,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Two-Factor Authentication", systemImage: "lock.shield")
                 }
+            }
+            // As under Home's Spin Progress chart, and in the desktop app's
+            // Settings.
+            NavigationLink(value: GameDataRoute.savePoints) {
+                Label("Manage Game Data", systemImage: "externaldrive.fill.badge.timemachine")
             }
         }
     }

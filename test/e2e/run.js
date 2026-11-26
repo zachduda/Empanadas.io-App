@@ -180,13 +180,13 @@ async function main() {
 		await shot('03-home');
 
 		// Experience shows what earned it right there, with no button to
-		// open it. The dashboard does not carry it: Home asks for the profile.
+		// open it: the dashboard carries it, so Home asks for nothing more.
 		await win.waitForSelector('.home .xp-parts .breakdown .item');
 		assert.deepStrictEqual(
 			await win.locator('.home .xp-parts .item > span:first-child').allTextContents(),
-			['Spin Game', 'Flappy', 'Tower', 'Account age'], 'the breakdown on Home is not the profile\'s');
+			['Lifetime Spins', 'Flappy Highscore', 'Tower Highscore', 'Account Longevity'], 'the breakdown on Home is not the dashboard\'s');
 		assert.strictEqual(await win.locator('.home :text("See What Earned It")').count(), 0, 'the See What Earned It button is back');
-		assert.ok(requests('/v2/app/profile.php').length >= 1, 'Home did not ask for the breakdown');
+		assert.strictEqual(requests('/v2/app/profile.php').length, 0, 'Home asked for the profile as well as the dashboard');
 		// The games are symbols on their colours, not the one picture.
 		assert.strictEqual(await win.locator('.home .mini-game .game-art svg.game-glyph').count(), 3, 'a game has no symbol');
 		assert.strictEqual(await win.locator('.home .game-art img').count(), 0, 'a game still shows a picture');
@@ -344,30 +344,31 @@ async function main() {
 		site.state.down = false;
 	});
 
-	await step('the account menu under your picture opens My Profile and Settings', async () => {
-		await win.click('.titlebar-avatar');
-		await win.waitForSelector('.account-menu');
-		const labels = await win.$$eval('.account-menu .menu-item', (els) => els.map((e) => e.textContent.trim()));
-		assert.deepStrictEqual(labels, ['My Profile', 'Settings', 'App Settings', 'Sign Out']);
-		assert.ok(await win.$('.account-menu .menu-divider'), 'no divider above Sign Out');
-		await wait(300);
-		await shot('12-account-menu');
-		await win.click('.account-menu .menu-item:has-text("My Profile")');
-		await win.waitForSelector('.account-menu', { state: 'detached' });
-		await until('My Profile', () => win.$('.nav-item[aria-current="page"]:has-text("My Profile")'));
-		await win.click('.titlebar-avatar');
-		await win.keyboard.press('Escape');
-		await win.waitForSelector('.account-menu', { state: 'detached' });
-		await win.click('.titlebar-avatar');
-		await win.click('.account-menu .menu-item:has(span:text-is("Settings"))');
+	await step('one of each in the window: the sidebar has the sections, your account opens Settings', async () => {
+		const labels = await win.$$eval('.sidebar .nav-item', (els) => els.map((e) => e.querySelector('span').textContent.trim()));
+		assert.deepStrictEqual(labels, ['Home', 'Games', 'Leaderboards', 'Friends', 'Messages', 'My Profile']);
+		assert.ok(!(await win.$('.titlebar-avatar')), 'a second account button in the title bar');
+		await win.click('.nav-account');
+		await win.waitForSelector('.nav-account[aria-current="page"]');
 		await win.waitForSelector('.setting:has-text("Sign Out")');
+		await wait(300);
+		await shot('12-sidebar-settings');
 	});
 
-	await step('App Settings, from the account menu: updates, the cache and the versions', async () => {
-		await win.click('.titlebar-avatar');
-		await win.click('.account-menu .menu-item:has-text("App Settings")');
+	await step('the app\'s own settings, in Settings: updates, the cache and the versions', async () => {
+		// The link App Settings had opens Settings at the app's part.
+		await win.click('.sidebar .nav-item:has-text("Home")');
+		await electronApp.evaluate(({ app }, link) => app.emit('second-instance', {}, ['electron', link], '/'), 'empanadas-io://appsettings');
+		await win.waitForSelector('.nav-account[aria-current="page"]');
 		await win.waitForSelector('.setting:has-text("Keep Spinning When Closed")');
 		await win.waitForSelector('.setting:has-text("Check for Updates")');
+		await win.waitForSelector('.setting:has-text("Weekly Recap")');
+		const atApp = await win.evaluate(() => {
+			const part = document.querySelector('.settings-app').getBoundingClientRect();
+			const content = document.querySelector('#content').getBoundingClientRect();
+			return part.top - content.top;
+		});
+		assert.ok(atApp < 80, 'not scrolled to the app\'s part: ' + atApp);
 		const versions = await win.$$eval('.version-row', (rows) => rows.map((r) => r.textContent));
 		const want = await electronApp.evaluate(() => ({ electron: process.versions.electron, chrome: process.versions.chrome }));
 		assert.ok(versions.some((t) => t.includes('Electron') && t.includes(want.electron)), 'no Electron version: ' + versions.join(' | '));
@@ -380,7 +381,7 @@ async function main() {
 		await shot('14-app-settings-versions');
 	});
 
-	await step('App Settings: Server Status, and the status page in a sheet', async () => {
+	await step('Settings: Server Status, and the status page in a sheet', async () => {
 		await win.waitForSelector('.setting:has-text("App Components")');
 		const row = '.setting.status-row';
 		await win.waitForSelector(row + ':has-text("Possible Outage")', { timeout: 15000 });
@@ -438,9 +439,9 @@ async function main() {
 		assert.ok(!(await pageView()), 'the view is still in the window');
 	});
 
-	await step('Sign Out, from the account menu, goes back to the welcome screen', async () => {
-		await win.click('.titlebar-avatar');
-		await win.click('.account-menu .menu-item.danger:has-text("Sign Out")');
+	await step('Sign Out, from Settings, goes back to the welcome screen', async () => {
+		await win.click('.nav-account');
+		await win.click('.setting:has-text("Sign Out") button:has-text("Sign Out")');
 		await win.click('.modal button:has-text("Sign Out")');
 		await win.waitForSelector('.welcome', { timeout: 15000 });
 		assert.ok(requests('/v2/auth/logout.php').length >= 1, 'the site was not told');

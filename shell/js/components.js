@@ -109,3 +109,31 @@ export function badges(profile) {
 
 // The site's pictures are paths ("/pfp/lg/x.png"); the cache takes them as given.
 export { picture };
+
+// Settings' rows (settings.js and appsettings.js, one screen): a title, what
+// it does, and its control, with an icon in front if it has one.
+export function setting(title, desc, control, leadIcon) {
+	return h('div', { class: 'setting' },
+		leadIcon ? icon(leadIcon, 'lead') : null,
+		h('div', { class: 'main' }, h('div', { class: 'title' }, title), desc ? h('div', { class: 'desc' }, desc) : null),
+		control ? h('div', { class: 'control' }, control) : null);
+}
+
+// A titled card of setting() rows.
+export function settingsGroup(title, rows) {
+	return h('section', { class: 'settings-group' }, title ? h('h2', null, title) : null, h('div', { class: 'card' }, rows));
+}
+
+// A switch saved as it changes: onChange(on) resolves false to put it back.
+export function settingSwitch(checked, onChange, { disabled = false, label } = {}) {
+	const input = h('input', { type: 'checkbox', class: 'switch', role: 'switch', 'aria-label': label, disabled });
+	input.checked = !!checked;
+	input.addEventListener('change', async () => {
+		const want = input.checked;
+		input.disabled = true;
+		const ok = await onChange(want);
+		input.disabled = false;
+		if (ok === false) input.checked = !want;
+	});
+	return input;
+}
