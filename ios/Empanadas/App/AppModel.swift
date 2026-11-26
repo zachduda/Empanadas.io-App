@@ -222,6 +222,7 @@ final class AppModel {
             leaderboard.reset()
             settings.reset()
             ProfileCache.clear()
+            unreadMessages = 0
             updates.reset()
             gameCenter.reset()
             lastPlayed = [:]
@@ -366,6 +367,12 @@ final class AppModel {
             activeGame = nil
             selectedTab = .home
             homePath.append(post.map { UpdatesRoute.post($0) } ?? .all)
+        case .messages(let id):
+            guard session == .signedIn else { return }
+            activeGame = nil
+            selectedTab = .home
+            homePath.append(MessagesRoute.inbox)
+            if let id { homePath.append(MessagesRoute.conversation(id: id, name: nil)) }
         }
     }
 
@@ -654,6 +661,19 @@ final class AppModel {
     func dashboardUpdated() {
         guard session == .signedIn else { return }
         HomeScreenWidget.update(dashboard: dashboard.data, lastPlayed: lastPlayed)
+        setUnreadMessages(dashboard.data?.messagesUnread)
+    }
+
+    // MARK: - Messages
+
+    /// Direct messages waiting to be read, for the badge on Home's Messages
+    /// button: the dashboard's count, then the Messages screens' own as they
+    /// read and mark read.
+    private(set) var unreadMessages = 0
+
+    func setUnreadMessages(_ count: Int?) {
+        guard let count, session == .signedIn else { return }
+        unreadMessages = max(0, count)
     }
 
     // MARK: - Offline games

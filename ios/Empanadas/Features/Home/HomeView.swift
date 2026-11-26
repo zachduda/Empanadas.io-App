@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The dashboard, native: what the site's /v2/dashboard shows, read from
 /// /v2/app/dashboard.php (DashboardModel). Profiles and Find Friends are
-/// native screens pushed on top (ProfileRoute), and so are the site's
+/// native screens pushed on top (ProfileRoute), and so are Messages, from the
+/// button beside the bell (MessagesRoute), the site's
 /// announcements, from the bell (UpdatesRoute), and Manage Game Data, from
 /// the Spin Progress card (GameDataRoute); the parts that are still the web's
 /// (the profile picture, verifying the address) are site pages.
@@ -43,6 +44,11 @@ struct HomeView: View {
             .navigationTitle("Home")
             .glassNavigationBar()
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    MessagesButton(unread: model.unreadMessages) {
+                        model.homePath.append(MessagesRoute.inbox)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     UpdatesBell(unread: model.updates.unread) {
                         model.homePath.append(UpdatesRoute.all)
