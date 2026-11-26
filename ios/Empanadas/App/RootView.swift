@@ -142,7 +142,7 @@ struct MainTabView: View {
     @Environment(AppModel.self) private var model
 
     /// In the tab bar's order.
-    private static let tabs: [AppTab] = [.home, .games, .leaderboard, .settings]
+    private static let tabs: [AppTab] = [.home, .games, .messages, .leaderboard, .settings]
 
     var body: some View {
         @Bindable var model = model
@@ -158,6 +158,11 @@ struct MainTabView: View {
                 .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
                 .tag(AppTab.games)
+            MessagesTab()
+                .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
+                .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
+                .badge(model.unreadMessages)
+                .tag(AppTab.messages)
             LeaderboardView()
                 .slidesBetweenTabs(Self.tabs, selection: $model.selectedTab)
                 .tabItem { Label("Leaderboards", systemImage: "trophy.fill") }

@@ -63,6 +63,8 @@ enum Game: String, CaseIterable, Identifiable {
 /// Settings, one on a game opens the player.
 enum NativeRoute: Equatable {
     case home
+    /// The Games tab (a deep link; the site has no page of the games).
+    case games
     case leaderboard
     case settings
     case game(Game)
@@ -126,7 +128,7 @@ enum NativeRoute: Equatable {
         return .profile(id)
     }
 
-    /// empanadas-io://home, empanadas-io://leaderboard,
+    /// empanadas-io://home, empanadas-io://games, empanadas-io://leaderboard,
     /// empanadas-io://settings, empanadas-io://play/<game>,
     /// empanadas-io://profile, empanadas-io://profile/<id>,
     /// empanadas-io://friends, empanadas-io://feedback (?reason=<subject>),
@@ -138,6 +140,7 @@ enum NativeRoute: Equatable {
         let path = url.path(percentEncoded: false).split(separator: "/").map(String.init)
         switch url.host(percentEncoded: false)?.lowercased() {
         case "home"? where path.isEmpty: return .home
+        case "games"? where path.isEmpty: return .games
         case "leaderboard"? where path.isEmpty: return .leaderboard
         case "settings"? where path.isEmpty: return .settings
         case "play"? where path.count == 1: return Game(rawValue: path[0]).map { .game($0) }

@@ -2,50 +2,42 @@ import SwiftUI
 import UIKit
 
 // Messages, native: direct messages between friends, from the site's
-// /v2/app/messages.php. The inbox (MessagesView) and a conversation
-// (ConversationView) are pushed on whichever tab opened them: Home's
-// Messages button, a friend's profile, a deep link or a link to /v2/messages.
-// Everything a player wrote is shown as text, never as markup.
+// /v2/app/messages.php. The inbox (MessagesView) is the Messages tab's first
+// screen, its badge the messages unread; a conversation (ConversationView) is
+// pushed on it, or on whichever tab showed a friend's profile and its Message
+// button. A notification, a deep link or a link to /v2/messages opens the tab
+// (AppModel.navigate). Everything a player wrote is shown as text, never as
+// markup.
 
 extension View {
     /// Lets NavigationLink(value: MessagesRoute) work in this navigation
     /// stack. profileDestinations() adds it, so every stack that shows a
-    /// profile can show Messages too.
+    /// profile can show a conversation too.
     func messagesDestinations() -> some View {
         navigationDestination(for: MessagesRoute.self) { route in
             switch route {
-            case .inbox: MessagesView()
             case .conversation(let id, let name): ConversationView(id: id, name: name)
             }
         }
     }
 }
 
-/// Home's Messages button, with how many are unread.
-struct MessagesButton: View {
-    let unread: Int
-    let action: () -> Void
+/// The Messages tab: the inbox, with a conversation and what it opens (a
+/// profile, a site page) pushed on it.
+struct MessagesTab: View {
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: unread > 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-                .symbolEffect(.bounce, value: unread)
-                .overlay(alignment: .topTrailing) {
-                    if unread > 0 {
-                        Text(unread > 99 ? "99+" : "\(unread)")
-                            .font(.caption2.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(.red))
-                            .offset(x: 10, y: -8)
-                            .accessibilityHidden(true)
-                    }
+        @Bindable var model = model
+
+        NavigationStack(path: $model.messagesPath) {
+            MessagesView()
+                .glassNavigationBar()
+                .navigationDestination(for: WebLink.self) { link in
+                    WebDestination(url: link.url, title: link.title, interceptsRoutes: true)
                 }
+                .profileDestinations()
         }
-        .accessibilityLabel("Messages")
-        .accessibilityValue(unread == 0 ? "" : unread == 1 ? "1 unread" : "\(unread) unread")
     }
 }
 
@@ -261,8 +253,8 @@ private struct PresenceAvatar: View {
     }
 }
 
-/// Asks to notify the player of new messages: in the inbox, until they've
-/// answered the system's question.
+/// Asks to notify the player of new messages (and friend requests): in the
+/// inbox, until they've answered the system's question.
 private struct NotificationsCard: View {
     @State private var asking = false
 
@@ -271,7 +263,7 @@ private struct NotificationsCard: View {
             Label("Know when friends message you", systemImage: "bell.badge.fill")
                 .font(.headline)
                 .symbolRenderingMode(.multicolor)
-            Text("Get a notification for each new message, even when the app is closed.")
+            Text("Get a notification for each new message, and reply right from it, even when the app is closed.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Button {
@@ -452,6 +444,9 @@ struct ConversationView: View {
         .onAppear {
             model.openConversation = conversation.playerID
             PushNotifications.shared.conversationOpened(with: conversation.playerID)
+            if let reply = model.takeUnsentReply(for: conversation.playerID), conversation.draft.isEmpty {
+                conversation.draft = reply
+            }
         }
         .onDisappear {
             if model.openConversation == conversation.playerID { model.openConversation = nil }

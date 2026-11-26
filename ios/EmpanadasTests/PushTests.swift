@@ -1,10 +1,12 @@
+import UserNotifications
 import XCTest
 @testable import Empanadas
 
-/// Push notifications: what the app reads from a message's notification (the
-/// site's pushMessagePayload() in v2/_push.php, tests/push_test.php there),
-/// the device token as the site takes it, and the requests to
-/// /v2/app/push.php.
+/// Push notifications: what the app reads from a message's and a friend
+/// request's notification (the site's pushMessagePayload() and
+/// pushFriendPayload() in v2/_push.php, tests/push_test.php there), the
+/// buttons on them, the device token as the site takes it, and the requests
+/// to /v2/app/push.php.
 @MainActor
 final class PushTests: XCTestCase {
     private let player = "ab12cd34-0000-1111-2222-333344445555"
@@ -17,10 +19,48 @@ final class PushTests: XCTestCase {
 
     func testReadsAMessagesNotification() {
         let message = MessageNotification(userInfo: userInfo(#"""
-        {"aps":{"alert":{"title":"SpinQueen","body":"race you"},"sound":"default","badge":3,"thread-id":"dm-ab12cd34000011112222333344445555"},
-         "dm":{"from":"AB12CD34-0000-1111-2222-333344445555","message":42}}
+        {"aps":{"alert":{"title":"SpinQueen","body":"race you"},"sound":"default","badge":3,"thread-id":"dm-ab12cd34000011112222333344445555","category":"message"},
+         "dm":{"from":"AB12CD34-0000-1111-2222-333344445555","name":"SpinQueen","message":42,"unread":2}}
         """#))
-        XCTAssertEqual(message, MessageNotification(from: player, messageID: 42, badge: 3))
+        XCTAssertEqual(message, MessageNotification(from: player, messageID: 42, name: "SpinQueen", unread: 2))
+    }
+
+    func testReadsAFriendRequestsNotification() {
+        let info = userInfo(#"""
+        {"aps":{"alert":{"title":"Friend Request","body":"SpinQueen wants to be your friend."},"thread-id":"friends","category":"friend_request","badge":1},
+         "friend":{"from":"AB12CD34000011112222333344445555","name":"SpinQueen","kind":"request"}}
+        """#)
+        XCTAssertEqual(PushNotice(userInfo: info), .friend(FriendNotification(from: "ab12cd34000011112222333344445555", name: "SpinQueen", kind: .request)))
+        let accepted = userInfo(#"{"aps":{},"friend":{"from":"ab12cd34000011112222333344445555","name":"SpinQueen","kind":"accepted"}}"#)
+        XCTAssertEqual(FriendNotification(userInfo: accepted)?.kind, .accepted)
+        XCTAssertNil(FriendNotification(userInfo: userInfo(#"{"friend":{"from":"nobody"}}"#)))
+    }
+
+    func testATapOpensWhatItIsAbout() {
+        XCTAssertEqual(PushNotice.message(MessageNotification(from: player, messageID: 1)).route, .messages(player))
+        XCTAssertEqual(PushNotice.friend(FriendNotification(from: player, name: "x", kind: .request)).route, .profile(player))
+    }
+
+    func testTheAppsOwnNotificationReadsBackAsTheSites() {
+        // A reply that didn't go: its notification opens the conversation
+        // with the reply in the box.
+        let unsent = MessageNotification(from: player, messageID: 7, name: "SpinQueen", draft: "on my way")
+        XCTAssertEqual(MessageNotification(userInfo: unsent.userInfo), unsent)
+        let friend = FriendNotification(from: player, name: "SpinQueen", kind: .request)
+        XCTAssertEqual(FriendNotification(userInfo: friend.userInfo), friend)
+    }
+
+    func testTheButtonsOnTheSitesCategories() {
+        let categories = Dictionary(uniqueKeysWithValues: NotificationActions.categories.map { ($0.identifier, $0) })
+        // The categories the site's payloads name.
+        XCTAssertEqual(Set(categories.keys), ["message", "friend_request"])
+        let message = categories["message"]?.actions ?? []
+        XCTAssertEqual(message.map(\.identifier), ["reply", "read"])
+        XCTAssertTrue(message.first is UNTextInputNotificationAction, "Reply takes text")
+        XCTAssertTrue(message.first?.options.contains(.authenticationRequired) ?? false, "replying needs the phone unlocked")
+        let friend = categories["friend_request"]?.actions ?? []
+        XCTAssertEqual(friend.map(\.identifier), ["accept", "decline"])
+        XCTAssertTrue(friend.allSatisfy { $0.options.contains(.authenticationRequired) })
     }
 
     func testANotificationThatIsntAMessagesIsNone() {
@@ -32,7 +72,8 @@ final class PushTests: XCTestCase {
 
     func testABadgeIsOptional() {
         let message = MessageNotification(userInfo: userInfo(#"{"aps":{"alert":"x"},"dm":{"from":"ab12cd34000011112222333344445555"}}"#))
-        XCTAssertEqual(message?.badge, nil)
+        XCTAssertEqual(message?.unread, nil)
+        XCTAssertEqual(message?.name, nil)
         XCTAssertEqual(message?.messageID, 0)
         XCTAssertEqual(message?.from, "ab12cd34000011112222333344445555")
     }
@@ -40,11 +81,6 @@ final class PushTests: XCTestCase {
     func testOneConversationIsOneThreadAsTheSiteGroupsIt() {
         XCTAssertEqual(MessageNotification.threadID(for: player), "dm-ab12cd34000011112222333344445555")
         XCTAssertEqual(MessageNotification.threadID(for: player.uppercased()), MessageNotification.threadID(for: player))
-    }
-
-    func testATapOpensTheConversation() {
-        let message = MessageNotification(from: player, messageID: 1)
-        XCTAssertEqual(NativeRoute.messages(message.from), .messages(player))
     }
 
     func testTheDeviceTokenAsTheSiteTakesIt() {

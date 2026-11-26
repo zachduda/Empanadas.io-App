@@ -49,6 +49,8 @@ final class RoutesTests: XCTestCase {
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://home")), .home)
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://settings")), .settings)
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://leaderboard")), .leaderboard)
+        XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://games")), .games)
+        XCTAssertNil(NativeRoute.of(deepLink: url("empanadas-io://games/spin")))
         XCTAssertNil(NativeRoute.of(deepLink: url("empanadas-io://leaderboard/spin")))
         XCTAssertEqual(NativeRoute.of(deepLink: url("empanadas-io://play/flappy")), .game(.flappy))
         XCTAssertNil(NativeRoute.of(deepLink: url("empanadas-io://play/pacman")))

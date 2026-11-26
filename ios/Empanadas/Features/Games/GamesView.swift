@@ -10,7 +10,7 @@ enum GamesRoute: Hashable {
 /// The games, native: the one played last, to jump straight back into, then
 /// a card for each with when it was last played here, the player's place on
 /// its leaderboard and three of their numbers in it (the dashboard's), and
-/// at the bottom the leaderboards and Send Feedback. A card plays its game in
+/// at the bottom Send Feedback. A card plays its game in
 /// the full-screen player; held, it offers the game's board, Game Center and
 /// Report a Problem.
 struct GamesView: View {
@@ -118,16 +118,11 @@ struct GamesView: View {
         return rank
     }
 
-    /// The leaderboards, and Send Feedback: the screen Settings opens, pushed
-    /// here.
+    /// Send Feedback: the screen Settings opens, pushed here. (The
+    /// leaderboards are a tab of their own, and each card's menu opens its
+    /// game's board.)
     private var links: some View {
         VStack(spacing: 0) {
-            Button { model.navigate(to: .leaderboard) } label: {
-                LinkRow(title: "Leaderboards", detail: "See where you rank in every game",
-                        systemImage: "trophy.fill", tint: Palette.gold)
-            }
-            Divider()
-                .padding(.leading, 48)
             NavigationLink(value: GamesRoute.feedback(reason: nil)) {
                 LinkRow(title: "Send Feedback", detail: "Found a bug or got an idea? We'd love to hear it.",
                         systemImage: "bubble.left.and.bubble.right.fill", tint: Palette.friends)

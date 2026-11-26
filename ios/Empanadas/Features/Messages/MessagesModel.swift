@@ -1,9 +1,8 @@
 import Foundation
 
-/// Messages: the inbox, and a conversation pushed on top, on whichever tab
-/// opened them (messagesDestinations()).
+/// A conversation, pushed on the Messages tab's inbox or on whichever tab
+/// showed a friend's profile (messagesDestinations()).
 enum MessagesRoute: Hashable {
-    case inbox
     /// The name is the title until the conversation loads.
     case conversation(id: String, name: String?)
 }

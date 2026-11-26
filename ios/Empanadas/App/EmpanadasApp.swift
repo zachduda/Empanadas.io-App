@@ -62,6 +62,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // Before anything else: a launch from a notification's tap is told
         // to the delegate straight after this.
         UNUserNotificationCenter.current().delegate = PushNotifications.shared
+        PushNotifications.registerCategories()
         return true
     }
 

@@ -256,27 +256,28 @@ struct SettingsView: View {
         }
     }
 
-    /// Whether the app may notify the player of new messages. Asked once by
-    /// the system; after that only the Settings app can change it.
+    /// Whether the app may notify the player of messages and friend
+    /// requests. Asked once by the system; after that only the Settings app
+    /// can change it.
     private var notificationsSection: some View {
         let push = PushNotifications.shared
         return Section {
             switch push.permission {
             case .notAsked:
-                Button("Turn On Message Notifications") {
+                Button("Turn On Notifications") {
                     Task { await push.requestPermission() }
                 }
             case .on:
-                LabeledContent("Message Notifications", value: "On")
+                LabeledContent("Notifications", value: "On")
                 Button("Notification Settings") { push.openSystemSettings() }
             case .off:
-                LabeledContent("Message Notifications", value: "Off")
+                LabeledContent("Notifications", value: "Off")
                 Button("Turn On in Settings") { push.openSystemSettings() }
             }
         } header: {
             Text("Notifications")
         } footer: {
-            Text("A notification when a friend messages you. Whether its words show on the lock screen is up to Show Previews in the Settings app.")
+            Text("A notification when a friend messages you, with Reply on it, and when someone asks to be your friend or accepts your request. Whether a message's words show on the lock screen is up to Show Previews in the Settings app.")
         }
     }
 
