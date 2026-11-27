@@ -49,6 +49,7 @@ const state = {
 	current: null,
 	pendingFriends: 0,
 	unreadMessages: 0,
+	panel: null,
 	hasNewUpdates: false,
 	signin: null
 };
@@ -63,6 +64,11 @@ export const app = {
 	navigate(route, { replaceTop = false } = {}) {
 		if (route && ALIASES[route.screen]) route = Object.assign({}, route, ALIASES[route.screen]);
 		if (!route || !SCREENS[route.screen]) return;
+		if (route.screen === 'messages') {
+			openMessages(route);
+			return;
+		}
+		closeMessages();
 		const isSection = SECTIONS.some((s) => s.screen === route.screen) && !route.id;
 		if (isSection || route.screen === 'settings') {
 			state.stack = [];
@@ -75,6 +81,10 @@ export const app = {
 	back() {
 		if (state.game && !state.game.hidden) {
 			native.games.close();
+			return;
+		}
+		if (state.panel) {
+			closeMessages();
 			return;
 		}
 		const previous = state.stack.pop();
@@ -158,8 +168,11 @@ export const app = {
 	setUnreadMessages(count) {
 		const n = Math.max(0, Number(count) || 0);
 		if (n === state.unreadMessages) return;
+		const more = n > state.unreadMessages;
 		state.unreadMessages = n;
 		drawSidebar();
+		const badge = more && document.querySelector('.nav-item .count.unread');
+		if (badge) badge.classList.add('bump');
 	},
 
 	setHasNewUpdates(value) {
@@ -205,8 +218,58 @@ function show(route) {
 }
 
 function refreshScreen() {
+	if (state.panel && state.panel.screen) {
+		state.panel.screen.refresh();
+		return;
+	}
 	if (state.current && state.current.refresh) state.current.refresh();
 	else if (state.session.signedIn) show(state.route);
+}
+
+// --- Messages, in a panel over the screen ----------------------------------
+
+function openMessages(route) {
+	if (state.panel && state.panel.closing) finishClose(state.panel);
+	if (state.panel) {
+		if (route.id) state.panel.screen.openConversation(route.id);
+		return;
+	}
+	const body = h('div', { class: 'dm-sheet', role: 'dialog', 'aria-label': 'Messages' });
+	const layer = h('div', { class: 'dm-layer' }, body);
+	layer.addEventListener('mousedown', (e) => { if (e.target === layer) closeMessages(); });
+	const panel = { layer, body, screen: null, closing: false, returnFocus: document.activeElement };
+	state.panel = panel;
+	document.getElementById('app').appendChild(layer);
+	$('content').classList.add('behind-panel');
+	panel.screen = messages.mount(body, { params: route, app, onClose: () => closeMessages() });
+	drawSidebar();
+}
+
+function closeMessages(instant = false) {
+	const panel = state.panel;
+	if (!panel || panel.closing) {
+		if (panel && instant) finishClose(panel);
+		return;
+	}
+	panel.closing = true;
+	$('content').classList.remove('behind-panel');
+	try { panel.screen.destroy(); } catch (err) { console.error(err); }
+	drawSidebar();
+	if (instant || getComputedStyle(panel.body).animationName === 'none') {
+		finishClose(panel);
+		return;
+	}
+	panel.layer.classList.add('closing');
+	panel.body.addEventListener('animationend', () => finishClose(panel), { once: true });
+	setTimeout(() => finishClose(panel), 400);
+}
+
+function finishClose(panel) {
+	if (panel.layer.parentNode) panel.layer.remove();
+	if (state.panel === panel) {
+		state.panel = null;
+		if (panel.returnFocus && panel.returnFocus.isConnected) panel.returnFocus.focus({ preventScroll: true });
+	}
 }
 
 // --- The sidebar -----------------------------------------------------------
@@ -226,7 +289,7 @@ const navIndicator = h('span', { class: 'nav-indicator', 'aria-hidden': 'true' }
 
 function drawSidebar() {
 	const nav = $('sidebar');
-	const current = sectionOf(state.route);
+	const current = state.panel && !state.panel.closing ? 'messages' : sectionOf(state.route);
 	let active = null;
 	const item = (section) => {
 		const b = h('button', {
@@ -235,7 +298,7 @@ function drawSidebar() {
 			'aria-current': current === section.screen ? 'page' : null
 		}, icon(section.icon), h('span', null, section.label),
 		section.screen === 'friends' && state.pendingFriends ? h('span', { class: 'count', title: state.pendingFriends + ' friend requests' }, String(state.pendingFriends)) : null,
-		section.screen === 'messages' && state.unreadMessages ? h('span', { class: 'count', title: state.unreadMessages + ' unread' }, state.unreadMessages > 99 ? '99+' : String(state.unreadMessages)) : null);
+		section.screen === 'messages' && state.unreadMessages ? h('span', { class: 'count unread', title: state.unreadMessages + ' unread' }, state.unreadMessages > 99 ? '99+' : String(state.unreadMessages)) : null);
 		b.addEventListener('click', () => app.navigate({ screen: section.screen }));
 		if (current === section.screen) active = b;
 		return b;
@@ -337,6 +400,7 @@ function applySession(session) {
 		try { localStorage.removeItem(messages.UNSENT_KEY); } catch (err) { /* nothing kept */ }
 		state.stack = [];
 		state.dashboard = null;
+		closeMessages(true);
 		if (state.current && state.current.destroy) state.current.destroy();
 		state.current = welcome.mount($('content'), { app, session: state.session, signin: state.signin });
 		drawTitlebar();
@@ -400,6 +464,11 @@ async function start() {
 	window.addEventListener('offline', () => { drawSidebar(); drawTitlebar(); app.toast("You're offline. Games you've downloaded still work.", 'info'); });
 
 	document.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape' && state.panel && !state.panel.closing && !$('modal-root').firstChild) {
+			e.preventDefault();
+			closeMessages();
+			return;
+		}
 		if (e.key === 'Escape' && state.stack.length && !$('modal-root').firstChild && !/INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName)) {
 			app.back();
 		}
