@@ -200,7 +200,7 @@ private struct ConversationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PresenceAvatar(person: conversation.with, size: 46)
+            PresenceAvatar(person: conversation.with, size: 46, ring: Color(uiColor: .secondarySystemGroupedBackground))
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(conversation.with.username)
@@ -241,6 +241,8 @@ private struct ConversationRow: View {
 private struct PresenceAvatar: View {
     let person: MessagePerson
     var size: CGFloat = 40
+    /// What it sits on, so the ring around the dot blends in.
+    var ring = Color(uiColor: .systemBackground)
 
     var body: some View {
         Avatar(url: person.pictureURL, size: size)
@@ -249,7 +251,7 @@ private struct PresenceAvatar: View {
                     Circle()
                         .fill(state == "online" ? Palette.online : Palette.idle)
                         .frame(width: size * 0.28, height: size * 0.28)
-                        .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 2))
+                        .overlay(Circle().stroke(ring, lineWidth: 2))
                         .accessibilityLabel(person.label ?? state)
                 }
             }
@@ -753,7 +755,7 @@ struct ConversationView: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .seen:
-            Text("Seen")
+            Label("Seen", systemImage: "checkmark")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)

@@ -135,10 +135,11 @@ function shortStamp(seconds) {
 
 export function mount(container, { app, params, onClose }) {
 	const list = h('div', { class: 'dm-list', role: 'list' });
+	const newButton = iconButton('pencil', 'New Message', () => startPicking(), { class: 'dm-new' });
 	const side = h('aside', { class: 'dm-side', 'aria-label': 'Conversations' },
 		h('div', { class: 'dm-side-head' },
 			h('h1', null, 'Messages'),
-			iconButton('pencil', 'New Message', () => startPicking(), { class: 'dm-new' }),
+			newButton,
 			onClose ? iconButton('close', 'Close Messages', onClose, { class: 'dm-close' }) : null),
 		list);
 	const main = h('section', { class: 'dm-main', 'aria-live': 'polite' });
@@ -229,6 +230,7 @@ export function mount(container, { app, params, onClose }) {
 		const results = h('div', { class: 'dm-results' }, skeleton(4, 36));
 		const wrap = h('div', { class: 'search-field' }, icon('search'), field);
 		picking = { friends: null, field, wrap, results, others: [], searched: '', timer: null, seq: 0, shown: '' };
+		newButton.hidden = true;
 		replace(list, h('div', { class: 'dm-picker' }, wrap,
 			button('Cancel', () => stopPicking(), { kind: 'quiet small' })), results);
 		field.addEventListener('input', () => {
@@ -324,6 +326,7 @@ export function mount(container, { app, params, onClose }) {
 		if (picking) clearTimeout(picking.timer);
 		if (picking) inboxFresh = true;
 		picking = null;
+		newButton.hidden = false;
 		drawInbox();
 	}
 
@@ -424,7 +427,7 @@ export function mount(container, { app, params, onClose }) {
 				p.label ? h('div', { class: 'sub' }, p.label) : null));
 		who.addEventListener('click', openProfile);
 		const lock = current.loaded ? button(current.e2ee.on ? 'Encrypted' : 'Encrypt', () => setEncrypted(!current.e2ee.on),
-			{ kind: 'small' + (current.e2ee.on ? ' primary' : ''), icon: 'lock',
+			{ kind: 'small' + (current.e2ee.on ? ' primary' : ''), icon: current.e2ee.on ? 'lock' : 'unlock',
 				title: current.e2ee.on ? 'End-to-end encryption is on. Turn it off' : 'Turn on end-to-end encryption' }) : null;
 		const more = current.loaded ? iconButton('more', 'More', () => app.contextMenu([
 			{ id: 'profile', label: 'View Profile' },
@@ -483,7 +486,7 @@ export function mount(container, { app, params, onClose }) {
 				rows.push(h('div', { class: 'dm-gap' }, stamp(m.sent)));
 			}
 			if (m.kind) {
-				const note = h('div', { class: 'dm-event', title: stamp(m.sent) }, icon('lock'), eventText(m, current.with && current.with.username));
+				const note = h('div', { class: 'dm-event', title: stamp(m.sent) }, icon(m.kind === 'e2ee_off' ? 'unlock' : 'lock'), eventText(m, current.with && current.with.username));
 				motion(m, i, note);
 				rows.push(note);
 				previous = m;
