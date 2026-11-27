@@ -57,13 +57,54 @@ final class InboxModel {
 /// A message on its way: shown at once, greyed until the site has it, and
 /// with Try Again (under the same nonce, so the site keeps it once) if it
 /// didn't go.
-struct PendingMessage: Identifiable, Equatable {
+struct PendingMessage: Identifiable, Equatable, Codable {
     let nonce: String
     let text: String
     let at: Date
     var failed: String?
 
     var id: String { nonce }
+}
+
+/// Messages not sent yet, kept on this device by conversation until the site
+/// has them or they're deleted, so closing the app doesn't lose them. Cleared
+/// at sign-out (AppModel).
+enum UnsentMessages {
+    static let key = "unsentMessages"
+
+    private static func all() -> [String: [PendingMessage]] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: [PendingMessage]].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    private static func conversation(_ playerID: String) -> String {
+        PlayerID.raw(playerID) ?? playerID.lowercased()
+    }
+
+    static func load(_ playerID: String) -> [PendingMessage] {
+        (all()[conversation(playerID)] ?? []).map { PendingMessage(nonce: $0.nonce, text: $0.text, at: $0.at) }
+    }
+
+    static func keep(_ message: PendingMessage, for playerID: String) {
+        var list = load(playerID).filter { $0.nonce != message.nonce }
+        list.append(PendingMessage(nonce: message.nonce, text: message.text, at: message.at))
+        save(list, for: playerID)
+    }
+
+    static func drop(_ message: PendingMessage, for playerID: String) {
+        save(load(playerID).filter { $0.nonce != message.nonce }, for: playerID)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    private static func save(_ list: [PendingMessage], for playerID: String) {
+        var everything = all()
+        everything[conversation(playerID)] = list.isEmpty ? nil : list
+        if let data = try? JSONEncoder().encode(everything) { UserDefaults.standard.set(data, forKey: key) }
+    }
 }
 
 /// State behind one conversation: its messages, oldest first, what the viewer
@@ -133,7 +174,7 @@ final class ConversationModel {
 
     /// The viewer's newest message, when the other player has read it.
     var seenMessageID: Int? {
-        guard pending.isEmpty, let newest = messages.last, newest.fromMe, seenUpTo >= newest.id else { return nil }
+        guard pending.isEmpty, let newest = messages.last(where: { $0.kind == nil }), newest.fromMe, seenUpTo >= newest.id else { return nil }
         return newest.id
     }
 
@@ -149,6 +190,7 @@ final class ConversationModel {
             hasMore = thread.hasMore
             loaded = true
             error = nil
+            resendUnsent(app: app)
             await markRead(app: app)
         } catch {
             guard !Task.isCancelled else { return }
@@ -238,6 +280,7 @@ final class ConversationModel {
         let message = PendingMessage(nonce: MessageText.nonce(), text: MessageText.cleaned(draft), at: Date())
         draft = ""
         pending.append(message)
+        UnsentMessages.keep(message, for: playerID)
         Task { await deliver(message, app: app) }
     }
 
@@ -251,11 +294,23 @@ final class ConversationModel {
     /// Takes a message that didn't go back off the screen.
     func discard(_ message: PendingMessage) {
         pending.removeAll { $0.id == message.id }
+        UnsentMessages.drop(message, for: playerID)
+    }
+
+    /// What didn't go last time, tried again under the same nonce (so the site
+    /// keeps it once), once the conversation has loaded.
+    private func resendUnsent(app: AppModel) {
+        let waiting = UnsentMessages.load(playerID).filter { saved in !pending.contains { $0.nonce == saved.nonce } }
+        pending += waiting
+        for message in waiting {
+            Task { await deliver(message, app: app) }
+        }
     }
 
     private func deliver(_ message: PendingMessage, app: AppModel) async {
         do {
             let sent = try await app.account.sendMessage(to: playerID, text: message.text, nonce: message.nonce)
+            UnsentMessages.drop(message, for: playerID)
             pending.removeAll { $0.id == message.id }
             if !messages.contains(where: { $0.id == sent.message.id }) {
                 messages.append(sent.message)
@@ -288,6 +343,8 @@ final class ConversationModel {
         do {
             e2ee = try await app.account.setEncrypted(on, with: playerID)
             Haptics.play("success")
+            // The note it left in the conversation.
+            await poll(app: app)
         } catch {
             Haptics.play("error")
             if (error as? AccountError) == .signedOut { app.observe(.unsure) }

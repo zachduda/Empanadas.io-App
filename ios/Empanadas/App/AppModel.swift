@@ -226,6 +226,8 @@ final class AppModel {
             leaderboardGame = .spin
             account.forgetToken()
             account.forgetMessages()
+            // The last account's unsent messages aren't the next one's.
+            UnsentMessages.clear()
             // What was saved describes this account; the next one must not
             // open on it.
             dashboard.reset()

@@ -185,6 +185,45 @@ final class MessagesTests: XCTestCase {
         XCTAssertFalse(sealed.canEdit(serverNow: Date(timeIntervalSince1970: 101)), "not one this device can't read")
     }
 
+    func testReadsANoteThatEncryptionWasTurnedOn() throws {
+        let thread = try JSONDecoder().decode(MessageThread.self, from: json(#"""
+        {"with":{"username":"Jeff"},"messages":[
+          {"id":4,"from_me":true,"text":"hi","sent":100,"read":true},
+          {"id":5,"from_me":false,"kind":"e2ee_on","text":"🔒 Turned on end-to-end encryption.","sent":110,"read":true}
+        ]}
+        """#))
+        XCTAssertNil(thread.messages[0].kind)
+        XCTAssertEqual(thread.messages[1].kind, "e2ee_on")
+        var note = thread.messages[1]
+        note.editableUntil = .distantFuture
+        XCTAssertFalse(note.canEdit(serverNow: .distantPast), "a note isn't a message to edit")
+    }
+
+    func testADeletedMessagesSilentNotification() {
+        let retraction = MessageRetraction(userInfo: ["aps": ["content-available": 1] as [String: Any],
+                                                         "dm": ["retract": 42, "from": "ab12", "badge": 3, "unread": 1] as [String: Any]])
+        XCTAssertEqual(retraction?.messageID, 42)
+        XCTAssertEqual(retraction?.badge, 3)
+        XCTAssertEqual(retraction?.unread, 1)
+        XCTAssertNil(MessageRetraction(userInfo: ["dm": ["from": "ab12", "message": 42] as [String: Any]]), "a message's own notification isn't one")
+    }
+
+    func testUnsentMessagesAreKeptUntilSentOrDeleted() {
+        UnsentMessages.clear()
+        defer { UnsentMessages.clear() }
+        let first = PendingMessage(nonce: "nonce-unsent1", text: "one", at: Date(timeIntervalSince1970: 100), failed: "Not sent.")
+        let second = PendingMessage(nonce: "nonce-unsent2", text: "two", at: Date(timeIntervalSince1970: 200))
+        UnsentMessages.keep(first, for: player)
+        UnsentMessages.keep(second, for: player.uppercased())
+        XCTAssertEqual(UnsentMessages.load(player).map(\.text), ["one", "two"], "one conversation however its id is written")
+        XCTAssertNil(UnsentMessages.load(player).first?.failed, "tried again, not shown as failed")
+        XCTAssertEqual(UnsentMessages.load("cd34cd34000011112222333344445555"), [])
+        UnsentMessages.drop(first, for: player)
+        XCTAssertEqual(UnsentMessages.load(player).map(\.nonce), ["nonce-unsent2"])
+        UnsentMessages.clear()
+        XCTAssertEqual(UnsentMessages.load(player), [])
+    }
+
     // MARK: - Writing
 
     func testAMessageIsTidiedAsTheSiteTidiesIt() {

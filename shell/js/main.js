@@ -333,6 +333,8 @@ function applySession(session) {
 	const root = $('app');
 	root.classList.toggle('signed-out', !state.session.signedIn);
 	if (!state.session.signedIn) {
+		// The last account's unsent messages aren't the next one's (screens/messages.js).
+		try { localStorage.removeItem(messages.UNSENT_KEY); } catch (err) { /* nothing kept */ }
 		state.stack = [];
 		state.dashboard = null;
 		if (state.current && state.current.destroy) state.current.destroy();

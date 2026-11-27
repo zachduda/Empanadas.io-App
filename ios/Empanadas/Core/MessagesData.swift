@@ -61,11 +61,14 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
     var editableUntil: Date?
     /// Encrypted, and not for this device (sent before it had a key).
     var sealed = false
+    /// Not a message but a note in the conversation: "e2ee_on" or "e2ee_off",
+    /// one of them turned encryption on or off.
+    var kind: String?
 
     var encrypted: Bool { cipher != nil }
 
     enum CodingKeys: String, CodingKey {
-        case id, text, sent, read, cipher, edited, deleted
+        case id, text, sent, read, cipher, edited, deleted, kind
         case fromMe = "from_me"
         case editableUntil = "editable_until"
     }
@@ -89,6 +92,7 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
         edited = Self.date(c, .edited)
         deleted = c.lenient(.deleted, false)
         editableUntil = Self.date(c, .editableUntil)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
     }
 
     private static func date(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Date? {
@@ -105,7 +109,7 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
 
     /// Still the sender's to edit, by the site's clock (`serverNow`).
     func canEdit(serverNow: Date) -> Bool {
-        guard fromMe, id > 0, !deleted, !sealed, let editableUntil else { return false }
+        guard kind == nil, fromMe, id > 0, !deleted, !sealed, let editableUntil else { return false }
         return serverNow < editableUntil
     }
 }

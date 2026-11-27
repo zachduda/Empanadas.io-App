@@ -455,6 +455,7 @@ struct ConversationView: View {
     private enum Row: Identifiable {
         case encrypted
         case gap(Date)
+        case event(DirectMessage)
         case message(DirectMessage)
         case pending(PendingMessage)
         case seen
@@ -463,6 +464,7 @@ struct ConversationView: View {
             switch self {
             case .encrypted: "encrypted"
             case .gap(let date): "gap-\(date.timeIntervalSince1970)"
+            case .event(let message): "e-\(message.id)"
             case .message(let message): "m-\(message.id)"
             case .pending(let message): "p-\(message.id)"
             case .seen: "seen"
@@ -480,7 +482,7 @@ struct ConversationView: View {
             if let sent = message.sent, previous.map({ sent.timeIntervalSince($0) > MessageTime.gapAfter }) ?? true {
                 out.append(.gap(sent))
             }
-            out.append(.message(message))
+            out.append(message.kind == nil ? .message(message) : .event(message))
             if let sent = message.sent { previous = sent }
         }
         out += conversation.pending.map { Row.pending($0) }
@@ -656,6 +658,16 @@ struct ConversationView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 6)
+        case .event(let message):
+            Label(eventText(message), systemImage: message.kind == "e2ee_on" ? "lock.fill" : "lock.open.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
         case .gap(let date):
             Text(MessageTime.gap(date))
                 .font(.caption2.weight(.semibold))
@@ -729,6 +741,14 @@ struct ConversationView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 4)
         }
+    }
+
+    /// A note that one of them turned encryption on or off.
+    private func eventText(_ message: DirectMessage) -> String {
+        let who = message.fromMe ? "You" : name
+        return message.kind == "e2ee_on"
+            ? "\(who) turned on end-to-end encryption. New messages are encrypted."
+            : "\(who) turned off end-to-end encryption. New messages aren't encrypted."
     }
 
     private var encryptionNote: String {

@@ -762,17 +762,31 @@ function setUnreadMessages(count) {
 // The inbox's answer: the badge, and a notification for a message newer than
 // any it has shown, while the window isn't in front. One conversation's is
 // its sender and words; more than one, how many.
+// The notifications shown for one message, by its id, so one deleted since comes off again.
+const messageNotes = new Map();
+
 function afterConversations(body) {
 	const list = body && Array.isArray(body.conversations) ? body.conversations : null;
 	if (!list) return;
 	if (Number.isInteger(body.unread)) setUnreadMessages(body.unread);
+	for (const c of list) {
+		const note = c && c.last && c.last.deleted ? messageNotes.get(Number(c.last.id)) : null;
+		if (note) {
+			try { note.close(); } catch (err) { /* already gone */ }
+			messageNotes.delete(Number(c.last.id));
+		}
+	}
 	const incoming = list.filter((c) => c && c.with && c.last && !c.last.from_me && Number(c.unread) > 0);
 	const newest = incoming.reduce((most, c) => Math.max(most, Number(c.last.id) || 0), 0);
 	if (lastMessageId !== null && newest > lastMessageId && prefs.get().notifications !== false &&
 		(!win || win.isDestroyed() || !win.isFocused())) {
 		const fresh = incoming.filter((c) => Number(c.last.id) > lastMessageId);
 		if (fresh.length === 1) {
-			notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
+			const note = notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
+			if (note) {
+				messageNotes.set(Number(fresh[0].last.id), note);
+				if (messageNotes.size > 50) messageNotes.delete(messageNotes.keys().next().value);
+			}
 		} else if (fresh.length > 1) {
 			notify('New messages', 'From ' + fresh.length + ' friends.', { screen: 'messages' });
 		}
@@ -801,8 +815,10 @@ function notify(title, body, route) {
 			if (route) goTo(route);
 		});
 		note.show();
+		return note;
 	} catch (err) {
 		// The badge says so too.
+		return null;
 	}
 }
 

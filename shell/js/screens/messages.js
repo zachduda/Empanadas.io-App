@@ -47,6 +47,42 @@ function key(id) {
 	return String(id || '').toLowerCase().replace(/-/g, '');
 }
 
+// Messages not sent yet, kept on this computer by conversation until the site has
+// them or they're deleted, so closing the app doesn't lose them. Cleared at
+// sign-out (main.js).
+export const UNSENT_KEY = 'dm-unsent';
+
+function unsentAll() {
+	try { return JSON.parse(localStorage.getItem(UNSENT_KEY) || '{}') || {}; } catch (err) { return {}; }
+}
+
+function unsentFor(id) {
+	const list = unsentAll()[id];
+	return Array.isArray(list) ? list.filter((m) => m && typeof m.text === 'string' && typeof m.nonce === 'string') : [];
+}
+
+function setUnsent(id, list) {
+	const all = unsentAll();
+	if (list.length) all[id] = list.map((m) => ({ nonce: m.nonce, text: m.text, sent: m.sent }));
+	else delete all[id];
+	try { localStorage.setItem(UNSENT_KEY, JSON.stringify(all)); } catch (err) { /* this session only */ }
+}
+
+function keepUnsent(id, m) {
+	setUnsent(id, unsentFor(id).filter((x) => x.nonce !== m.nonce).concat([m]));
+}
+
+function dropUnsent(id, m) {
+	setUnsent(id, unsentFor(id).filter((x) => x.nonce !== m.nonce));
+}
+
+// A note that one of them turned encryption on or off.
+function eventText(m, name) {
+	const who = m.from_me ? 'You' : (name || 'They');
+	return m.kind === 'e2ee_on' ? who + ' turned on end-to-end encryption. New messages are encrypted.'
+		: who + " turned off end-to-end encryption. New messages aren't encrypted.";
+}
+
 function nonce() {
 	return crypto.randomUUID().replace(/-/g, '');
 }
@@ -272,9 +308,14 @@ export function mount(container, { app, params }) {
 		}
 		convo.loaded = true;
 		apply(result.data, false);
+		// What didn't go last time is tried again, under the same nonce, so the site keeps it once.
+		const waiting = unsentFor(convo.id).map((m) => ({ id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'pending' }))
+			.filter((m) => !convo.pending.some((p) => p.nonce === m.nonce));
+		convo.pending = convo.pending.concat(waiting);
 		drawThread(true);
 		markRead();
 		startThreadPoll();
+		for (const m of waiting) deliver(m);
 		if (convo.field) convo.field.focus();
 	}
 
@@ -357,6 +398,11 @@ export function mount(container, { app, params }) {
 			if (!previous || (m.sent && previous.sent && m.sent - previous.sent > GAP)) {
 				rows.push(h('div', { class: 'dm-gap' }, stamp(m.sent)));
 			}
+			if (m.kind) {
+				rows.push(h('div', { class: 'dm-event', title: stamp(m.sent) }, icon('lock'), eventText(m, current.with && current.with.username)));
+				previous = m;
+				continue;
+			}
 			if (canEdit(m)) nextExpiry = Math.min(nextExpiry, m.editable_until);
 			const bubble = h('div', { class: 'dm-bubble', title: stamp(m.sent) }, m.text);
 			const classes = 'dm-row' + (m.from_me ? ' me' : '') + (m.state ? ' ' + m.state : '') + (m.deleted ? ' deleted' : '')
@@ -369,11 +415,13 @@ export function mount(container, { app, params }) {
 			if (m.state === 'failed') {
 				const retryButton = h('button', { type: 'button', class: 'link' }, 'Try Again');
 				retryButton.addEventListener('click', () => retry(m));
-				rows.push(h('div', { class: 'dm-status error' }, (m.error || 'Not sent.') + ' ', retryButton));
+				const discardButton = h('button', { type: 'button', class: 'link' }, 'Delete');
+				discardButton.addEventListener('click', () => discard(m));
+				rows.push(h('div', { class: 'dm-status error' }, (m.error || 'Not sent.') + ' ', retryButton, ' · ', discardButton));
 			}
 			previous = m;
 		}
-		const newest = current.messages[current.messages.length - 1];
+		const newest = [...current.messages].reverse().find((m) => !m.kind);
 		if (newest && newest.from_me && current.seenUpTo >= newest.id && !current.pending.length) {
 			rows.push(h('div', { class: 'dm-status' }, 'Seen'));
 		}
@@ -411,6 +459,8 @@ export function mount(container, { app, params }) {
 		if (result.data && result.data.e2ee) convo.e2ee = result.data.e2ee;
 		app.toast(on ? 'End-to-end encryption is on.' : 'End-to-end encryption is off.', 'success');
 		drawThread(false);
+		// The note it left in the conversation.
+		poll();
 	}
 
 	// --- Editing and deleting your own --------------------------------------------
@@ -531,7 +581,7 @@ export function mount(container, { app, params }) {
 			if (e.key === 'Escape' && current.editing) { e.preventDefault(); e.stopPropagation(); stopEditing(); }
 			// Up in an empty box edits your last message, while it still can be.
 			if (e.key === 'ArrowUp' && !field.value && !current.editing) {
-				const last = [...current.messages].reverse().find((m) => m.from_me && !m.deleted);
+				const last = [...current.messages].reverse().find((m) => m.from_me && !m.deleted && !m.kind);
 				if (canEdit(last)) { e.preventDefault(); startEditing(last); }
 			}
 		});
@@ -557,6 +607,7 @@ export function mount(container, { app, params }) {
 		current.sync();
 		const pending = { id: 0, nonce: nonce(), from_me: true, text, sent: Math.floor(Date.now() / 1000), state: 'pending' };
 		current.pending.push(pending);
+		keepUnsent(current.id, pending);
 		drawMessages(true);
 		field.focus();
 		deliver(pending);
@@ -565,6 +616,8 @@ export function mount(container, { app, params }) {
 	async function deliver(pending) {
 		const convo = current;
 		const result = await window.native.data.act('sendMessage', { id: convo.raw, text: pending.text, nonce: pending.nonce });
+		// Kept until the site has it; a refusal or network trouble keeps it, to retry or delete.
+		if (result.ok && result.data && result.data.message) dropUnsent(convo.id, pending);
 		if (destroyed) return;
 		if (result.ok && result.data && result.data.message) {
 			convo.pending = convo.pending.filter((m) => m !== pending);
@@ -581,6 +634,13 @@ export function mount(container, { app, params }) {
 		}
 		if (current === convo) drawThread(true);
 		loadInbox();
+	}
+
+	// A message that didn't go, taken back off the screen and this computer.
+	function discard(m) {
+		current.pending = current.pending.filter((x) => x !== m);
+		dropUnsent(current.id, m);
+		drawMessages(false);
 	}
 
 	function retry(m) {
