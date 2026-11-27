@@ -89,11 +89,11 @@ const MESSAGES_POLL = 60 * 1000;
 // it whenever the screens need something new of either (an IPC channel, a
 // field of one), and publish the screens to the site's new folder for it.
 // 2: the Messages screen (the conversations and messages screens' data,
-// sendMessage, readMessages, blockPlayer and reportMessage).
-// 3: end-to-end encrypted messages, opened here (messages' since, editMessage,
-// deleteMessage, reportMessage's text, prepareMessages, setEncrypted).
-// 4: replies, reactions and typing (sendMessage's replyTo, reactMessage, typingMessage).
-const SHELL_API = 4;
+// sendMessage with replyTo, readMessages, blockPlayer, reportMessage with
+// text, editMessage, deleteMessage, reactMessage, typingMessage,
+// prepareMessages, setEncrypted, and messages' since). Grown in place before
+// any release had it; the next change it needs is 3.
+const SHELL_API = 2;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
 // (the check finishes in the background, for the next launch).
