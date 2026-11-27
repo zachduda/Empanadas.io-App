@@ -45,6 +45,30 @@ struct MessagePerson: Decodable, Equatable, Hashable {
     var isOnline: Bool { state == "online" }
 }
 
+/// Each player's reaction to a message, as the site's dmReactions() allows.
+struct MessageReactions: Decodable, Equatable, Hashable {
+    var mine: String?
+    var theirs: String?
+
+    /// What a message can be reacted with, until the site says otherwise.
+    static let all = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u{1F525}"]
+
+    enum CodingKeys: String, CodingKey { case mine, theirs }
+
+    init(mine: String? = nil, theirs: String? = nil) {
+        self.mine = mine
+        self.theirs = theirs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mine = (try? c.decodeIfPresent(String.self, forKey: .mine)) ?? nil
+        theirs = (try? c.decodeIfPresent(String.self, forKey: .theirs)) ?? nil
+    }
+
+    var isEmpty: Bool { mine == nil && theirs == nil }
+}
+
 /// One message (dmMessage()). `read`: the one it was sent to has read it.
 /// An encrypted one comes with its envelope in `cipher`, which AccountAPI
 /// opens into `text` (or marks `sealed` when this device can't).
@@ -64,6 +88,9 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
     /// Not a message but a note in the conversation: "e2ee_on" or "e2ee_off",
     /// one of them turned encryption on or off.
     var kind: String?
+    /// The message this one answers.
+    var replyTo: Int?
+    var reactions = MessageReactions()
     /// The sending device's id for it, which its envelope is bound to (and an
     /// edit of it too).
     var nonce: String?
@@ -71,9 +98,10 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
     var encrypted: Bool { cipher != nil }
 
     enum CodingKeys: String, CodingKey {
-        case id, text, sent, read, cipher, edited, deleted, kind, nonce
+        case id, text, sent, read, cipher, edited, deleted, kind, reactions, nonce
         case fromMe = "from_me"
         case editableUntil = "editable_until"
+        case replyTo = "reply_to"
     }
 
     init(id: Int, fromMe: Bool, text: String, sent: Date?, read: Bool = false) {
@@ -96,6 +124,8 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
         deleted = c.lenient(.deleted, false)
         editableUntil = Self.date(c, .editableUntil)
         kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        replyTo = (try? c.decodeIfPresent(Int.self, forKey: .replyTo)) ?? nil
+        reactions = c.lenient(.reactions, MessageReactions())
         nonce = (try? c.decodeIfPresent(String.self, forKey: .nonce)) ?? nil
     }
 
@@ -289,6 +319,12 @@ struct MessageThread: Decodable, Equatable {
     var now: Date?
     /// With `since`: messages edited or deleted since then.
     var changed: [DirectMessage] = []
+    /// When the other player read the newest of the viewer's they have read.
+    var seenAt: Date?
+    /// The other player is typing to the viewer now.
+    var typing = false
+    /// What a message can be reacted with.
+    var reactions = MessageReactions.all
     /// The account's uuid, as envelopes name players.
     var me: String?
     /// With device=: whether the site has this device's key.
@@ -298,11 +334,12 @@ struct MessageThread: Decodable, Equatable {
     var newDevices: NewDevices?
 
     enum CodingKeys: String, CodingKey {
-        case with, reason, blocked, messages, csrf, keys, now, changed, e2ee, me
+        case with, reason, blocked, messages, csrf, keys, now, changed, e2ee, typing, reactions, me
         case canMessage = "can_message"
         case hasMore = "has_more"
         case seenUpTo = "seen_up_to"
         case maxLength = "max_length"
+        case seenAt = "seen_at"
         case deviceKnown = "device_known"
     }
 
@@ -321,6 +358,10 @@ struct MessageThread: Decodable, Equatable {
         e2ee = c.lenient(.e2ee, ConversationEncryption())
         now = (try? c.decodeIfPresent(Double.self, forKey: .now)).map { Date(timeIntervalSince1970: $0) }
         changed = c.lenient(.changed, [Lenient<DirectMessage>]()).compactMap(\.value)
+        seenAt = (try? c.decodeIfPresent(Double.self, forKey: .seenAt)).map { Date(timeIntervalSince1970: $0) }
+        typing = c.lenient(.typing, false)
+        let offered = c.lenient(.reactions, [String]())
+        reactions = offered.isEmpty ? MessageReactions.all : offered
         me = (try? c.decodeIfPresent(String.self, forKey: .me)) ?? nil
         deviceKnown = (try? c.decodeIfPresent(Bool.self, forKey: .deviceKnown)) ?? nil
     }

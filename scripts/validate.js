@@ -490,6 +490,16 @@ try {
 	failures.push('lib/resources.js test suite failed');
 }
 
+// --- the screens on the site ------------------------------------------------
+// The site's copy for this version must be shell/ itself (scripts/check-site-screens.js).
+console.log('screens on the site');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'scripts', 'check-site-screens.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push("the site's copy of the screens is not shell/: publish them or bump the version");
+}
+
 // --- server status ----------------------------------------------------------
 console.log('server status');
 

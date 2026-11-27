@@ -62,6 +62,8 @@ struct PendingMessage: Identifiable, Equatable, Codable {
     let text: String
     let at: Date
     var failed: String?
+    /// The message it answers.
+    var replyTo: Int?
     /// Written longer ago than ConversationModel.staleUnsent: waits to be sent by hand.
     var stale: Bool?
 
@@ -85,12 +87,12 @@ enum UnsentMessages {
     }
 
     static func load(_ playerID: String) -> [PendingMessage] {
-        (all()[conversation(playerID)] ?? []).map { PendingMessage(nonce: $0.nonce, text: $0.text, at: $0.at) }
+        (all()[conversation(playerID)] ?? []).map { PendingMessage(nonce: $0.nonce, text: $0.text, at: $0.at, replyTo: $0.replyTo) }
     }
 
     static func keep(_ message: PendingMessage, for playerID: String) {
         var list = load(playerID).filter { $0.nonce != message.nonce }
-        list.append(PendingMessage(nonce: message.nonce, text: message.text, at: message.at))
+        list.append(PendingMessage(nonce: message.nonce, text: message.text, at: message.at, replyTo: message.replyTo))
         save(list, for: playerID)
     }
 
@@ -106,6 +108,35 @@ enum UnsentMessages {
         var everything = all()
         everything[conversation(playerID)] = list.isEmpty ? nil : list
         if let data = try? JSONEncoder().encode(everything) { UserDefaults.standard.set(data, forKey: key) }
+    }
+}
+
+/// What was typed and not sent yet, by conversation, kept on this device until
+/// it is sent or cleared. Cleared at sign-out (AppModel).
+enum MessageDrafts {
+    static let key = "messageDrafts"
+
+    static func all() -> [String: String] {
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+    }
+
+    static func conversation(_ playerID: String) -> String {
+        PlayerID.raw(playerID) ?? playerID.lowercased()
+    }
+
+    static func load(_ playerID: String) -> String {
+        all()[conversation(playerID)] ?? ""
+    }
+
+    static func save(_ text: String, for playerID: String) {
+        var everything = all()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        everything[conversation(playerID)] = trimmed.isEmpty ? nil : String(text.prefix(MessageText.maxLength + 200))
+        UserDefaults.standard.set(everything, forKey: key)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
     }
 }
 
@@ -139,6 +170,16 @@ final class ConversationModel {
     var actionError: String?
     /// One of the viewer's own being edited in the box, while it still can be.
     private(set) var editing: DirectMessage?
+    /// The message the next one answers.
+    private(set) var replying: DirectMessage?
+    /// The other player is typing.
+    private(set) var theyAreTyping = false
+    /// When the other player read the viewer's newest they have read.
+    private(set) var seenAt: Date?
+    /// What a message can be reacted with.
+    private(set) var reactionChoices = MessageReactions.all
+    /// When the site was last told the viewer is typing.
+    private var typingSentAt: Date?
     /// What was in the box before an edit took it, put back after.
     private var draftBeforeEdit = ""
     /// Devices that appeared since this device last looked, while it is encrypted.
@@ -163,6 +204,7 @@ final class ConversationModel {
     init(playerID: String, name: String?) {
         self.playerID = playerID
         if let name { with = MessagePerson(playerID: playerID, username: name) }
+        draft = MessageDrafts.load(playerID)
     }
 
     /// The first page has come.
@@ -252,6 +294,9 @@ final class ConversationModel {
         reason = thread.reason
         blocked = thread.blocked
         seenUpTo = thread.seenUpTo
+        seenAt = thread.seenAt
+        theyAreTyping = thread.canMessage && thread.typing
+        reactionChoices = thread.reactions
         maxLength = thread.maxLength
         e2ee = thread.e2ee
         if let fresh = thread.newDevices { newDevices = fresh }
@@ -288,8 +333,11 @@ final class ConversationModel {
             Task { await saveEdit(editing, text: text, app: app) }
             return
         }
-        let message = PendingMessage(nonce: MessageText.nonce(), text: MessageText.cleaned(draft), at: Date())
+        let message = PendingMessage(nonce: MessageText.nonce(), text: MessageText.cleaned(draft), at: Date(), replyTo: replying?.id)
         draft = ""
+        replying = nil
+        typingSentAt = nil
+        MessageDrafts.save("", for: playerID)
         pending.append(message)
         UnsentMessages.keep(message, for: playerID)
         enqueue(message, app: app)
@@ -344,7 +392,7 @@ final class ConversationModel {
 
     private func deliver(_ message: PendingMessage, app: AppModel) async {
         do {
-            let sent = try await app.account.sendMessage(to: playerID, text: message.text, nonce: message.nonce)
+            let sent = try await app.account.sendMessage(to: playerID, text: message.text, nonce: message.nonce, replyTo: message.replyTo)
             UnsentMessages.drop(message, for: playerID)
             pending.removeAll { $0.id == message.id }
             if !messages.contains(where: { $0.id == sent.message.id }) {
@@ -366,6 +414,59 @@ final class ConversationModel {
                 pending[index].failed = words
             }
         }
+    }
+
+    // MARK: - Replies, reactions and typing
+
+    /// The message a reply answers, when it's loaded.
+    func message(_ id: Int) -> DirectMessage? {
+        messages.first { $0.id == id }
+    }
+
+    func startReplying(_ message: DirectMessage) {
+        guard canMessage, message.id > 0, !message.deleted else { return }
+        stopEditing()
+        replying = message
+    }
+
+    func stopReplying() {
+        replying = nil
+    }
+
+    /// The viewer's reaction, or "" to take it off. Shown at once, put back if the site says no.
+    func react(_ message: DirectMessage, emoji: String, app: AppModel) async {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        let before = messages[index].reactions
+        messages[index].reactions.mine = emoji.isEmpty ? nil : emoji
+        Haptics.play("light")
+        do {
+            let updated = try await app.account.react(to: message.id, with: playerID, emoji: emoji)
+            replace(updated)
+        } catch {
+            Haptics.play("error")
+            if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index].reactions = before }
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = (error as? MessageRefusal).map { MessageRefusal.text($0.reason, name: with?.username ?? "") }
+                ?? error.localizedDescription
+        }
+    }
+
+    /// The box changed: kept as a draft, and the other player told the viewer is typing (at most
+    /// every few seconds), or that they stopped once it's empty.
+    func draftChanged(app: AppModel) {
+        guard editing == nil else { return }
+        MessageDrafts.save(draft, for: playerID)
+        guard canMessage, app.isOnline else { return }
+        let typed = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if typed {
+            if let sent = typingSentAt, Date().timeIntervalSince(sent) < 3 { return }
+            typingSentAt = Date()
+        } else {
+            guard typingSentAt != nil else { return }
+            typingSentAt = nil
+        }
+        let id = playerID
+        Task { try? await app.account.setTyping(typed, to: id) }
     }
 
     // MARK: - End-to-end encryption
@@ -400,6 +501,7 @@ final class ConversationModel {
             actionError = MessageRefusal.text("too_late")
             return
         }
+        replying = nil
         if editing == nil { draftBeforeEdit = draft }
         editing = message
         draft = message.text

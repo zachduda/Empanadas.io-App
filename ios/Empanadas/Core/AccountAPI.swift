@@ -377,13 +377,16 @@ final class AccountAPI {
     /// POST action=send, sealed for both players' devices: the site never
     /// has the words. `nonce` is the message's own id on this device, the
     /// same for every retry of it, so the site stores it once.
-    func sendMessage(to playerID: String, text: String, nonce: String) async throws -> SentMessage {
+    /// `replyTo`: the message it answers.
+    func sendMessage(to playerID: String, text: String, nonce: String, replyTo: Int? = nil) async throws -> SentMessage {
         let to = try Self.uuidField(playerID)
         let body = MessageText.cleaned(text)
         guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
         let nonce = MessageText.isNonce(nonce) ? nonce : MessageText.nonce()
         guard MessageText.length(body) <= MessageText.maxLength else { throw MessageRefusal(reason: "too_long") }
-        let reply = try await wordsPost(to, text: body, fields: [("action", "send"), ("to", to), ("nonce", nonce)], nonce: nonce)
+        var fields = [("action", "send"), ("to", to), ("nonce", nonce)]
+        if let replyTo, replyTo > 0 { fields.append(("reply_to", String(replyTo))) }
+        let reply = try await wordsPost(to, text: body, fields: fields, nonce: nonce)
         var sent = try Self.decode(SentMessage.self, reply)
         if let cipher = sent.message.cipher {
             if let ctx = context(fromMe: sent.message.fromMe, partner: to, nonce: sent.message.nonce) { opened[Self.openedKey(cipher, ctx)] = body }
@@ -419,6 +422,23 @@ final class AccountAPI {
         conversationE2ee[with] = e2ee.on
         conversationKeys[with] = nil
         return e2ee
+    }
+
+    /// POST action=react: the player's reaction to a message, or "" to take it off.
+    func react(to messageID: Int, with playerID: String, emoji: String) async throws -> DirectMessage {
+        let with = try Self.uuidField(playerID)
+        guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
+        let reply = try await messagesPost([("action", "react"), ("message", String(messageID)), ("emoji", emoji)])
+        let message = try Self.decode(ChangedMessage.self, reply).message
+        guard message.cipher != nil else { return message }
+        let key = try? await ownMessageKey()
+        return reveal(message, key: key, partner: with)
+    }
+
+    /// POST action=typing: the player is typing to them, or stopped.
+    func setTyping(_ on: Bool, to playerID: String) async throws {
+        let with = try Self.uuidField(playerID)
+        _ = try await messagesPost([("action", "typing"), ("with", with), ("on", on ? "1" : "0")])
     }
 
     /// POST action=delete: one of the player's own, for both of them.

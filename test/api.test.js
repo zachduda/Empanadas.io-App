@@ -425,6 +425,10 @@ async function messagesSite({ stale = false, e2ee = true, turnedOnMeanwhile = fa
 				return json({ ok: false, api: 1, reason: 'keys_changed', keys: keys() }, 409);
 			}
 			if (form.action === 'delete') return json({ ok: true, api: 1, message: { id: Number(form.message), from_me: true, text: 'This message was deleted.', cipher: null, deleted: true } });
+			if (form.action === 'react') {
+				const sent = posted.find((f) => f.action === 'send' && f.cipher);
+				return json({ ok: true, api: 1, message: { id: Number(form.message), from_me: true, cipher: sent.cipher, nonce: sent.nonce, sent: 1, reactions: { mine: form.emoji || null, theirs: null } } });
+			}
 			return json({ ok: true, api: 1, message: { id: Number(form.message) || 7, from_me: true, text: 'locked', cipher: form.cipher, sent: 1, read: false,
 				nonce: form.nonce || null, edited: form.action === 'edit' ? 2 : null }, duplicate: false });
 		}]
@@ -485,6 +489,18 @@ check('a conversation that isn\'t encrypted sends plain text; one turned on mean
 	assert.deepStrictEqual([sends[0].text, sends[1].text], ['raced', undefined]);
 	assert.strictEqual(await dme2ee.open(sends[1].cipher, raced.theirs, toThem('nonce-race01')), 'raced');
 	assert.strictEqual(sends[1].nonce, sends[0].nonce);
+});
+
+check('a reaction to an encrypted message comes back readable, opened as the conversation\'s', async () => {
+	const { site, store, client } = await messagesSite();
+	await client.sendMessage(THEM, 'sealed words', 'nonce-react1');
+	const reacted = await client.reactMessage(7, '\u{1F44D}', THEM);
+	assert.strictEqual(reacted.message.text, 'sealed words');
+	assert.strictEqual(reacted.message.sealed, false);
+	const fresh = api.createApi({ fetch: site.fetch, dmKeys: { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) } });
+	await fresh.thread(THEM);
+	const again = await fresh.reactMessage(7, '', THEM);
+	assert.strictEqual(again.message.text, 'sealed words', 'opened with this computer\'s key, not only remembered');
 });
 
 check('an encrypted message stays encrypted when edited, even after the conversation is turned off', async () => {

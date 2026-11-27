@@ -102,10 +102,11 @@ const MESSAGES_POLL = 60 * 1000;
 // it whenever the screens need something new of either (an IPC channel, a
 // field of one), and publish the screens to the site's new folder for it.
 // 2: the Messages screen (the conversations and messages screens' data,
-// sendMessage, readMessages, blockPlayer and reportMessage).
-// 3: end-to-end encrypted messages, opened here (messages' since, editMessage,
-// deleteMessage, reportMessage's text, prepareMessages, setEncrypted).
-const SHELL_API = 3;
+// sendMessage with replyTo, readMessages, blockPlayer, reportMessage with
+// text, editMessage, deleteMessage, reactMessage, typingMessage,
+// prepareMessages, setEncrypted, and messages' since). Grown in place before
+// any release had it; the next change it needs is 3.
+const SHELL_API = 2;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
 // (the check finishes in the background, for the next launch).
@@ -715,7 +716,9 @@ const ACTIONS = {
 	sendFeedback: (p) => api.sendFeedback(p),
 	restoreSavePoint: (p) => api.restoreSavePoint(p.id),
 	claimDaily: () => api.claimDailyReward(),
-	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
+	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce, p.replyTo),
+	reactMessage: (p) => api.reactMessage(p.message, p.emoji, p.id),
+	typingMessage: (p) => api.typingMessage(p.id, p.on === true),
 	readMessages: (p) => api.readMessages(p.id, p.upTo),
 	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
 	editMessage: (p) => api.editMessage(p.id, p.message, p.text, p.encrypted === true, typeof p.nonce === 'string' ? p.nonce : ''),

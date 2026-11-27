@@ -69,6 +69,40 @@ final class MessagesTests: XCTestCase {
         XCTAssertEqual(thread.maxLength, MessageText.maxLength)
     }
 
+    func testReadsRepliesReactionsTypingAndWhenItWasSeen() throws {
+        let thread = try JSONDecoder().decode(MessageThread.self, from: json(#"""
+        {"ok":true,"with":{"username":"SpinQueen"},"can_message":true,"messages":[
+           {"id":1,"from_me":false,"text":"8pm?","sent":1764147600,"reactions":{"mine":"🔥","theirs":null}},
+           {"id":2,"from_me":true,"text":"yes","sent":1764147660,"reply_to":1,"reactions":{"mine":null,"theirs":"❤️"}},
+           {"id":3,"from_me":true,"text":"old site","sent":1764147700}
+         ],"seen_up_to":2,"seen_at":1764147720,"typing":true,"reactions":["👍","🔥"]}
+        """#))
+        XCTAssertEqual(thread.messages.map(\.replyTo), [nil, 1, nil])
+        XCTAssertEqual(thread.messages[0].reactions, MessageReactions(mine: "🔥"))
+        XCTAssertEqual(thread.messages[1].reactions, MessageReactions(theirs: "❤️"))
+        XCTAssertTrue(thread.messages[2].reactions.isEmpty, "a message from a site before reactions has none")
+        XCTAssertEqual(thread.seenAt, Date(timeIntervalSince1970: 1764147720))
+        XCTAssertTrue(thread.typing)
+        XCTAssertEqual(thread.reactions, ["👍", "🔥"])
+        let bare = try JSONDecoder().decode(MessageThread.self, from: json(#"{"with":{"username":"x"}}"#))
+        XCTAssertNil(bare.seenAt)
+        XCTAssertFalse(bare.typing)
+        XCTAssertEqual(bare.reactions, MessageReactions.all, "the usual reactions until the site says")
+    }
+
+    func testDraftsAreKeptByConversationUntilCleared() {
+        MessageDrafts.clear()
+        defer { MessageDrafts.clear() }
+        MessageDrafts.save("half a thought", for: player)
+        XCTAssertEqual(MessageDrafts.load(player.uppercased()), "half a thought", "one conversation however its id is written")
+        XCTAssertEqual(MessageDrafts.load("cd34cd34000011112222333344445555"), "")
+        MessageDrafts.save("  \n ", for: player)
+        XCTAssertEqual(MessageDrafts.load(player), "", "an empty box keeps no draft")
+        MessageDrafts.save("again", for: player)
+        MessageDrafts.clear()
+        XCTAssertEqual(MessageDrafts.all(), [:])
+    }
+
     func testTheDashboardCarriesTheUnreadCount() throws {
         let with = try JSONDecoder().decode(Dashboard.self, from: json(#"{"account":{"username":"me"},"messages":{"unread":3}}"#))
         XCTAssertEqual(with.messagesUnread, 3)
@@ -298,11 +332,12 @@ final class MessagesTests: XCTestCase {
         UnsentMessages.clear()
         defer { UnsentMessages.clear() }
         let first = PendingMessage(nonce: "nonce-unsent1", text: "one", at: Date(timeIntervalSince1970: 100), failed: "Not sent.")
-        let second = PendingMessage(nonce: "nonce-unsent2", text: "two", at: Date(timeIntervalSince1970: 200))
+        let second = PendingMessage(nonce: "nonce-unsent2", text: "two", at: Date(timeIntervalSince1970: 200), replyTo: 9)
         UnsentMessages.keep(first, for: player)
         UnsentMessages.keep(second, for: player.uppercased())
         XCTAssertEqual(UnsentMessages.load(player).map(\.text), ["one", "two"], "one conversation however its id is written")
         XCTAssertNil(UnsentMessages.load(player).first?.failed, "tried again, not shown as failed")
+        XCTAssertEqual(UnsentMessages.load(player).map(\.replyTo), [nil, 9], "and still answers what it answered")
         XCTAssertEqual(UnsentMessages.load("cd34cd34000011112222333344445555"), [])
         UnsentMessages.drop(first, for: player)
         XCTAssertEqual(UnsentMessages.load(player).map(\.nonce), ["nonce-unsent2"])

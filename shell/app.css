@@ -1109,7 +1109,9 @@ button.dm-conv:hover { background: var(--surface-2); }
 .dm-gap { align-self: center; margin: 14px 0 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
 .dm-row { display: flex; align-items: center; gap: 4px; margin-top: 3px; }
 .dm-row.me { flex-direction: row-reverse; }
-.dm-bubble { max-width: min(70%, 560px); padding: 8px 13px; border-radius: 18px; background: var(--surface-3); color: var(--text);
+.dm-stack { display: flex; flex-direction: column; align-items: flex-start; max-width: min(70%, 560px); min-width: 0; }
+.dm-row.me .dm-stack { align-items: flex-end; }
+.dm-bubble { max-width: 100%; padding: 8px 13px; border-radius: 18px; background: var(--surface-3); color: var(--text);
 	white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
 .dm-row.me .dm-bubble { background: var(--accent); color: var(--accent-ink); }
 .dm-row.pending .dm-bubble { opacity: .6; }
@@ -1130,8 +1132,37 @@ button.dm-conv:hover { background: var(--surface-2); }
 .dm-event { align-self: center; display: flex; align-items: center; gap: 6px; margin: 10px 0; padding: 4px 12px; border-radius: 12px;
 	background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 600; }
 .dm-event .icon { width: 13px; height: 13px; }
-.dm-editing { display: flex; align-items: center; gap: 8px; padding: 0 4px 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.dm-editing { display: flex; align-items: center; gap: 8px; padding: 8px 18px 0; font-size: 12px; font-weight: 600; color: var(--muted); }
 .dm-editing .icon { width: 13px; height: 13px; }
+.dm-editing[hidden], .dm-new[hidden], .dm-replying[hidden] { display: none; }
+.dm-replying { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 18px 0; font-size: 12px; color: var(--muted); }
+.dm-replying .link, .dm-editing .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 650; cursor: pointer; }
+.dm-replying .icon { width: 13px; height: 13px; flex: 0 0 auto; }
+.dm-replying .text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-replying b { color: var(--text); font-weight: 650; }
+.dm-quote { display: flex; flex-direction: column; max-width: 100%; margin: 2px 0 -6px; padding: 5px 12px 10px; border: 0;
+	border-radius: 14px 14px 4px 4px; background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.3; text-align: left; cursor: pointer; }
+.dm-quote:hover { color: var(--text); }
+.dm-quote b { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; }
+.dm-quote b .icon { width: 11px; height: 11px; }
+.dm-quote span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.dm-reacts { display: flex; gap: 4px; margin: -6px 8px 0; position: relative; z-index: 1; }
+.dm-react { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 7px; border: 2px solid var(--bg); border-radius: 12px;
+	background: var(--surface-3); color: var(--text); font: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+.dm-react.mine { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.dm-react small { font-size: 11px; font-weight: 700; }
+.dm-react.pop { animation: dm-bump .6s var(--spring); }
+.dm-pop { position: absolute; z-index: 5; display: flex; gap: 2px; padding: 4px; border-radius: 22px; background: var(--surface);
+	border: 1px solid var(--border); box-shadow: var(--shadow-lg); animation: dm-pop-in .25s var(--spring) both; }
+@keyframes dm-pop-in { from { opacity: 0; transform: translateY(6px) scale(.85); } }
+.dm-pop button { width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; font-size: 20px; line-height: 1; cursor: pointer;
+	transition: transform .2s var(--spring); }
+.dm-pop button:hover, .dm-pop button:focus-visible { transform: scale(1.25); background: var(--surface-2); }
+.dm-pop button.mine { background: var(--accent-soft); }
+.dm-typing .dm-bubble { display: inline-flex; align-items: center; padding: 11px 14px; }
+.dm-typing .dm-dots i { background: var(--muted); }
+.dm-row.flash .dm-bubble { animation: dm-landed .9s ease-out 2; }
+.dm-draft { color: var(--danger); font-weight: 650; }
 .dm-status .link { border: 0; background: none; padding: 0; color: var(--danger); font: inherit; font-weight: 700; text-decoration: underline; }
 .dm-hello { margin: auto; padding: 30px; text-align: center; }
 
