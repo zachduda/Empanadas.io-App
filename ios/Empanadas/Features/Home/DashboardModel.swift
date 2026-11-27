@@ -145,10 +145,12 @@ final class DashboardModel {
         guard app.session == .signedIn else { throw AccountError.signedOut }
         isClaimingDaily = true
         defer { isClaimingDaily = false }
-        let generation = self.generation
+        let account = data?.account.uuid
         let claim = try await app.account.claimDailyReward()
-        // Signed out meanwhile: not this account's to show.
-        guard generation == self.generation, app.session == .signedIn else { return claim }
+        // Signed out meanwhile: not this account's to show. A refresh that
+        // went out before the claim isn't a reason to drop it: its answer is
+        // older, and the reload below replaces it.
+        guard app.session == .signedIn, data?.account.uuid == account else { return claim }
         if var shown = data {
             shown.daily = claim.daily
             if let peppers = claim.peppers { shown.peppers = peppers }

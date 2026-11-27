@@ -940,97 +940,99 @@ html:not(.platform-darwin) ::-webkit-scrollbar-track { background: transparent; 
 	*, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
-/* The daily reward (js/daily.js), under Home's tiles: the hero's wash and
-   bubbles, with orange kept for the fire. */
+/* The daily reward (js/daily.js), under Home's tiles: a plain card with
+   orange kept for the fire. --heat, 0 to 1: on the card, how far the streak
+   is toward a week; on a flame, how far its day is. */
 .daily-card {
+	--ember: #ff7a2f;
+	--ember-soft: rgba(255, 122, 47, .1);
+	--ember-ink: #c2410c;
+	--heat: 0;
 	position: relative;
 	overflow: hidden;
 	isolation: isolate;
 	margin-bottom: 18px;
-	padding: 18px 20px 20px;
-	border-radius: 22px;
-	background: var(--wash);
-	border: 1px solid rgba(79, 141, 255, .16);
-	box-shadow: var(--glow);
-	--ember: #ff8a3d;
+	padding: 18px 20px;
+	border-radius: 18px;
+	background: radial-gradient(130% 120% at 100% 0%, rgba(255, 140, 50, calc(.04 + .12 * var(--heat))) 0%, rgba(255, 140, 50, 0) 62%), var(--surface);
+	transition: border-color .6s ease, box-shadow .6s ease;
 }
-.daily-card > :not(.bubbles):not(.daily-ember) { position: relative; z-index: 1; }
-.daily-card .bubbles { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
-.daily-card .bubble { position: absolute; border-radius: 50%; background: var(--bubble); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35); animation: float 9s ease-in-out infinite; opacity: .8; }
-.daily-card .b0 { width: 110px; height: 110px; right: 4%; top: -44px; }
-.daily-card .b1 { width: 46px; height: 46px; left: 38%; bottom: -16px; animation-duration: 7s; animation-delay: -2s; }
-.daily-card .b2 { width: 22px; height: 22px; right: 26%; top: 14px; animation-duration: 6s; animation-delay: -4s; }
-.daily-card .b3 { width: 70px; height: 70px; left: -22px; bottom: -28px; animation-duration: 11s; animation-delay: -1s; }
-.daily-card .b4 { width: 14px; height: 14px; left: 22%; top: 12px; animation-duration: 5s; animation-delay: -3s; }
-/* Past a week: embers along the bottom. */
-.daily-card::after {
-	content: ""; position: absolute; inset: auto 0 0 0; height: 60%; z-index: 0; pointer-events: none;
-	background: radial-gradient(ellipse 60% 60% at 50% 100%, rgba(255, 150, 40, .22) 0%, rgba(255, 150, 40, 0) 75%);
-	opacity: 0; transition: opacity .8s ease;
-}
-.daily-card.is-hot::after { opacity: 1; }
+.daily-card.is-hot { border-color: rgba(255, 122, 47, .35); box-shadow: 0 8px 24px rgba(255, 110, 30, .12); }
 
-.daily-head { display: flex; align-items: center; gap: 12px; }
-.daily-title { display: flex; align-items: center; gap: 8px; font: 800 19px/1.2 var(--font-brand); letter-spacing: -.01em; }
+.daily-head { display: flex; align-items: flex-start; gap: 14px; }
+.daily-badge {
+	flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+	width: 40px; height: 40px; border-radius: 12px; color: #fff;
+	background: linear-gradient(140deg, #ffa24a 0%, #ff6a3d 100%);
+	box-shadow: 0 4px 12px rgba(255, 106, 61, .26);
+}
+.daily-badge svg.icon { width: 20px; height: 20px; stroke-width: 2; }
+.daily-heading { flex: 1 1 auto; min-width: 0; }
+.daily-title { font: 800 18px/1.2 var(--font-brand); letter-spacing: -.01em; margin-top: 1px; }
+.daily-sub { margin-top: 3px; color: var(--text-2); font-size: 13px; }
 .daily-streak {
-	margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 12px;
-	border-radius: 13px; font-weight: 700; font-size: 12.5px; white-space: nowrap;
-	background: rgba(255, 255, 255, .6); color: var(--sky-ink); border: 1px solid rgba(79, 141, 255, .18);
+	flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px;
+	border-radius: 14px; font-weight: 700; font-size: 12.5px; white-space: nowrap;
+	color: var(--ember-ink); background: var(--ember-soft);
 }
-.daily-sub { margin-top: 4px; color: var(--text-2); font-size: 13px; }
+.daily-streak svg.icon { width: 13px; height: 13px; fill: currentColor; stroke-width: 1.5; }
+.daily-streak.is-out { color: var(--muted); background: var(--surface-2); }
 
-.daily-week { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.daily-week { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
 .daily-day {
-	display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 2px 9px; min-width: 0;
-	border-radius: 14px; background: rgba(255, 255, 255, .55); border: 1px solid rgba(79, 141, 255, .14);
-	transition: transform .3s var(--spring), box-shadow .2s ease;
+	display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 5px;
+	padding: 10px 2px; min-width: 0; border-radius: 14px;
+	background: var(--surface-2); border: 1px solid var(--border);
+	transition: transform .3s var(--spring);
 }
 .daily-day:hover { transform: translateY(-2px); }
-.daily-day.is-done {
-	background: linear-gradient(180deg, rgba(255, 255, 255, .75) 40%, rgba(255, 138, 61, .16) 100%), var(--surface);
-	border-color: rgba(255, 138, 61, .4);
-}
-.daily-day.is-today { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.daily-day.is-done { background: var(--ember-soft); border-color: rgba(255, 122, 47, .32); }
+.daily-day.is-today { border-color: var(--ember); box-shadow: 0 0 0 2px rgba(255, 122, 47, .2); }
 .daily-day-label { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .daily-day-reward { display: inline-flex; align-items: center; gap: 3px; font-weight: 800; font-size: 12.5px; color: var(--text); }
 .daily-day-reward svg { width: 12px; height: 12px; color: var(--ember); }
-.daily-day.is-big .daily-day-reward { color: var(--gold); }
+.daily-day.is-big .daily-day-reward, .daily-day.is-big .daily-day-reward svg { color: var(--gold); }
 
-.daily-foot { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; margin-top: 14px; }
+.daily-foot { display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; margin-top: 16px; }
 .daily-hint { flex: 1 1 240px; font-size: 12.5px; color: var(--muted); }
-.daily-claim svg { color: #ffd36b; }
+.daily-claim.btn { border: 0; color: #fff; font-weight: 750; background: linear-gradient(140deg, #ff8f3f 0%, #ff5f36 100%); box-shadow: 0 5px 14px rgba(255, 95, 54, .26); }
+.daily-claim.btn:hover { background: linear-gradient(140deg, #ff8f3f 0%, #ff5f36 100%); transform: translateY(-1px) scale(1.03); box-shadow: 0 7px 18px rgba(255, 95, 54, .32); }
 .daily-claim.is-ready { animation: daily-nudge 2.4s ease-in-out infinite; }
 .daily-wait {
 	display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 18px; border-radius: 999px;
-	font-weight: 650; font-size: 13.5px; color: var(--sky-ink); background: var(--sky-soft);
+	font-weight: 650; font-size: 13.5px; color: var(--text-2); background: var(--surface-2);
 }
-.daily-wait svg { width: 15px; height: 15px; }
+.daily-wait svg { width: 15px; height: 15px; color: var(--muted); }
 @keyframes daily-nudge { 0%, 80%, 100% { transform: scale(1); } 88% { transform: scale(1.05); } }
 
 /* The flame: two teardrops (a rounded square turned 45°, one corner left
-   sharp), the inner one yellow, flickering out of step. */
-.daily-flame { position: relative; display: inline-block; width: 26px; height: 32px; flex: 0 0 auto; }
+   sharp), the inner one yellow. It grows with its day's --heat, and so does
+   how hard it flickers and glows. */
+.daily-flame {
+	--h: var(--heat, .5);
+	--amp: calc(.4 + 1.2 * var(--h));
+	--outer: calc(12px + 14px * var(--h));
+	--inner: calc(var(--outer) * .48);
+	position: relative; display: inline-block; flex: 0 0 auto;
+	width: calc(var(--outer) * 1.35); height: calc(var(--outer) * 1.6);
+}
 .daily-flame::before, .daily-flame::after { content: ""; position: absolute; left: 50%; border-radius: 50% 0 50% 50%; transform-origin: 50% 50%; }
 .daily-flame::before {
-	width: 20px; height: 20px; margin-left: -10px; bottom: 3px; transform: rotate(-45deg);
+	width: var(--outer); height: var(--outer); margin-left: calc(var(--outer) / -2); bottom: calc(var(--outer) * .14);
+	transform: rotate(-45deg);
 	background: radial-gradient(circle at 60% 40%, #ffd23f 0%, #ff8a00 55%, #ff3d00 100%);
-	box-shadow: 0 0 12px 1px rgba(255, 160, 0, .45);
-	animation: daily-flicker 1.3s ease-in-out infinite alternate;
+	box-shadow: 0 0 calc(4px + 12px * var(--h)) calc(2px * var(--h)) rgba(255, 160, 0, calc(.2 + .35 * var(--h)));
+	animation: daily-flicker calc(1.7s - .8s * var(--h)) ease-in-out infinite alternate;
 }
 .daily-flame::after {
-	width: 10px; height: 10px; margin-left: -5px; bottom: 4px; transform: rotate(-45deg);
+	width: var(--inner); height: var(--inner); margin-left: calc(var(--inner) / -2); bottom: calc(var(--outer) * .18);
+	transform: rotate(-45deg);
 	background: radial-gradient(circle, #fffbe0 0%, #ffe35c 70%, #ffc400 100%);
-	animation: daily-flicker-inner .9s ease-in-out infinite alternate;
+	animation: daily-flicker-inner calc(1.1s - .45s * var(--h)) ease-in-out infinite alternate;
 }
-.daily-flame.is-out { filter: grayscale(1); opacity: .35; }
+.daily-flame.is-out { filter: grayscale(1); opacity: .3; }
 .daily-flame.is-out::before { box-shadow: none; animation: none; }
 .daily-flame.is-out::after { animation: none; }
-.daily-flame.is-small { width: 16px; height: 20px; }
-.daily-flame.is-small::before { width: 12px; height: 12px; margin-left: -6px; bottom: 2px; }
-.daily-flame.is-small::after { width: 6px; height: 6px; margin-left: -3px; bottom: 3px; }
-.daily-flame.is-big { width: 34px; height: 42px; }
-.daily-flame.is-big::before { width: 27px; height: 27px; margin-left: -13.5px; bottom: 4px; }
-.daily-flame.is-big::after { width: 13px; height: 13px; margin-left: -6.5px; bottom: 5px; }
 .daily-day:nth-child(2) .daily-flame::before { animation-delay: -.4s; }
 .daily-day:nth-child(3) .daily-flame::before { animation-delay: -.9s; }
 .daily-day:nth-child(4) .daily-flame::before { animation-delay: -.2s; }
@@ -1040,13 +1042,13 @@ html:not(.platform-darwin) ::-webkit-scrollbar-track { background: transparent; 
 .daily-day.is-lit-now .daily-flame { animation: daily-ignite .7s var(--spring) both; }
 @keyframes daily-flicker {
 	0% { transform: rotate(-45deg) scale(1, 1); }
-	35% { transform: rotate(-41deg) scale(1.06, .96); }
-	70% { transform: rotate(-48deg) scale(.95, 1.07); }
-	100% { transform: rotate(-44deg) scale(1.03, 1.02); }
+	35% { transform: rotate(calc(-45deg + 4deg * var(--amp))) scale(calc(1 + .05 * var(--amp)), calc(1 - .04 * var(--amp))); }
+	70% { transform: rotate(calc(-45deg - 3deg * var(--amp))) scale(calc(1 - .04 * var(--amp)), calc(1 + .06 * var(--amp))); }
+	100% { transform: rotate(calc(-45deg + 1deg * var(--amp))) scale(calc(1 + .03 * var(--amp)), calc(1 + .02 * var(--amp))); }
 }
 @keyframes daily-flicker-inner {
 	0% { transform: rotate(-45deg) scale(1); opacity: 1; }
-	100% { transform: rotate(-40deg) scale(.82, 1.1); opacity: .85; }
+	100% { transform: rotate(calc(-45deg + 4deg * var(--amp))) scale(calc(1 - .14 * var(--amp)), calc(1 + .08 * var(--amp))); opacity: .85; }
 }
 @keyframes daily-ignite { 0% { transform: scale(.2); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 
@@ -1058,13 +1060,11 @@ html:not(.platform-darwin) ::-webkit-scrollbar-track { background: transparent; 
 @keyframes daily-ember { to { transform: translate(var(--dx, 0), -140px) scale(.3); opacity: 0; } }
 
 @media (prefers-color-scheme: dark) {
-	.daily-streak { background: rgba(255, 255, 255, .06); border-color: rgba(121, 168, 255, .2); }
-	.daily-day { background: rgba(255, 255, 255, .04); border-color: rgba(121, 168, 255, .14); }
-	.daily-day.is-done { background: linear-gradient(180deg, rgba(255, 255, 255, .05) 40%, rgba(255, 138, 61, .18) 100%); }
-	.daily-flame.is-out { opacity: .3; }
+	.daily-card { --ember-soft: rgba(255, 140, 70, .14); --ember-ink: #ffb37a; }
+	.daily-flame.is-out { opacity: .28; }
 }
 @media (prefers-reduced-motion: reduce) {
-	.daily-card .bubble, .daily-flame::before, .daily-flame::after, .daily-claim.is-ready,
+	.daily-flame::before, .daily-flame::after, .daily-claim.is-ready,
 	.daily-day.is-lit-now .daily-flame { animation: none !important; }
 	.daily-ember { display: none; }
 }

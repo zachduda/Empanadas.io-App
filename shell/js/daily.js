@@ -1,21 +1,22 @@
-// The daily reward on Home, as the site's banner and the iOS app's card show
-// it: the streak, this week of it with a flame for every day claimed, and
-// Claim for today's peppers (10 a day, 50 from day 7 of a streak on). Its
-// status comes with /v2/app/dashboard.php ("daily", dailyStatus() in the
-// site's v2/_daily.php); the claim goes through the main process
-// (claimDaily, /v2/app/daily.php).
-//
-// On Home's own soft blue wash, with bubbles like the hero's. Orange is the
-// fire's: the flames, the pepper amounts, lit days warmed from below, and a
-// glow along the bottom once a streak passes a week.
+// The daily reward on Home, as the site's card and the iOS app's show it:
+// the streak, this week of it with a flame for every day claimed (each a
+// little bigger and livelier toward day 7), and Claim for today's peppers
+// (10 a day, 50 from day 7 of a streak on). Its status comes with
+// /v2/app/dashboard.php ("daily", dailyStatus() in the site's v2/_daily.php);
+// the claim goes through the main process (claimDaily, /v2/app/daily.php).
 
 import { h, replace, button, icon } from './dom.js';
 import { num } from './format.js';
 
 const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function flame(lit, extra) {
-	return h('span', { class: 'daily-flame' + (lit ? '' : ' is-out') + (extra ? ' ' + extra : ''), 'aria-hidden': 'true' });
+// 0 to 1: how far a day is toward the week's big reward.
+const heatOf = (day, d) => Math.min(Math.max(day, 1), d.streak_days) / d.streak_days;
+
+function flame(lit, heat) {
+	const node = h('span', { class: 'daily-flame' + (lit ? '' : ' is-out'), 'aria-hidden': 'true' });
+	node.style.setProperty('--heat', heat.toFixed(3));
+	return node;
 }
 
 // "5h 12m", "12m", "less than a minute".
@@ -64,7 +65,7 @@ export function dailyCard({ claim, toast }) {
 		}
 		const amount = dueAgain() ? daily.tomorrow : daily.reward;
 		const b = button(claiming ? 'Claiming...' : 'Claim ' + num(amount) + ' Peppers', onClaim,
-			{ kind: 'primary pill large daily-claim' + (claiming ? '' : ' is-ready'), icon: 'flame', disabled: claiming || !navigator.onLine });
+			{ kind: 'pill large daily-claim' + (claiming ? '' : ' is-ready'), disabled: claiming || !navigator.onLine });
 		if (!navigator.onLine) b.title = 'Needs a connection';
 		return b;
 	}
@@ -74,13 +75,15 @@ export function dailyCard({ claim, toast }) {
 		const d = daily;
 		const week = Array.isArray(d.week) ? d.week : [];
 		el.classList.toggle('is-hot', d.streak >= d.streak_days);
+		el.style.setProperty('--heat', (d.streak > 0 ? heatOf(d.streak, d) : 0).toFixed(3));
 		replace(el,
-			h('div', { class: 'bubbles', 'aria-hidden': 'true' }, [0, 1, 2, 3, 4].map((n) => h('span', { class: 'bubble b' + n }))),
 			h('div', { class: 'daily-head' },
-				h('div', { class: 'daily-title' }, flame(d.streak > 0), 'Daily Reward'),
-				h('span', { class: 'daily-streak', title: d.best > d.streak ? 'Best: ' + num(d.best) + ' days' : null },
-					flame(d.streak > 0, 'is-small'), num(d.streak) + '-day streak')),
-			h('div', { class: 'daily-sub' }, subtitle(d)),
+				h('span', { class: 'daily-badge', 'aria-hidden': 'true' }, icon('gift')),
+				h('div', { class: 'daily-heading' },
+					h('div', { class: 'daily-title' }, 'Daily Reward'),
+					h('div', { class: 'daily-sub' }, subtitle(d))),
+				h('span', { class: 'daily-streak' + (d.streak > 0 ? '' : ' is-out'), title: d.best > d.streak ? 'Best: ' + num(d.best) + ' days' : null },
+					icon('bolt'), num(d.streak) + '-day streak')),
 			h('ol', { class: 'daily-week', 'aria-label': 'This week of your streak' }, week.map((day) => {
 				const big = day.reward >= d.streak_reward;
 				return h('li', {
@@ -89,7 +92,7 @@ export function dailyCard({ claim, toast }) {
 					'aria-label': 'Day ' + day.day + ', ' + num(day.reward) + ' peppers' + (day.done ? ', claimed' : day.today ? ', today' : '')
 				},
 				h('span', { class: 'daily-day-label' }, 'Day ' + day.day),
-				flame(day.done, big ? 'is-big' : ''),
+				flame(day.done, heatOf(day.day, d)),
 				h('span', { class: 'daily-day-reward' }, icon('pepper'), num(day.reward)));
 			})),
 			h('div', { class: 'daily-foot' }, h('div', { class: 'daily-hint' }, hint(d)), footer()));
