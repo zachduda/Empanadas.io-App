@@ -471,6 +471,10 @@ struct ConversationView: View {
     @State private var showingProfile = false
     @State private var deleting: DirectMessage?
     @State private var confirmingEncryption = false
+    /// The end of the conversation is on screen: what comes in is scrolled to.
+    @State private var atEnd = true
+    /// Something came in while reading further up: the pill that goes down to it.
+    @State private var newBelow = false
     @FocusState private var typing: Bool
 
     init(id: String, name: String?) {
@@ -530,14 +534,27 @@ struct ConversationView: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     if conversation.hasMore {
-                        ProgressView()
+                        if conversation.olderFailed {
+                            Button("Couldn't load earlier messages. Try Again") {
+                                Task { await conversation.loadOlder(app: model) }
+                            }
+                            .font(.footnote)
                             .padding(.vertical, 8)
-                            .task { await conversation.loadOlder(app: model) }
+                        } else {
+                            ProgressView()
+                                .padding(.vertical, 8)
+                                .task { await conversation.loadOlder(app: model) }
+                        }
                     }
                     ForEach(rows) { row in
                         rowView(row)
                     }
                     Color.clear.frame(height: 1).id("end")
+                        .onAppear {
+                            atEnd = true
+                            newBelow = false
+                        }
+                        .onDisappear { atEnd = false }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
@@ -546,8 +563,30 @@ struct ConversationView: View {
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .overlay { placeholder }
+            .overlay(alignment: .bottom) {
+                if newBelow {
+                    Button {
+                        newBelow = false
+                        withAnimation(.smooth) { proxy.scrollTo("end", anchor: .bottom) }
+                    } label: {
+                        Label("New Message", systemImage: "arrow.down")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.smooth, value: newBelow)
+            // What comes in is scrolled to at the end, or yours; further up, the pill says so.
             .onChange(of: conversation.messages.last?.id) { _, _ in
-                withAnimation(.smooth) { proxy.scrollTo("end", anchor: .bottom) }
+                if atEnd || conversation.messages.last?.fromMe == true {
+                    withAnimation(.smooth) { proxy.scrollTo("end", anchor: .bottom) }
+                } else {
+                    newBelow = true
+                }
             }
             .onChange(of: conversation.pending.count) { _, _ in
                 withAnimation(.smooth) { proxy.scrollTo("end", anchor: .bottom) }

@@ -8,24 +8,34 @@ import Security
 // halves. A message is sealed with a fresh AES-256-GCM key, and that key is
 // sealed for each device of both players:
 //
-//     {"v":2, "epk": <one-time key>, "spk": <sending device's key>, "c": <nonce|ciphertext|tag>, "k": {<device id>: <nonce|sealed key|tag>}}
+//     {"v":3, "epk": <one-time key>, "spk": <sending device's key>, "c": <nonce|ciphertext|tag>,
+//      "k": {<device id>: <nonce|sealed key|tag>}, "m": <commitment>}
 //
 // All base64url without padding. A device id is the first 16 bytes of
-// SHA-256 over the raw (x9.63) public key, in hex. c is sealed with
-// additional data Context.data ("empanadas-dm/v2", the sender's and the
-// recipient's uuids and the message's nonce, a line each), so an envelope
-// moved to another conversation, direction or message doesn't open. Each
-// sealed key comes from HKDF-SHA256 over ECDH(one-time, device) |
+// SHA-256 over the raw (x9.63) public key, in hex. c seals a franking key (32
+// bytes) | the words' length (2 bytes, big-endian) | the words (UTF-8) |
+// zeros, to a multiple of `pad` bytes, so its size says little. m is
+// HMAC-SHA256 under the franking key over Context.committed: a reader checks
+// it before showing anything, and a report hands the site the words and the
+// franking key, so it can check the sender sent exactly those. c is sealed
+// with additional data Context.dataV3 ("empanadas-dm/v3", the sender's and
+// the recipient's uuids and the message's nonce, a line each, then m), so an
+// envelope moved to another conversation, direction or message doesn't open.
+// Each sealed key comes from HKDF-SHA256 over ECDH(one-time, device) |
 // ECDH(sending device, device) (salt: epk | spk | the device's key, info:
-// keyInfoV2) with SHA-256(c) as additional data: only the sending device (or
+// keyInfoV3) with SHA-256(c) as additional data: only the sending device (or
 // the device it is for) could have made it, and only for that c.
 //
-// v1 (no spk; ECDH(one-time, device) alone, salt epk | device key, info
-// keyInfo, nothing bound) still opens, from clients before v2.
+// Still opened, from clients before them: v2 (no m, no padding, bound to
+// Context.data, info keyInfoV2) and v1 (no spk; ECDH(one-time, device) alone,
+// salt epk | device key, info keyInfo, nothing bound).
 
 enum MessageCrypto {
     static let keyInfo = Data("empanadas-dm/v1/key".utf8)
     static let keyInfoV2 = Data("empanadas-dm/v2/key".utf8)
+    static let keyInfoV3 = Data("empanadas-dm/v3/key".utf8)
+    /// What v3 pads to (DM_PAD on the site).
+    static let pad = 256
 
     /// Who the site says sent a message to whom, under which nonce: what a v2
     /// envelope is bound to.
@@ -51,6 +61,24 @@ enum MessageCrypto {
         var data: Data {
             Data(("empanadas-dm/v2\n" + sender + "\n" + recipient + "\n" + nonce).utf8)
         }
+
+        func dataV3(_ commitment: Data) -> Data {
+            Data(("empanadas-dm/v3\n" + sender + "\n" + recipient + "\n" + nonce + "\n").utf8) + commitment
+        }
+
+        /// What m is over (dmCommitment() on the site).
+        func committed(_ words: Data) -> Data {
+            Data(("empanadas-dm/v3/commit\n" + sender + "\n" + recipient + "\n" + nonce + "\n").utf8) + words
+        }
+    }
+
+    /// An opened envelope: `text` to show (MessageText.shown); `words` exactly
+    /// as sealed and `franking` (v3) for a report the site can check.
+    struct Opened: Equatable, Sendable {
+        let text: String
+        let words: String
+        let franking: String?
+        let version: Int
     }
 
     /// This device's key for one account.
@@ -77,7 +105,7 @@ enum MessageCrypto {
 
     /// Seals `text` for every device in `recipients` (both players'). A key
     /// whose id doesn't match it is left out. With `sender` (this device's
-    /// key) and `context`, a v2 envelope, which the app always makes; without,
+    /// key) and `context`, a v3 envelope, which the app always makes; without,
     /// v1 (tests only).
     static func seal(_ text: String, for recipients: [MessageKeys.Device],
                      from sender: DeviceKey? = nil, context: Context? = nil) throws -> String {
@@ -98,8 +126,16 @@ enum MessageCrypto {
 
         let messageKey = SymmetricKey(size: .bits256)
         let box: AES.GCM.SealedBox
+        var commitment: Data?
         if let context, sender != nil {
-            box = try AES.GCM.seal(Data(words.utf8), using: messageKey, authenticating: context.data)
+            let bytes = Data(words.utf8)
+            guard bytes.count <= 0xFFFF else { throw Failure.badPayload }
+            let franking = SymmetricKey(size: .bits256)
+            let m = Data(HMAC<SHA256>.authenticationCode(for: context.committed(bytes), using: franking))
+            var plain = franking.withUnsafeBytes { Data($0) } + Data([UInt8(bytes.count >> 8), UInt8(bytes.count & 0xFF)]) + bytes
+            plain.append(Data(count: (plain.count + pad - 1) / pad * pad - plain.count))
+            box = try AES.GCM.seal(plain, using: messageKey, authenticating: context.dataV3(m))
+            commitment = m
         } else {
             box = try AES.GCM.seal(Data(words.utf8), using: messageKey)
         }
@@ -112,7 +148,8 @@ enum MessageCrypto {
         for target in targets {
             let sealed: Data?
             if let sender {
-                let wrap = try wrapKeyV2(once, target.key, sender.privateKey, target.key, salt: epk + sender.rawPublicKey + target.raw)
+                let wrap = try wrapKeyV2(once, target.key, sender.privateKey, target.key, salt: epk + sender.rawPublicKey + target.raw,
+                                         info: keyInfoV3)
                 sealed = try AES.GCM.seal(keyBytes, using: wrap, authenticating: bound).combined
             } else {
                 sealed = try AES.GCM.seal(keyBytes, using: try wrapKey(once, target.key, salt: epk + target.raw)).combined
@@ -120,43 +157,69 @@ enum MessageCrypto {
             guard let sealed else { throw Failure.badPayload }
             sealedKeys[target.id] = base64URL(sealed)
         }
-        var envelope: [String: Any] = ["v": sender == nil ? 1 : 2, "epk": base64URL(epk), "c": base64URL(body), "k": sealedKeys]
+        var envelope: [String: Any] = ["v": sender == nil ? 1 : 3, "epk": base64URL(epk), "c": base64URL(body), "k": sealedKeys]
         if let sender { envelope["spk"] = sender.publicKey }
+        if let commitment { envelope["m"] = base64URL(commitment) }
         let json = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
         return String(decoding: json, as: UTF8.self)
     }
 
     /// The words in an envelope, opened with this device's key and tidied as
-    /// the site would have kept them (MessageText.shown). A v2 one needs
-    /// `context`, what the site says it is, and opens only if it was sealed as
-    /// that.
+    /// the site would have kept them (MessageText.shown).
     static func open(_ cipher: String, with key: DeviceKey, context: Context? = nil) throws -> String {
+        try opening(cipher, with: key, context: context).text
+    }
+
+    /// An envelope opened with this device's key. A v2 or v3 one needs
+    /// `context`, what the site says it is, and opens only if it was sealed as
+    /// that; a v3 one also only if its words are what m commits to.
+    static func opening(_ cipher: String, with key: DeviceKey, context: Context? = nil) throws -> Opened {
         guard let object = try? JSONSerialization.jsonObject(with: Data(cipher.utf8)) as? [String: Any],
-              let version = object["v"] as? Int, version == 1 || version == 2,
+              let version = object["v"] as? Int, (1...3).contains(version),
               let sealedKeys = object["k"] as? [String: Any] else { throw Failure.badPayload }
         guard let sealedKey = sealedKeys[key.device] as? String else { throw Failure.notForDevice }
         do {
             guard let epk = data(base64URL: object["epk"] as? String), let wrapped = data(base64URL: sealedKey),
                   let body = data(base64URL: object["c"] as? String) else { throw Failure.badPayload }
             let other = try P256.KeyAgreement.PublicKey(x963Representation: epk)
-            let plain: Data
-            if version == 2 {
+            if version >= 2 {
                 guard let context, context.isValid, let spkRaw = data(base64URL: object["spk"] as? String),
                       spkRaw.count == 65, spkRaw.first == 4 else { throw Failure.badPayload }
                 let spk = try P256.KeyAgreement.PublicKey(x963Representation: spkRaw)
-                let wrap = try wrapKeyV2(key.privateKey, other, key.privateKey, spk, salt: epk + spkRaw + key.rawPublicKey)
+                let m = version == 3 ? data(base64URL: object["m"] as? String) : nil
+                if version == 3 { guard m?.count == 32 else { throw Failure.badPayload } }
+                let wrap = try wrapKeyV2(key.privateKey, other, key.privateKey, spk, salt: epk + spkRaw + key.rawPublicKey,
+                                         info: version == 3 ? keyInfoV3 : keyInfoV2)
                 let keyBytes = try AES.GCM.open(AES.GCM.SealedBox(combined: wrapped), using: wrap, authenticating: Data(SHA256.hash(data: body)))
-                plain = try AES.GCM.open(AES.GCM.SealedBox(combined: body), using: SymmetricKey(data: keyBytes), authenticating: context.data)
-            } else {
-                let wrap = try wrapKey(key.privateKey, other, salt: epk + key.rawPublicKey)
-                let messageKey = SymmetricKey(data: try AES.GCM.open(AES.GCM.SealedBox(combined: wrapped), using: wrap))
-                plain = try AES.GCM.open(AES.GCM.SealedBox(combined: body), using: messageKey)
+                let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: body), using: SymmetricKey(data: keyBytes),
+                                             authenticating: m.map { context.dataV3($0) } ?? context.data)
+                guard let m else {
+                    guard let words = String(data: plain, encoding: .utf8) else { throw Failure.badPayload }
+                    return Opened(text: MessageText.shown(words), words: words, franking: nil, version: 2)
+                }
+                let (franking, bytes) = try unpadded(plain)
+                guard HMAC<SHA256>.isValidAuthenticationCode(m, authenticating: context.committed(bytes), using: SymmetricKey(data: franking)),
+                      let words = String(data: bytes, encoding: .utf8) else { throw Failure.badPayload }
+                return Opened(text: MessageText.shown(words), words: words, franking: base64URL(franking), version: 3)
             }
-            guard let text = String(data: plain, encoding: .utf8) else { throw Failure.badPayload }
-            return MessageText.shown(text)
+            let wrap = try wrapKey(key.privateKey, other, salt: epk + key.rawPublicKey)
+            let messageKey = SymmetricKey(data: try AES.GCM.open(AES.GCM.SealedBox(combined: wrapped), using: wrap))
+            let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: body), using: messageKey)
+            guard let words = String(data: plain, encoding: .utf8) else { throw Failure.badPayload }
+            return Opened(text: MessageText.shown(words), words: words, franking: nil, version: 1)
         } catch {
             throw Failure.badPayload
         }
+    }
+
+    /// The franking key and the words of an opened v3 c: the length must fit,
+    /// and everything after the words be zeros.
+    private static func unpadded(_ plain: Data) throws -> (Data, Data) {
+        let bytes = [UInt8](plain)
+        guard bytes.count >= pad, bytes.count % pad == 0 else { throw Failure.badPayload }
+        let length = Int(bytes[32]) << 8 | Int(bytes[33])
+        guard 34 + length <= bytes.count, bytes[(34 + length)...].allSatisfy({ $0 == 0 }) else { throw Failure.badPayload }
+        return (Data(bytes[0..<32]), Data(bytes[34..<(34 + length)]))
     }
 
     /// v2: HKDF over ECDH(a, x) | ECDH(b, y). Sealing, (one-time, device) and
@@ -164,11 +227,11 @@ enum MessageCrypto {
     /// sending device).
     private static func wrapKeyV2(_ a: P256.KeyAgreement.PrivateKey, _ x: P256.KeyAgreement.PublicKey,
                                   _ b: P256.KeyAgreement.PrivateKey, _ y: P256.KeyAgreement.PublicKey,
-                                  salt: Data) throws -> SymmetricKey {
+                                  salt: Data, info: Data) throws -> SymmetricKey {
         let first = try a.sharedSecretFromKeyAgreement(with: x).withUnsafeBytes { Data($0) }
         let second = try b.sharedSecretFromKeyAgreement(with: y).withUnsafeBytes { Data($0) }
         return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: first + second), salt: salt,
-                                      info: keyInfoV2, outputByteCount: 32)
+                                      info: info, outputByteCount: 32)
     }
 
     private static func wrapKey(_ privateKey: P256.KeyAgreement.PrivateKey, _ publicKey: P256.KeyAgreement.PublicKey,

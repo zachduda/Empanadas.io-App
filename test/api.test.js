@@ -447,7 +447,8 @@ check('a message is sealed for both players\' devices, posted with its nonce and
 	assert.strictEqual(sends.length, 2);
 	assert.strictEqual(sends[0].text, undefined, 'the words never go to the site');
 	assert.strictEqual(await dme2ee.open(sends[0].cipher, theirs, toThem('nonce-abc123')), 'hey\n\nthere');
-	assert.strictEqual(JSON.parse(sends[0].cipher).v, 2, 'sealed as from this computer');
+	assert.strictEqual(JSON.parse(sends[0].cipher).v, 3, 'sealed as from this computer, padded and committed to (v3)');
+	assert.strictEqual((dme2ee.fromB64u(JSON.parse(sends[0].cipher).c).length - 28) % dme2ee.PAD, 0, 'padded');
 	await assert.rejects(dme2ee.open(sends[0].cipher, theirs, toThem('nonce-other1')), (e) => e.message === 'bad_payload', 'bound to its nonce');
 	await assert.rejects(dme2ee.open(sends[0].cipher, theirs, { sender: THEM, recipient: ME, nonce: 'nonce-abc123' }), (e) => e.message === 'bad_payload', 'and its direction');
 	const mine = store.get('42');
@@ -489,6 +490,29 @@ check('a conversation that isn\'t encrypted sends plain text; one turned on mean
 	assert.deepStrictEqual([sends[0].text, sends[1].text], ['raced', undefined]);
 	assert.strictEqual(await dme2ee.open(sends[1].cipher, raced.theirs, toThem('nonce-race01')), 'raced');
 	assert.strictEqual(sends[1].nonce, sends[0].nonce);
+});
+
+check('a report of an encrypted message carries the words as sealed and the franking key, for the site to check', async () => {
+	const { site, posted, store, client } = await messagesSite();
+	await client.sendMessage(THEM, 'you are the worst', 'nonce-frank1');
+	const fresh = api.createApi({ fetch: site.fetch, dmKeys: { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) } });
+	const sent = posted.find((p) => p.action === 'send' && p.cipher);
+	const thread = await fresh.thread(THEM);
+	assert.ok(thread);
+	await fresh.reactMessage(7, '', THEM);
+	await fresh.reportMessage(7, 'harassment', '', 'something else entirely');
+	const report = posted.filter((p) => p.action === 'report').pop();
+	assert.strictEqual(report.text, 'you are the worst', 'what was sealed, not what the screen says');
+	assert.strictEqual(dme2ee.fromB64u(report.franking).length, 32);
+	const m = dme2ee.fromB64u(JSON.parse(sent.cipher).m);
+	const mac = require('crypto').createHmac('sha256', Buffer.from(dme2ee.fromB64u(report.franking)))
+		.update('empanadas-dm/v3/commit\n' + ME + '\n' + THEM + '\nnonce-frank1\nyou are the worst').digest();
+	assert.ok(Buffer.from(m).equals(mac), 'the commitment the site checks matches');
+	await fresh.reportMessage(8, 'spam', '\u{1F32E}'.repeat(600), '\u{1F32E}'.repeat(1200));
+	const cut = posted.filter((p) => p.action === 'report').pop();
+	assert.strictEqual(Array.from(cut.note).length, 500, 'a note cut by code points');
+	assert.strictEqual(Array.from(cut.text).length, 1000, 'and the words');
+	assert.ok(!/[\uD800-\uDBFF]$/.test(cut.text) && cut.text.endsWith('\u{1F32E}'), 'never half an emoji');
 });
 
 check('a reaction to an encrypted message comes back readable, opened as the conversation\'s', async () => {
@@ -597,8 +621,8 @@ check('read, block, unblock and report post what the site takes', async () => {
 		{ action: 'read', with: id, csrf: 't' },
 		{ action: 'block', with: id, csrf: 't' },
 		{ action: 'unblock', with: id, csrf: 't' },
-		{ action: 'report', message: '99', reason: 'harassment', note: 'not nice', text: '', csrf: 't' },
-		{ action: 'report', message: '100', reason: 'other', note: '', text: '', csrf: 't' }
+		{ action: 'report', message: '99', reason: 'harassment', note: 'not nice', text: '', franking: '', csrf: 't' },
+		{ action: 'report', message: '100', reason: 'other', note: '', text: '', franking: '', csrf: 't' }
 	]);
 });
 

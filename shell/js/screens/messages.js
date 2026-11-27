@@ -24,9 +24,17 @@ const GAP = 15 * 60;
 // An unsent message older than this (seconds) waits to be sent by hand.
 const STALE_UNSENT = 600;
 
-// How long the site counts a message as: code points, not UTF-16 units.
+// A message as the site keeps it (dmBody(), lib/dme2ee.js's tidy()), for counting.
+function tidy(text) {
+	return String(text === undefined || text === null ? '' : text)
+		.replace(/\r\n?/g, '\n').replace(/\t/g, ' ')
+		.replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+		.replace(/[ \u00A0]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// How long the site counts a message as: code points once tidied, not UTF-16 units.
 function typedLength(text) {
-	return Array.from(String(text).trim()).length;
+	return Array.from(tidy(text)).length;
 }
 
 const REPORT_REASONS = [
@@ -54,13 +62,55 @@ function key(id) {
 	return String(id || '').toLowerCase().replace(/-/g, '');
 }
 
-// Messages not sent yet, kept on this computer by conversation until the site has
-// them or they're deleted, so closing the app doesn't lose them. Cleared at
-// sign-out (main.js).
+// Messages not sent yet, kept on this computer by account and conversation until
+// the site has them or they're deleted, so closing the app doesn't lose them, and
+// one account's never go out as another's. Cleared at sign-out (main.js).
 export const UNSENT_KEY = 'dm-unsent';
+// What was typed and not sent yet, the same way.
+export const DRAFTS_KEY = 'dm-drafts';
+
+// The account signed in, as the site's answers say (me). Until then (a site that
+// doesn't say) they are kept as before, and move to the account once it is known.
+let owner = null;
+
+function noteOwner(data) {
+	const me = data && typeof data.me === 'string' && /^[0-9a-f]{32}$/.test(data.me) ? data.me : null;
+	if (!me || me === owner) return;
+	owner = me;
+	// From before they were kept by account: the account signed in then, as sign-out clears them.
+	for (const base of [UNSENT_KEY, DRAFTS_KEY]) {
+		try {
+			const old = localStorage.getItem(base);
+			if (old !== null && localStorage.getItem(base + ':' + me) === null) localStorage.setItem(base + ':' + me, old);
+			localStorage.removeItem(base);
+		} catch (err) { /* this session only */ }
+	}
+}
+
+function keyed(base) {
+	return owner ? base + ':' + owner : base;
+}
+
+function readKept(base) {
+	try { return JSON.parse(localStorage.getItem(keyed(base)) || '{}') || {}; } catch (err) { return {}; }
+}
+
+function writeKept(base, all) {
+	try { localStorage.setItem(keyed(base), JSON.stringify(all)); } catch (err) { /* this session only */ }
+}
+
+// Every account's, at sign-out.
+export function forgetKept() {
+	owner = null;
+	try {
+		for (const k of Object.keys(localStorage)) {
+			if (k === UNSENT_KEY || k === DRAFTS_KEY || k.startsWith(UNSENT_KEY + ':') || k.startsWith(DRAFTS_KEY + ':')) localStorage.removeItem(k);
+		}
+	} catch (err) { /* nothing kept */ }
+}
 
 function unsentAll() {
-	try { return JSON.parse(localStorage.getItem(UNSENT_KEY) || '{}') || {}; } catch (err) { return {}; }
+	return readKept(UNSENT_KEY);
 }
 
 function unsentFor(id) {
@@ -72,7 +122,7 @@ function setUnsent(id, list) {
 	const all = unsentAll();
 	if (list.length) all[id] = list.map((m) => ({ nonce: m.nonce, text: m.text, sent: m.sent, reply_to: m.reply_to || 0 }));
 	else delete all[id];
-	try { localStorage.setItem(UNSENT_KEY, JSON.stringify(all)); } catch (err) { /* this session only */ }
+	writeKept(UNSENT_KEY, all);
 }
 
 function keepUnsent(id, m) {
@@ -83,11 +133,8 @@ function dropUnsent(id, m) {
 	setUnsent(id, unsentFor(id).filter((x) => x.nonce !== m.nonce));
 }
 
-// What was typed and not sent yet, by conversation, until sign-out (main.js).
-export const DRAFTS_KEY = 'dm-drafts';
-
 function draftsAll() {
-	try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}') || {}; } catch (err) { return {}; }
+	return readKept(DRAFTS_KEY);
 }
 
 function draftFor(id) {
@@ -97,9 +144,9 @@ function draftFor(id) {
 
 function setDraft(id, text) {
 	const all = draftsAll();
-	if (String(text).trim()) all[id] = String(text).slice(0, 1200);
+	if (String(text).trim()) all[id] = Array.from(String(text)).slice(0, 1200).join('');
 	else delete all[id];
-	try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch (err) { /* this session only */ }
+	writeKept(DRAFTS_KEY, all);
 }
 
 const oneLine = (text) => String(text || '').replace(/\s+/g, ' ').trim();
@@ -211,6 +258,7 @@ export function mount(container, { app, params, onClose }) {
 	function renderInbox(result) {
 		if (destroyed || !result) return;
 		if (result.data) {
+			noteOwner(result.data);
 			inbox = result.data;
 			inboxError = result.ok ? null : result;
 			if (Number.isInteger(inbox.unread)) app.setUnreadMessages(inbox.unread);
@@ -437,6 +485,7 @@ export function mount(container, { app, params, onClose }) {
 	}
 
 	function apply(data, appendOnly) {
+		noteOwner(data);
 		current.with = data.with || current.with;
 		current.canMessage = !!data.can_message;
 		current.reason = data.reason || null;

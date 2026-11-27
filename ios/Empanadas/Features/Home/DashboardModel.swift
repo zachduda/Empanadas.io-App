@@ -44,6 +44,7 @@ final class DashboardModel {
         guard let saved = OfflineStore.load(Dashboard.self, .dashboard) else { return }
         data = saved.value
         updatedAt = saved.savedAt
+        MessageStore.noteOwner(saved.value.account.uuid)
     }
 
     /// Asks the site, unless the last good answer is younger than `maxAge`
@@ -113,6 +114,8 @@ final class DashboardModel {
             }
             unchanged = fresh == data ? unchanged + 1 : 0
             data = fresh
+            // Whose messages are kept on this device (MessageStore).
+            MessageStore.noteOwner(fresh.account.uuid)
             updatedAt = Date()
             error = nil
             app.gameCenter.report(fresh)
