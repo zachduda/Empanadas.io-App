@@ -18,6 +18,9 @@ final class WebPage: NSObject, Identifiable {
         /// has (the games: static pages that keep their saves on the device,
         /// saved there whole by OfflineGames).
         var loadsFromCacheOffline = false
+        /// The privacy policy or terms: links anywhere but the other one
+        /// open in the browser.
+        var staysOnLegalPages = false
     }
 
     enum Kind {
@@ -309,6 +312,11 @@ final class WebPage: NSObject, Identifiable {
             return .cancel
         }
 
+        if options.staysOnLegalPages, firstURL != nil, !SiteURLs.isLegalURL(url) {
+            app.openExternally(url)
+            return .cancel
+        }
+
         if SiteURLs.isAppURL(url) {
             // The login page never shows in the app, whatever sent a page
             // there (a link, a redirect, a session that ended): signing in
@@ -512,6 +520,11 @@ extension WebPage: WKUIDelegate {
             page.opener = self
             app.presentPopup(page)
             return page.webView
+        }
+
+        if fromSite, options?.staysOnLegalPages == true, !SiteURLs.isLegalURL(url) {
+            app.openExternally(url)
+            return nil
         }
 
         // A target="_blank" link to the site: follow it here, natively, or

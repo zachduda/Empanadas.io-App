@@ -163,7 +163,8 @@ final class AppModel {
                   pullToRefresh: Bool = true, loadsFromCacheOffline: Bool = false) -> WebPage {
         WebPage(url: url, options: .init(interceptsRoutes: interceptsRoutes, ownRoute: ownRoute,
                                          pullToRefresh: pullToRefresh,
-                                         loadsFromCacheOffline: loadsFromCacheOffline), app: self)
+                                         loadsFromCacheOffline: loadsFromCacheOffline,
+                                         staysOnLegalPages: SiteURLs.isLegalURL(url)), app: self)
     }
 
     // MARK: - Session
