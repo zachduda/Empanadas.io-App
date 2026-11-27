@@ -1,5 +1,5 @@
-// Server Status: the light Settings shows, and the full status page in a
-// sheet over the window, as the iOS app has them (ServerStatusViews.swift and
+// Server Status: the light Settings shows, and the full status page (and the
+// privacy policy and terms) in a sheet over the window, as the iOS app has them (ServerStatusViews.swift and
 // StatusPageView.swift). The sheet is drawn here, its title bar and all; the
 // page inside it is Statuspage's own, in a view of the app's laid over the
 // sheet's body (native.status.layout()), kept apart from everything else of
@@ -41,16 +41,22 @@ let current = null;
 // One ring every two seconds (app.css, @keyframes status-pulse).
 const PULSE_PERIOD = 2000;
 
+const TITLES = { status: 'Server Status', privacy: 'Privacy Policy', terms: 'Terms of Service' };
+
 // Opens the sheet (or brings the one that is up to the front). Resolves once
-// it has closed.
-export function openStatusSheet() {
+// it has closed. The page is the status page, or the site's privacy policy or
+// terms.
+export function openStatusSheet(kind = 'status') {
 	if (current) return current.closed;
 	const native = window.native;
+	if (!TITLES[kind]) kind = 'status';
 	if (!native || !native.status) {
 		// Screens newer than this app: the page in the browser instead.
-		if (native && native.external) native.external.open('status');
+		if (native && native.external) native.external.open(kind);
 		return Promise.resolve();
 	}
+	const title = TITLES[kind];
+	const noun = kind === 'status' ? 'the status page' : 'this page';
 
 	const root = document.getElementById('modal-root');
 	const returnFocus = document.activeElement;
@@ -61,14 +67,14 @@ export function openStatusSheet() {
 	const closed = new Promise((resolve) => { resolveClosed = resolve; });
 
 	const back = iconButton('back', 'Back', () => native.status.back(), { class: 'status-sheet-back' });
-	const browser = iconButton('external', 'Open in Browser', () => native.status.openInBrowser());
+	const browser = iconButton('external', 'Open in Browser', () => native.status.openInBrowser(kind));
 	const done = button('Done', () => close(), { kind: 'primary small' });
 	const placeholder = h('div', { class: 'status-sheet-placeholder' });
 	const body = h('div', { class: 'status-sheet-body' }, placeholder);
-	const sheet = h('div', { class: 'status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Server Status' },
+	const sheet = h('div', { class: 'status-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
 		h('header', { class: 'status-sheet-bar' },
 			h('div', { class: 'lead' }, back),
-			h('div', { class: 'title' }, 'Server Status'),
+			h('div', { class: 'title' }, title),
 			h('div', { class: 'trail' }, browser, done)),
 		body);
 	const backdrop = h('div', { class: 'modal-backdrop status-backdrop' }, sheet);
@@ -83,13 +89,13 @@ export function openStatusSheet() {
 			const offline = state.error.offline || !navigator.onLine;
 			replace(placeholder, h('div', { class: 'status-sheet-error' },
 				icon(offline ? 'offline' : 'alert'),
-				h('h2', null, offline ? 'You’re Offline' : 'Couldn’t Load the Status Page'),
-				h('p', null, offline ? 'The status page will load once you’re back online.' : 'Check your connection and try again.'),
+				h('h2', null, offline ? 'You’re Offline' : 'Couldn’t Load ' + (kind === 'status' ? 'the Status Page' : 'This Page')),
+				h('p', null, offline ? 'It will load once you’re back online.' : 'Check your connection and try again.'),
 				h('div', { class: 'actions' },
 					button('Try Again', () => native.status.reload(), { kind: 'primary small', icon: 'refresh' }),
-					button('Open in Browser', () => native.status.openInBrowser(), { kind: 'small', icon: 'external' }))));
+					button('Open in Browser', () => native.status.openInBrowser(kind), { kind: 'small', icon: 'external' }))));
 		} else if (!showing) {
-			replace(placeholder, h('div', { class: 'spinner large', role: 'progressbar', 'aria-label': 'Loading the status page' }));
+			replace(placeholder, h('div', { class: 'spinner large', role: 'progressbar', 'aria-label': 'Loading ' + noun }));
 		} else {
 			clear(placeholder);
 		}
@@ -171,11 +177,17 @@ export function openStatusSheet() {
 		sheet.addEventListener('animationend', arrived, { once: true });
 		setTimeout(arrived, 450);
 	}
-	native.status.open().then((s) => {
+	native.status.open(kind).then((s) => {
 		if (closing) return;
 		if (!s || !s.open) {
 			// The window is between screens: the browser instead.
-			native.status.openInBrowser();
+			native.status.openInBrowser(kind);
+			close({ fromNative: true });
+			return;
+		}
+		if ((s.kind || 'status') !== kind) {
+			// An app from before the sheet held other pages: the browser.
+			native.status.close().finally(() => native.external.open(kind));
 			close({ fromNative: true });
 			return;
 		}

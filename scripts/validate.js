@@ -513,7 +513,7 @@ try {
 console.log('server status');
 
 check('the status page is kept apart from the app', () => {
-	const start = mainSrc.indexOf('function openStatusPage()');
+	const start = mainSrc.indexOf('function openStatusPage(');
 	assert(start > 0, 'main.js no longer has openStatusPage()');
 	const body = mainSrc.slice(start, mainSrc.indexOf('\nfunction ', start + 1));
 	assert(/partition: STATUS_PARTITION/.test(body), 'the status page shares a session');
