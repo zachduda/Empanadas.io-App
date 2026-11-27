@@ -397,7 +397,7 @@ function applySession(session) {
 	root.classList.toggle('signed-out', !state.session.signedIn);
 	if (!state.session.signedIn) {
 		// The last account's unsent messages aren't the next one's (screens/messages.js).
-		try { localStorage.removeItem(messages.UNSENT_KEY); localStorage.removeItem(messages.DRAFTS_KEY); } catch (err) { /* nothing kept */ }
+		messages.forgetKept();
 		state.stack = [];
 		state.dashboard = null;
 		closeMessages(true);

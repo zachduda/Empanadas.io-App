@@ -187,6 +187,10 @@ final class AccountAPI {
     private var conversationE2ee: [String: Bool] = [:]
     /// Messages already opened, by envelope and what it was opened as.
     private var opened: [String: String] = [:]
+    /// v3: the words exactly as sealed and the franking key, by envelope and
+    /// then by message id, for a report the site can check.
+    private var frankedBySlot: [String: (words: String, franking: String)] = [:]
+    private var franked: [Int: (words: String, franking: String)] = [:]
     /// The account's uuid, as envelopes name players (messages.php's `me`).
     private var me: String?
 
@@ -359,7 +363,10 @@ final class AccountAPI {
     }
 
     private func noteMe(_ uuid: String?) {
-        if let uuid, uuid.count == 32, uuid.allSatisfy(\.isHexDigit) { me = uuid.lowercased() }
+        if let uuid, uuid.count == 32, uuid.allSatisfy(\.isHexDigit) {
+            me = uuid.lowercased()
+            MessageStore.noteOwner(uuid)
+        }
     }
 
     /// This device's key handed to the site again: it no longer has it.
@@ -467,6 +474,8 @@ final class AccountAPI {
         conversationKeys = [:]
         conversationE2ee = [:]
         opened = [:]
+        frankedBySlot = [:]
+        franked = [:]
         me = nil
     }
 
@@ -481,17 +490,20 @@ final class AccountAPI {
     private func openMessage(_ cipher: String, key: MessageCrypto.DeviceKey?, context: MessageCrypto.Context?) -> String? {
         let slot = context.map { Self.openedKey(cipher, $0) } ?? cipher + "|"
         if let known = opened[slot] { return known }
-        guard let key, let text = try? MessageCrypto.open(cipher, with: key, context: context) else { return nil }
-        opened[slot] = text
-        return text
+        guard let key, let got = try? MessageCrypto.opening(cipher, with: key, context: context) else { return nil }
+        opened[slot] = got.text
+        if let franking = got.franking { frankedBySlot[slot] = (got.words, franking) }
+        return got.text
     }
 
     private func reveal(_ message: DirectMessage, key: MessageCrypto.DeviceKey?, partner: String) -> DirectMessage {
         var out = message
         guard !out.deleted, let cipher = out.cipher else { return out }
-        if let text = openMessage(cipher, key: key, context: context(fromMe: out.fromMe, partner: partner, nonce: out.nonce)) {
+        let ctx = context(fromMe: out.fromMe, partner: partner, nonce: out.nonce)
+        if let text = openMessage(cipher, key: key, context: ctx) {
             out.text = text
             out.sealed = false
+            if let ctx, out.id > 0, let sealed = frankedBySlot[Self.openedKey(cipher, ctx)] { franked[out.id] = sealed }
         } else {
             out.text = ""
             out.sealed = true
@@ -566,10 +578,13 @@ final class AccountAPI {
     /// can't read it.
     func reportMessage(_ messageID: Int, reason: ReportReason, note: String, text: String = "") async throws {
         guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
-        let note = String(MessageText.cleaned(note).prefix(500))
+        let note = MessageText.prefix(MessageText.cleaned(note), scalars: 500)
+        // v3: the words as sealed and the franking key, so the site can check them.
+        let sealed = franked[messageID]
         _ = try await messagesPost([("action", "report"), ("message", String(messageID)),
                                     ("reason", reason.rawValue), ("note", note),
-                                    ("text", String(MessageText.cleaned(text).prefix(MessageText.maxLength)))])
+                                    ("text", sealed?.words ?? MessageText.prefix(MessageText.cleaned(text), scalars: MessageText.maxLength)),
+                                    ("franking", sealed?.franking ?? "")])
     }
 
     /// One change to messages, with the session's token (and once more with

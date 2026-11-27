@@ -522,6 +522,14 @@ enum MessageText {
         cleaned(text).unicodeScalars.count
     }
 
+    /// The first `scalars` code points of `text`, as the site cuts it (never
+    /// half of one).
+    static func prefix(_ text: String, scalars: Int) -> String {
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: text.unicodeScalars.prefix(max(0, scalars)))
+        return String(view)
+    }
+
     /// The device's id for one message, kept across its retries so the site
     /// stores it once: 32 hex digits.
     static func nonce() -> String {

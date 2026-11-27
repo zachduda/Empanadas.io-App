@@ -93,6 +93,7 @@ final class MessagesTests: XCTestCase {
     func testDraftsAreKeptByConversationUntilCleared() {
         MessageDrafts.clear()
         defer { MessageDrafts.clear() }
+        MessageStore.noteOwner(MessagesSite.me)
         MessageDrafts.save("half a thought", for: player)
         XCTAssertEqual(MessageDrafts.load(player.uppercased()), "half a thought", "one conversation however its id is written")
         XCTAssertEqual(MessageDrafts.load("cd34cd34000011112222333344445555"), "")
@@ -101,6 +102,32 @@ final class MessagesTests: XCTestCase {
         MessageDrafts.save("again", for: player)
         MessageDrafts.clear()
         XCTAssertEqual(MessageDrafts.all(), [:])
+    }
+
+    func testUnsentMessagesAndDraftsAreEachAccountsOwn() {
+        MessageStore.forget()
+        defer { MessageStore.forget() }
+        MessageStore.noteOwner("AAAAAAAA-0000-1111-2222-333344445555")
+        MessageDrafts.save("from the first", for: player)
+        UnsentMessages.keep(PendingMessage(nonce: "nonce-owner1", text: "first's", at: Date()), for: player)
+        MessageStore.noteOwner("bbbbbbbb000011112222333344445555")
+        XCTAssertEqual(MessageDrafts.load(player), "", "another account doesn't see it")
+        XCTAssertEqual(UnsentMessages.load(player), [], "nor send it")
+        MessageStore.noteOwner("aaaaaaaa000011112222333344445555")
+        XCTAssertEqual(MessageDrafts.load(player), "from the first", "the first account's again")
+        XCTAssertEqual(UnsentMessages.load(player).map(\.text), ["first's"])
+        MessageStore.noteOwner("not a uuid")
+        XCTAssertEqual(MessageStore.owner, "aaaaaaaa000011112222333344445555")
+
+        // From before they were kept by account: the account signed in then.
+        MessageStore.forget()
+        UserDefaults.standard.set([MessageDrafts.conversation(player): "old draft"], forKey: MessageDrafts.key)
+        MessageStore.noteOwner("cccccccc000011112222333344445555")
+        XCTAssertEqual(MessageDrafts.load(player), "old draft")
+        XCTAssertNil(UserDefaults.standard.object(forKey: MessageDrafts.key))
+        MessageStore.forget()
+        XCTAssertNil(MessageStore.owner)
+        XCTAssertNil(UserDefaults.standard.object(forKey: MessageDrafts.key + ".cccccccc000011112222333344445555"), "sign-out forgets every account's")
     }
 
     func testTheDashboardCarriesTheUnreadCount() throws {
@@ -203,7 +230,48 @@ final class MessagesTests: XCTestCase {
         }
     }
 
-    func testAV2EnvelopeIsFromItsDeviceAndBound() throws {
+    /// Sealed by the site's dm_e2ee.js as v3: padded, with a commitment it
+    /// opens only if the words match, and the franking key a report hands on.
+    func testOpensAV3EnvelopeTheWebsiteSealed() throws {
+        let raw = try XCTUnwrap(Data(base64Encoded: "xbIhL8CDVyBKnqPJQSQ3olt5uxLFezRoNqGa/6JSECA="))
+        let key = MessageCrypto.DeviceKey(privateKey: try P256.KeyAgreement.PrivateKey(rawRepresentation: raw))
+        let sealed = #"{"v":3,"epk":"BEAEpm75Dqll4_W7Tjjr4BPkXKjHQhxJOLOMjRKtyfqtqh-wO_ZROjzfalaMT9YeAGxMDCrXHtLrlRiMfj5-nvg","spk":"BLvqbQ2kmcUpW8pXPbIZli_dOP3VEaE05b61Kg5Mmna_eG4gmjvLJYTO8wWeJYiAwoV9fJuR7ASi4gDH1qmYQAg","c":"ruydn_wzYxVEqXUmbhGijjdevjk2bFvLdTw8tPVLSTd39wEnMfBrhh4lMKlfS0jW1hPmcvEuRmOrVmys8wv-kpjt5841b7PueT6Sb-VIDHLsxcTg5Ces8ce2gH4twrGvNpU3Li15Wx0AkVBFHFUv4k0WZmvxjiVRtCw3trgGFi3XzrPqZinEVWpbehdfaU0t-RN5P-JHeQ9Xn0RMyzFd9mEceD_LaMj6Q24gjE532GcYhT-mFVws3T229MjRVrkApM4J9_TnsWOri8y-rU376HTiJbyv0Ws68Ne_zqDgdcoNpkUrzTfl0B66El9PTb5jwcnqvbBmiHPLRga94ZpItiimHq-_BDjMT2fc7rt7rb3LBbTijclfl_5bKxg","k":{"c08f623b8645a994283c89ca3e418eb0":"_gutwwer92wzR_UbNIbHR6d-bBbxqOrPzgZBT37qhIuCC4VWY5oEsbZdLuewGmHiQwi3h7KHRr0cB4v-"},"m":"aThpi23R-wn4HbUNTaP0Ys8NeKMeJXs9G34aPHbzr0w"}"#
+        let context = MessageCrypto.Context(sender: "ab12cd34000011112222333344445555", recipient: "0123456789abcdef0123456789abcdef", nonce: "nonce-vector3")
+        let opened = try MessageCrypto.opening(sealed, with: key, context: context)
+        XCTAssertEqual(opened, MessageCrypto.Opened(text: "vector v3 ✓", words: "vector v3 ✓", franking: "ySxVBsBvHAGUhgseNDxHVw_L0Ulmx1YALdKf7X_xCsI", version: 3))
+        XCTAssertThrowsError(try MessageCrypto.open(sealed, with: key, context: MessageCrypto.Context(sender: context.sender, recipient: context.recipient, nonce: "another-one")))
+    }
+
+    func testAV3EnvelopeIsPaddedAndCommittedTo() throws {
+        let mine = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+        let theirs = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+        let devices = [MessageKeys.Device(device: mine.device, key: mine.publicKey), MessageKeys.Device(device: theirs.device, key: theirs.publicKey)]
+        let context = MessageCrypto.Context(sender: "ab12cd34000011112222333344445555", recipient: "0123456789abcdef0123456789abcdef", nonce: "n-3")
+        for text in ["hi", String(repeating: "\u{1F32E}", count: MessageText.maxLength)] {
+            let sealed = try MessageCrypto.seal(text, for: devices, from: mine, context: context)
+            let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(sealed.utf8)) as? [String: Any])
+            let c = try XCTUnwrap(MessageCrypto.data(base64URL: object["c"] as? String))
+            let m = try XCTUnwrap(MessageCrypto.data(base64URL: object["m"] as? String))
+            XCTAssertEqual((c.count - 28) % MessageCrypto.pad, 0, "padded")
+            XCTAssertEqual(m.count, 32)
+            let opened = try MessageCrypto.opening(sealed, with: theirs, context: context)
+            XCTAssertEqual(opened.words, text)
+            let franking = try XCTUnwrap(MessageCrypto.data(base64URL: opened.franking))
+            XCTAssertTrue(HMAC<SHA256>.isValidAuthenticationCode(m, authenticating: context.committed(Data(text.utf8)), using: SymmetricKey(data: franking)),
+                          "the commitment the site checks a report against")
+        }
+        let short = try MessageCrypto.seal("a", for: devices, from: mine, context: context)
+        let long = try MessageCrypto.seal(String(repeating: "a", count: 200), for: devices, from: mine, context: context)
+        let size = { (s: String) in ((try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any])?["c"] as? String)?.count }
+        XCTAssertEqual(size(short), size(long), "one size for anything short")
+        var swapped = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(short.utf8)) as? [String: Any])
+        swapped["m"] = MessageCrypto.base64URL(Data(count: 32))
+        XCTAssertThrowsError(try MessageCrypto.open(String(decoding: try JSONSerialization.data(withJSONObject: swapped), as: UTF8.self), with: theirs, context: context)) {
+            XCTAssertEqual($0 as? MessageCrypto.Failure, .badPayload, "another commitment doesn't open")
+        }
+    }
+
+    func testAnEnvelopeIsFromItsDeviceAndBound() throws {
         let mine = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
         let theirs = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
         let impostor = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
@@ -211,7 +279,7 @@ final class MessagesTests: XCTestCase {
         let context = MessageCrypto.Context(sender: "ab12cd34000011112222333344445555", recipient: "0123456789abcdef0123456789abcdef", nonce: "n-1")
         let sealed = try MessageCrypto.seal("  hi\u{202E}gnp.exe\r\n\r\n\r\nthere  ", for: devices, from: mine, context: context)
         let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(sealed.utf8)) as? [String: Any])
-        XCTAssertEqual(object["v"] as? Int, 2)
+        XCTAssertEqual(object["v"] as? Int, 3)
         XCTAssertEqual(object["spk"] as? String, mine.publicKey)
         XCTAssertEqual(try MessageCrypto.open(sealed, with: theirs, context: context), "hignp.exe\n\nthere", "tidied as the site tidies plain text")
         XCTAssertEqual(try MessageCrypto.open(sealed, with: mine, context: context), "hignp.exe\n\nthere")
@@ -331,6 +399,7 @@ final class MessagesTests: XCTestCase {
     func testUnsentMessagesAreKeptUntilSentOrDeleted() {
         UnsentMessages.clear()
         defer { UnsentMessages.clear() }
+        MessageStore.noteOwner(MessagesSite.me)
         let first = PendingMessage(nonce: "nonce-unsent1", text: "one", at: Date(timeIntervalSince1970: 100), failed: "Not sent.")
         let second = PendingMessage(nonce: "nonce-unsent2", text: "two", at: Date(timeIntervalSince1970: 200), replyTo: 9)
         UnsentMessages.keep(first, for: player)

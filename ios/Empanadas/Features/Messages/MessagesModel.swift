@@ -70,14 +70,54 @@ struct PendingMessage: Identifiable, Equatable, Codable {
     var id: String { nonce }
 }
 
-/// Messages not sent yet, kept on this device by conversation until the site
-/// has them or they're deleted, so closing the app doesn't lose them. Cleared
-/// at sign-out (AppModel).
+/// Which account the messages kept on this device (UnsentMessages,
+/// MessageDrafts) are, as the site and the dashboard say (its uuid): each is
+/// kept under it, so one account's never go out or show as another's. Until
+/// an account is known they are kept as before, and move to it once it is.
+enum MessageStore {
+    static let ownerKey = "messagesAccount"
+
+    static var owner: String? {
+        UserDefaults.standard.string(forKey: ownerKey).flatMap(PlayerID.raw)
+    }
+
+    /// The signed-in account, from an answer. What was kept before they were
+    /// by account was the account signed in then, as sign-out clears them.
+    static func noteOwner(_ uuid: String?) {
+        guard let uuid, let raw = PlayerID.raw(uuid), raw != owner else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(raw, forKey: ownerKey)
+        for base in [UnsentMessages.key, MessageDrafts.key] {
+            if let old = defaults.object(forKey: base) {
+                if defaults.object(forKey: base + "." + raw) == nil { defaults.set(old, forKey: base + "." + raw) }
+                defaults.removeObject(forKey: base)
+            }
+        }
+    }
+
+    static func key(_ base: String) -> String {
+        owner.map { base + "." + $0 } ?? base
+    }
+
+    /// Every account's, and whose they were: at sign-out.
+    static func forget() {
+        let defaults = UserDefaults.standard
+        for name in defaults.dictionaryRepresentation().keys
+        where [UnsentMessages.key, MessageDrafts.key].contains(where: { name == $0 || name.hasPrefix($0 + ".") }) {
+            defaults.removeObject(forKey: name)
+        }
+        defaults.removeObject(forKey: ownerKey)
+    }
+}
+
+/// Messages not sent yet, kept on this device by account (MessageStore) and
+/// conversation until the site has them or they're deleted, so closing the app
+/// doesn't lose them. Cleared at sign-out (AppModel).
 enum UnsentMessages {
     static let key = "unsentMessages"
 
     private static func all() -> [String: [PendingMessage]] {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        guard let data = UserDefaults.standard.data(forKey: MessageStore.key(Self.key)),
               let decoded = try? JSONDecoder().decode([String: [PendingMessage]].self, from: data) else { return [:] }
         return decoded
     }
@@ -101,23 +141,24 @@ enum UnsentMessages {
     }
 
     static func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+        MessageStore.forget()
     }
 
     private static func save(_ list: [PendingMessage], for playerID: String) {
         var everything = all()
         everything[conversation(playerID)] = list.isEmpty ? nil : list
-        if let data = try? JSONEncoder().encode(everything) { UserDefaults.standard.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(everything) { UserDefaults.standard.set(data, forKey: MessageStore.key(Self.key)) }
     }
 }
 
-/// What was typed and not sent yet, by conversation, kept on this device until
-/// it is sent or cleared. Cleared at sign-out (AppModel).
+/// What was typed and not sent yet, by account (MessageStore) and
+/// conversation, kept on this device until it is sent or cleared. Cleared at
+/// sign-out (AppModel).
 enum MessageDrafts {
     static let key = "messageDrafts"
 
     static func all() -> [String: String] {
-        (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        (UserDefaults.standard.dictionary(forKey: MessageStore.key(Self.key)) as? [String: String]) ?? [:]
     }
 
     static func conversation(_ playerID: String) -> String {
@@ -132,11 +173,11 @@ enum MessageDrafts {
         var everything = all()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         everything[conversation(playerID)] = trimmed.isEmpty ? nil : String(text.prefix(MessageText.maxLength + 200))
-        UserDefaults.standard.set(everything, forKey: key)
+        UserDefaults.standard.set(everything, forKey: MessageStore.key(Self.key))
     }
 
     static func clear() {
-        UserDefaults.standard.removeObject(forKey: key)
+        MessageStore.forget()
     }
 }
 
@@ -163,6 +204,8 @@ final class ConversationModel {
     private(set) var maxLength = MessageText.maxLength
     private(set) var isLoading = false
     private(set) var isLoadingOlder = false
+    /// The last try at older messages failed: they are still there, behind Try Again.
+    private(set) var olderFailed = false
     private(set) var error: Error?
     /// A block, unblock or report under way.
     private(set) var working = false
@@ -282,9 +325,14 @@ final class ConversationModel {
             let known = Set(messages.map(\.id))
             messages = thread.messages.filter { !known.contains($0.id) } + messages
             hasMore = thread.hasMore
+            olderFailed = false
+        } catch is CancellationError {
+            // Scrolled away before the answer: the next time the top shows, it asks again.
+        } catch let error as URLError where error.code == .cancelled {
         } catch {
-            // The next time the top shows, it asks again.
-            hasMore = false
+            // Still more to load: Try Again asks.
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            olderFailed = true
         }
     }
 

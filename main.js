@@ -39,6 +39,7 @@ const windowState = require('./lib/windowstate');
 const background = require('./lib/background');
 const jsonfile = require('./lib/jsonfile');
 const signin = require('./lib/signin');
+const { createMessageNotes } = require('./lib/messagenotes');
 const { createApi, ApiError } = require('./lib/api');
 const { createKeyStore } = require('./lib/dmkeys');
 
@@ -175,6 +176,9 @@ let lastPending = null;
 // What the badge adds up: friend requests waiting, messages unread.
 let pendingFriends = 0;
 let unreadMessages = 0;
+// The message notifications still up, so each comes off once its
+// conversation is read anywhere or its message is deleted.
+const messageNotes = createMessageNotes({ thread: (id, opts) => api.thread(id, opts) });
 // The newest message received the inbox has shown, so a newer one can be
 // told about; null until the first answer since signing in.
 let lastMessageId = null;
@@ -633,6 +637,8 @@ function markSignedOut(why) {
 	pendingFriends = 0;
 	unreadMessages = 0;
 	lastMessageId = null;
+	// The last account's messages don't stay up for the next one.
+	messageNotes.clear();
 	setBadge(0);
 	notifySession({ why });
 }
@@ -781,34 +787,24 @@ function setUnreadMessages(count) {
 // The inbox's answer: the badge, and a notification for a message newer than
 // any it has shown, while the window isn't in front. One conversation's is
 // its sender and words; more than one, how many.
-// The notifications shown for one message, by its id, so one deleted since comes off again.
-const messageNotes = new Map();
 
 function afterConversations(body) {
 	const list = body && Array.isArray(body.conversations) ? body.conversations : null;
 	if (!list) return;
 	if (Number.isInteger(body.unread)) setUnreadMessages(body.unread);
-	for (const c of list) {
-		const note = c && c.last && c.last.deleted ? messageNotes.get(Number(c.last.id)) : null;
-		if (note) {
-			try { note.close(); } catch (err) { /* already gone */ }
-			messageNotes.delete(Number(c.last.id));
-		}
-	}
+	messageNotes.retire(list);
 	const incoming = list.filter((c) => c && c.with && c.last && !c.last.from_me && Number(c.unread) > 0);
 	const newest = incoming.reduce((most, c) => Math.max(most, Number(c.last.id) || 0), 0);
 	if (lastMessageId !== null && newest > lastMessageId && prefs.get().notifications !== false &&
 		(!win || win.isDestroyed() || !win.isFocused())) {
 		const fresh = incoming.filter((c) => Number(c.last.id) > lastMessageId);
+		let note = null;
 		if (fresh.length === 1) {
-			const note = notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
-			if (note) {
-				messageNotes.set(Number(fresh[0].last.id), note);
-				if (messageNotes.size > 50) messageNotes.delete(messageNotes.keys().next().value);
-			}
+			note = notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
 		} else if (fresh.length > 1) {
-			notify('New messages', 'From ' + fresh.length + ' friends.', { screen: 'messages' });
+			note = notify('New messages', 'From ' + fresh.length + ' friends.', { screen: 'messages' });
 		}
+		messageNotes.add(note, fresh);
 	}
 	lastMessageId = Math.max(lastMessageId || 0, newest);
 }

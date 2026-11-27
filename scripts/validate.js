@@ -35,7 +35,7 @@ console.log('syntax');
 const sources = ['main.js', 'updater.js', 'lib/pgp.js', 'lib/urls.js', 'lib/background.js',
 	'lib/api.js', 'lib/answers.js', 'lib/signin.js', 'lib/jsonfile.js', 'lib/gamebundle.js', 'lib/gameprotocol.js',
 	'lib/cookiebridge.js', 'lib/imagecache.js', 'lib/routes.js', 'lib/windowstate.js', 'lib/resources.js',
-	'lib/serverstatus.js',
+	'lib/serverstatus.js', 'lib/messagenotes.js',
 	'Content/JS/shell-preload.js', 'Content/JS/game-preload.js', 'Content/JS/auth-preload.js',
 	'Content/Loading/loading.js',
 	'scripts/validate.js', 'scripts/import-release-key.js', 'scripts/thumbprint.js', 'scripts/publish-resources.js'];
@@ -470,6 +470,15 @@ try {
 	execFileSync(process.execPath, [path.join(root, 'test', 'api.test.js')], { stdio: 'inherit' });
 } catch (err) {
 	failures.push('lib/api.js, lib/signin.js and lib/answers.js test suite failed');
+}
+
+// --- message notifications ------------------------------------------------
+console.log('message notifications');
+
+try {
+	execFileSync(process.execPath, [path.join(root, 'test', 'messagenotes.test.js')], { stdio: 'inherit' });
+} catch (err) {
+	failures.push('lib/messagenotes.js test suite failed');
 }
 
 // --- the games kept on this computer -------------------------------------
