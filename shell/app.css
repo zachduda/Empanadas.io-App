@@ -1126,6 +1126,9 @@ button.dm-conv:hover { background: var(--surface-2); }
 .dm-edited.me { align-self: flex-end; }
 .dm-lock { align-self: center; display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 11.5px; color: var(--muted); }
 .dm-lock .icon { width: 13px; height: 13px; }
+.dm-devices { align-self: center; max-width: 520px; margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; font-size: 12px; text-align: center;
+	background: rgba(245, 181, 68, 0.16); }
+.dm-devices .icon { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; }
 .dm-event { align-self: center; display: flex; align-items: center; gap: 6px; margin: 10px 0; padding: 4px 12px; border-radius: 12px;
 	background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 600; }
 .dm-event .icon { width: 13px; height: 13px; }

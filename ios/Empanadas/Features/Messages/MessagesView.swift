@@ -483,6 +483,7 @@ struct ConversationView: View {
     /// from the one before it, the messages, the ones on their way, and Seen.
     private enum Row: Identifiable {
         case encrypted
+        case devices(NewDevices)
         case gap(Date)
         case event(DirectMessage)
         case message(DirectMessage)
@@ -493,6 +494,7 @@ struct ConversationView: View {
         var id: String {
             switch self {
             case .encrypted: "encrypted"
+            case .devices: "devices"
             case .gap(let date): "gap-\(date.timeIntervalSince1970)"
             case .event(let message): "e-\(message.id)"
             case .message(let message): "m-\(message.id)"
@@ -507,6 +509,7 @@ struct ConversationView: View {
         var out: [Row] = []
         if conversation.loaded && conversation.e2ee.on {
             out.append(.encrypted)
+            if let fresh = conversation.newDevices { out.append(.devices(fresh)) }
         }
         var previous: Date?
         for message in conversation.messages {
@@ -711,6 +714,19 @@ struct ConversationView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 6)
+        case .devices(let fresh):
+            VStack(spacing: 6) {
+                Label(devicesNote(fresh), systemImage: "lock.trianglebadge.exclamationmark")
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                Button("Got It") { conversation.dismissNewDevices() }
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.bottom, 6)
+            .accessibilityElement(children: .combine)
         case .event(let message):
             Label(eventText(message), systemImage: message.kind == "e2ee_on" ? "lock.fill" : "lock.open.fill")
                 .font(.caption.weight(.semibold))
@@ -757,7 +773,7 @@ struct ConversationView: View {
                     HStack(spacing: 10) {
                         Text(failed)
                             .multilineTextAlignment(.trailing)
-                        Button("Try Again") { conversation.retry(message, app: model) }
+                        Button(message.stale == true ? "Send" : "Try Again") { conversation.retry(message, app: model) }
                             .fontWeight(.semibold)
                         Button("Delete", role: .destructive) { conversation.discard(message) }
                     }
@@ -888,6 +904,16 @@ struct ConversationView: View {
         .disabled(!conversation.canMessage)
         .accessibilityLabel("\(who) reacted \(emoji)")
         .accessibilityHint(mine ? "Takes your reaction off" : "Adds the same reaction")
+    }
+
+    /// The site hands out the keys: a device that appears is said, not taken without a word.
+    private func devicesNote(_ fresh: NewDevices) -> String {
+        let mine = fresh.mine == 0 ? "" : (fresh.mine == 1 ? "a new device of yours" : "\(fresh.mine) new devices of yours") + " can read new messages here"
+        let said = fresh.theirs > 0
+            ? name + (fresh.theirs == 1 ? " has a new device" : " has \(fresh.theirs) new devices") + (mine.isEmpty ? "" : ", and " + mine)
+            : mine.prefix(1).uppercased() + mine.dropFirst()
+        let them = fresh.theirs + fresh.mine == 1 ? "it" : "them"
+        return said + ". New messages are encrypted for \(them) too. If that's unexpected, check with \(name) before sending anything private."
     }
 
     /// A note that one of them turned encryption on or off.

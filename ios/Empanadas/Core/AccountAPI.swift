@@ -185,8 +185,10 @@ final class AccountAPI {
     private var conversationKeys: [String: MessageKeys] = [:]
     /// Whether each conversation is end-to-end encrypted, from its last answer.
     private var conversationE2ee: [String: Bool] = [:]
-    /// Messages already opened, by id and edit.
+    /// Messages already opened, by envelope and what it was opened as.
     private var opened: [String: String] = [:]
+    /// The account's uuid, as envelopes name players (messages.php's `me`).
+    private var me: String?
 
     /// `protocolClasses` answer instead of the site: the screenshot tests'
     /// made-up account.
@@ -305,15 +307,20 @@ final class AccountAPI {
     /// GET /v2/app/messages.php: the inbox, newest conversation first, with
     /// each last message opened here for its preview.
     func conversations() async throws -> Inbox {
-        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appMessages))
+        // The key goes to the site once a launch (AppModel), which keeps it fresh; from then on
+        // the inbox names it too.
+        let (data, response) = try await sendNative(URLRequest(url: SiteURLs.appMessages(device: messageKey?.key.device)))
         var inbox = try Self.decode(Inbox.self, Self.messagesBody(data, status: response.statusCode))
         remember(inbox.csrf)
+        noteMe(inbox.me)
+        if inbox.deviceKnown == false { await registerAgain() }
         var key: MessageCrypto.DeviceKey?
         if inbox.conversations.contains(where: { $0.last.cipher != nil }) { key = try? await ownMessageKey() }
         for index in inbox.conversations.indices {
             let last = inbox.conversations[index].last
             guard !last.deleted, let cipher = last.cipher else { continue }
-            if let text = openMessage(cipher, key: key) {
+            let partner = PlayerID.raw(inbox.conversations[index].with.playerID) ?? ""
+            if let text = openMessage(cipher, key: key, context: context(fromMe: last.fromMe, partner: partner, nonce: last.nonce)) {
                 inbox.conversations[index].last.preview = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             } else {
                 inbox.conversations[index].last.preview = "\u{1F512} Encrypted message"
@@ -328,23 +335,43 @@ final class AccountAPI {
     /// deleted since the last answer's `now`; with `before`, the page older.
     func thread(with playerID: String, before: Int? = nil, after: Int? = nil, since: Date? = nil) async throws -> MessageThread {
         let raw = try Self.uuidField(playerID)
-        let url = SiteURLs.appMessages(with: playerID, before: before, after: after, since: since)
+        let url = SiteURLs.appMessages(with: playerID, before: before, after: after, since: since, device: messageKey?.key.device)
         let (data, response) = try await sendNative(URLRequest(url: url))
         var thread = try Self.decode(MessageThread.self, Self.messagesBody(data, status: response.statusCode))
         remember(thread.csrf)
+        noteMe(thread.me)
         conversationKeys[raw] = thread.keys
         conversationE2ee[raw] = thread.e2ee.on
         // The site didn't list this device among the account's (a registration that failed, or it
         // forgot it): handed over again, so messages are sealed for it.
-        if let own = messageKey, !thread.keys.mine.contains(where: { $0.device == own.key.device }) {
-            messageKey = nil
-            _ = try? await ownMessageKey()
+        if let own = messageKey, thread.deviceKnown == false || !thread.keys.mine.contains(where: { $0.device == own.key.device }) {
+            await registerAgain()
+        }
+        if let account = messageKey?.account {
+            let fresh = MessageDeviceBook.newDevices(account: account, player: raw, keys: thread.keys, own: messageKey?.key.device)
+            if thread.e2ee.on { thread.newDevices = fresh }
         }
         var key: MessageCrypto.DeviceKey?
         if (thread.messages + thread.changed).contains(where: { $0.cipher != nil }) { key = try? await ownMessageKey() }
-        thread.messages = thread.messages.map { reveal($0, key: key) }
-        thread.changed = thread.changed.map { reveal($0, key: key) }
+        thread.messages = thread.messages.map { reveal($0, key: key, partner: raw) }
+        thread.changed = thread.changed.map { reveal($0, key: key, partner: raw) }
         return thread
+    }
+
+    private func noteMe(_ uuid: String?) {
+        if let uuid, uuid.count == 32, uuid.allSatisfy(\.isHexDigit) { me = uuid.lowercased() }
+    }
+
+    /// This device's key handed to the site again: it no longer has it.
+    private func registerAgain() async {
+        messageKey = nil
+        _ = try? await ownMessageKey()
+    }
+
+    /// What the site says a message is, which a v2 envelope must have been sealed as.
+    private func context(fromMe: Bool, partner: String, nonce: String?) -> MessageCrypto.Context? {
+        guard let me, !partner.isEmpty else { return nil }
+        return MessageCrypto.Context(sender: fromMe ? me : partner, recipient: fromMe ? partner : me, nonce: nonce)
     }
 
     /// POST action=send, sealed for both players' devices: the site never
@@ -356,29 +383,33 @@ final class AccountAPI {
         let body = MessageText.cleaned(text)
         guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
         let nonce = MessageText.isNonce(nonce) ? nonce : MessageText.nonce()
+        guard MessageText.length(body) <= MessageText.maxLength else { throw MessageRefusal(reason: "too_long") }
         var fields = [("action", "send"), ("to", to), ("nonce", nonce)]
         if let replyTo, replyTo > 0 { fields.append(("reply_to", String(replyTo))) }
-        let reply = try await wordsPost(to, text: body, fields: fields)
+        let reply = try await wordsPost(to, text: body, fields: fields, nonce: nonce)
         var sent = try Self.decode(SentMessage.self, reply)
         if let cipher = sent.message.cipher {
-            opened[cipher] = body
-            sent.message = reveal(sent.message, key: nil)
+            if let ctx = context(fromMe: sent.message.fromMe, partner: to, nonce: sent.message.nonce) { opened[Self.openedKey(cipher, ctx)] = body }
+            sent.message = reveal(sent.message, key: nil, partner: to)
         }
         return sent
     }
 
     /// POST action=edit: one of the player's own, within a minute of sending.
     /// `encrypted`: it was, so the edit is too, whatever the conversation is now.
-    func editMessage(_ messageID: Int, with playerID: String, text: String, encrypted: Bool = false) async throws -> DirectMessage {
+    /// `nonce`: the message's own, which the edit is bound to.
+    func editMessage(_ messageID: Int, with playerID: String, text: String, encrypted: Bool = false,
+                     nonce: String? = nil) async throws -> DirectMessage {
         let with = try Self.uuidField(playerID)
         guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
         let body = MessageText.cleaned(text)
         guard !body.isEmpty else { throw MessageRefusal(reason: "empty") }
-        let reply = try await wordsPost(with, text: body, fields: [("action", "edit"), ("message", String(messageID))], seal: encrypted)
+        let reply = try await wordsPost(with, text: body, fields: [("action", "edit"), ("message", String(messageID))],
+                                        seal: encrypted, nonce: nonce ?? "")
         let message = try Self.decode(ChangedMessage.self, reply).message
         guard let cipher = message.cipher else { return message }
-        opened[cipher] = body
-        return reveal(message, key: nil)
+        if let ctx = context(fromMe: message.fromMe, partner: with, nonce: message.nonce) { opened[Self.openedKey(cipher, ctx)] = body }
+        return reveal(message, key: nil, partner: with)
     }
 
     /// POST action=e2ee: end-to-end encryption on or off, for both of them.
@@ -394,13 +425,14 @@ final class AccountAPI {
     }
 
     /// POST action=react: the player's reaction to a message, or "" to take it off.
-    func react(to messageID: Int, emoji: String) async throws -> DirectMessage {
+    func react(to messageID: Int, with playerID: String, emoji: String) async throws -> DirectMessage {
+        let with = try Self.uuidField(playerID)
         guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
         let reply = try await messagesPost([("action", "react"), ("message", String(messageID)), ("emoji", emoji)])
         let message = try Self.decode(ChangedMessage.self, reply).message
         guard message.cipher != nil else { return message }
         let key = try? await ownMessageKey()
-        return reveal(message, key: key)
+        return reveal(message, key: key, partner: with)
     }
 
     /// POST action=typing: the player is typing to them, or stopped.
@@ -412,6 +444,7 @@ final class AccountAPI {
     /// POST action=delete: one of the player's own, for both of them.
     func deleteMessage(_ messageID: Int) async throws -> DirectMessage {
         guard messageID > 0 else { throw MessageRefusal(reason: "not_found") }
+        // A deleted message has nothing in it to open.
         let reply = try await messagesPost([("action", "delete"), ("message", String(messageID))])
         return try Self.decode(ChangedMessage.self, reply).message
     }
@@ -434,21 +467,29 @@ final class AccountAPI {
         conversationKeys = [:]
         conversationE2ee = [:]
         opened = [:]
+        me = nil
     }
 
-    /// Remembered by the envelope itself: an edit is a new one, and an inbox
-    /// row says nothing of edits.
-    private func openMessage(_ cipher: String, key: MessageCrypto.DeviceKey?) -> String? {
-        if let known = opened[cipher] { return known }
-        guard let key, let text = try? MessageCrypto.open(cipher, with: key) else { return nil }
-        opened[cipher] = text
+    private static func openedKey(_ cipher: String, _ context: MessageCrypto.Context) -> String {
+        cipher + "|" + context.sender + "|" + context.recipient + "|" + context.nonce
+    }
+
+    /// Remembered by the envelope and what it was opened as: an edit is a new
+    /// envelope, an inbox row says nothing of edits, and the same envelope
+    /// said to be something else is opened again.
+    /// Without a context (a site that doesn't say `me` yet) only a v1 envelope opens.
+    private func openMessage(_ cipher: String, key: MessageCrypto.DeviceKey?, context: MessageCrypto.Context?) -> String? {
+        let slot = context.map { Self.openedKey(cipher, $0) } ?? cipher + "|"
+        if let known = opened[slot] { return known }
+        guard let key, let text = try? MessageCrypto.open(cipher, with: key, context: context) else { return nil }
+        opened[slot] = text
         return text
     }
 
-    private func reveal(_ message: DirectMessage, key: MessageCrypto.DeviceKey?) -> DirectMessage {
+    private func reveal(_ message: DirectMessage, key: MessageCrypto.DeviceKey?, partner: String) -> DirectMessage {
         var out = message
         guard !out.deleted, let cipher = out.cipher else { return out }
-        if let text = openMessage(cipher, key: key) {
+        if let text = openMessage(cipher, key: key, context: context(fromMe: out.fromMe, partner: partner, nonce: out.nonce)) {
             out.text = text
             out.sealed = false
         } else {
@@ -462,9 +503,12 @@ final class AccountAPI {
     /// players' devices and this one. Sealed again if the site says it was
     /// turned on meanwhile, or that a device is new since the last answer.
     /// `seal`: an edit of an encrypted message, sealed whatever the conversation is now.
-    private func wordsPost(_ playerID: String, text: String, fields: [(String, String)], seal: Bool = false) async throws -> Data {
+    /// `nonce`: the message's own, which its envelope is bound to (an edit keeps the original's).
+    private func wordsPost(_ playerID: String, text: String, fields: [(String, String)], seal: Bool = false,
+                           nonce: String = "") async throws -> Data {
         var seal = seal
-        if conversationE2ee[playerID] == nil || ((seal || conversationE2ee[playerID] == true) && conversationKeys[playerID] == nil) {
+        if me == nil || conversationE2ee[playerID] == nil
+            || ((seal || conversationE2ee[playerID] == true) && conversationKeys[playerID] == nil) {
             _ = try await thread(with: playerID, after: Int(Int32.max))
         }
         for _ in 0..<3 {
@@ -472,9 +516,11 @@ final class AccountAPI {
             if seal || conversationE2ee[playerID] == true {
                 let key = try await ownMessageKey()
                 let own = MessageKeys.Device(device: key.device, key: key.publicKey)
+                guard let me else { throw AccountError.unavailable("no account uuid") }
                 let cipher: String
                 do {
-                    cipher = try MessageCrypto.seal(text, for: (conversationKeys[playerID] ?? MessageKeys()).all + [own])
+                    cipher = try MessageCrypto.seal(text, for: (conversationKeys[playerID] ?? MessageKeys()).all + [own], from: key,
+                                                    context: MessageCrypto.Context(sender: me, recipient: playerID, nonce: nonce))
                 } catch {
                     throw MessageRefusal(reason: "no_keys")
                 }
@@ -581,7 +627,7 @@ final class AccountAPI {
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let extra = try? JSONDecoder().decode(RefusalKeys.self, from: data)
             throw MessageRefusal(reason: reason, maxLength: intValue(object?["max_length"]) ?? MessageText.maxLength,
-                                 keys: extra?.keys, e2ee: extra?.e2ee, sealed: extra?.sealed ?? false)
+                                 keys: extra?.keys, e2ee: extra?.e2ee, sealed: extra?.sealed ?? false, status: status)
         default:
             if (500...599).contains(status) { throw AccountError.server(serverErrorMessage(status)) }
             throw AccountError.unavailable(reason)
@@ -1122,6 +1168,39 @@ final class AccountAPI {
         html.replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
             .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Each conversation's devices as this device last saw them, by account and
+/// player, kept between launches: a device that appears is said in the
+/// conversation (MessageThread.newDevices).
+enum MessageDeviceBook {
+    static let key = "messageDevices"
+
+    private struct Entry: Codable {
+        var theirs: [String]
+        var mine: [String]
+    }
+
+    /// New devices since last time, or nil (and nil the first time); what is
+    /// seen now is remembered.
+    @MainActor
+    static func newDevices(account: Int, player: String, keys: MessageKeys, own: String?) -> NewDevices? {
+        let defaults = UserDefaults.standard
+        var all = (defaults.data(forKey: key)).flatMap { try? JSONDecoder().decode([String: Entry].self, from: $0) } ?? [:]
+        let slot = String(account) + ":" + player
+        let was = all[slot]
+        let theirs = keys.theirs.map(\.device)
+        let mine = keys.mine.map(\.device).filter { $0 != own }
+        func union(_ a: [String], _ b: [String]) -> [String] {
+            var seen = Set<String>()
+            return Array((a + b).filter { seen.insert($0).inserted }.suffix(40))
+        }
+        all[slot] = Entry(theirs: union(was?.theirs ?? [], theirs), mine: union(was?.mine ?? [], mine))
+        if let data = try? JSONEncoder().encode(all) { defaults.set(data, forKey: key) }
+        guard let was else { return nil }
+        let fresh = NewDevices(theirs: theirs.filter { !was.theirs.contains($0) }.count, mine: mine.filter { !was.mine.contains($0) }.count)
+        return fresh.theirs + fresh.mine > 0 ? fresh : nil
     }
 }
 

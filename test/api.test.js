@@ -383,6 +383,12 @@ check('the inbox and a conversation are read from messages.php, and hand over th
 	assert.strictEqual(site.calls.length, 4);
 });
 
+// The account the fake site says is signed in, and the player messaged, as envelopes name them.
+const ME = '0123456789abcdef0123456789abcdef';
+const THEM = 'ab12cd34000011112222333344445555';
+// What a v2 envelope from this account to THEM under `nonce` is bound to.
+const toThem = (nonce) => ({ sender: ME, recipient: THEM, nonce });
+
 // A fake messages.php with one device for the other player, and the keys it was handed.
 async function messagesSite({ stale = false, e2ee = true, turnedOnMeanwhile = false } = {}) {
 	const state = { on: e2ee && !turnedOnMeanwhile };
@@ -397,7 +403,7 @@ async function messagesSite({ stale = false, e2ee = true, turnedOnMeanwhile = fa
 	const site = fakeFetch([
 		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 'token' + (++tokens) })],
 		[/v2\/app\/messages\.php/, async (url, init) => {
-			if (!init.body) return json({ ok: true, api: 1, messages: [], keys: keys(), e2ee: { on: state.on, by: null }, now: 1000, csrf: 'token' + tokens });
+			if (!init.body) return json({ ok: true, api: 1, messages: [], keys: keys(), e2ee: { on: state.on, by: null }, now: 1000, me: ME, csrf: 'token' + tokens });
 			const form = Object.fromEntries(new URLSearchParams(init.body));
 			posted.push(form);
 			if (form.action === 'register_key') {
@@ -419,8 +425,12 @@ async function messagesSite({ stale = false, e2ee = true, turnedOnMeanwhile = fa
 				return json({ ok: false, api: 1, reason: 'keys_changed', keys: keys() }, 409);
 			}
 			if (form.action === 'delete') return json({ ok: true, api: 1, message: { id: Number(form.message), from_me: true, text: 'This message was deleted.', cipher: null, deleted: true } });
+			if (form.action === 'react') {
+				const sent = posted.find((f) => f.action === 'send' && f.cipher);
+				return json({ ok: true, api: 1, message: { id: Number(form.message), from_me: true, cipher: sent.cipher, nonce: sent.nonce, sent: 1, reactions: { mine: form.emoji || null, theirs: null } } });
+			}
 			return json({ ok: true, api: 1, message: { id: Number(form.message) || 7, from_me: true, text: 'locked', cipher: form.cipher, sent: 1, read: false,
-				edited: form.action === 'edit' ? 2 : null }, duplicate: false });
+				nonce: form.nonce || null, edited: form.action === 'edit' ? 2 : null }, duplicate: false });
 		}]
 	]);
 	const store = new Map();
@@ -436,10 +446,14 @@ check('a message is sealed for both players\' devices, posted with its nonce and
 	const sends = posted.filter((p) => p.action === 'send');
 	assert.strictEqual(sends.length, 2);
 	assert.strictEqual(sends[0].text, undefined, 'the words never go to the site');
-	assert.strictEqual(await dme2ee.open(sends[0].cipher, theirs), 'hey\n\nthere');
+	assert.strictEqual(await dme2ee.open(sends[0].cipher, theirs, toThem('nonce-abc123')), 'hey\n\nthere');
+	assert.strictEqual(JSON.parse(sends[0].cipher).v, 2, 'sealed as from this computer');
+	await assert.rejects(dme2ee.open(sends[0].cipher, theirs, toThem('nonce-other1')), (e) => e.message === 'bad_payload', 'bound to its nonce');
+	await assert.rejects(dme2ee.open(sends[0].cipher, theirs, { sender: THEM, recipient: ME, nonce: 'nonce-abc123' }), (e) => e.message === 'bad_payload', 'and its direction');
 	const mine = store.get('42');
 	assert.ok(mine && mine.jwk && mine.device, 'this computer keeps its key');
-	assert.strictEqual(await dme2ee.open(sends[0].cipher, { privateKey: await dme2ee.importPrivate(mine.jwk), publicKey: mine.publicKey, device: mine.device }), 'hey\n\nthere');
+	assert.strictEqual(await dme2ee.sealedBy(sends[0].cipher), mine.device);
+	assert.strictEqual(await dme2ee.open(sends[0].cipher, { privateKey: await dme2ee.importPrivate(mine.jwk), publicKey: mine.publicKey, device: mine.device }, toThem('nonce-abc123')), 'hey\n\nthere');
 	assert.deepStrictEqual(Object.assign({}, sends[0], { cipher: '' }), { action: 'send', to: 'ab12cd34000011112222333344445555', nonce: 'nonce-abc123', csrf: 'token1', cipher: '' });
 	// The retry is the same message: the same nonce.
 	assert.strictEqual(sends[1].nonce, 'nonce-abc123');
@@ -454,8 +468,8 @@ check('a device the site knows of and the app did not gets the message sealed ag
 	await client.sendMessage('ab12cd34000011112222333344445555', 'for every device', 'nonce-stale1');
 	const sends = posted.filter((p) => p.action === 'send' && p.csrf !== 'token1');
 	assert.strictEqual(sends.length, 2);
-	await assert.rejects(dme2ee.open(sends[0].cipher, later), (e) => e.message === 'not_for_device');
-	assert.strictEqual(await dme2ee.open(sends[1].cipher, later), 'for every device');
+	await assert.rejects(dme2ee.open(sends[0].cipher, later, toThem('nonce-stale1')), (e) => e.message === 'not_for_device');
+	assert.strictEqual(await dme2ee.open(sends[1].cipher, later, toThem('nonce-stale1')), 'for every device');
 	assert.strictEqual(sends[1].nonce, sends[0].nonce);
 });
 
@@ -467,22 +481,34 @@ check('a conversation that isn\'t encrypted sends plain text; one turned on mean
 	const turned = await plain.client.setEncrypted('ab12cd34000011112222333344445555', true);
 	assert.deepStrictEqual([turned.e2ee.on, turned.keys], [true, undefined]);
 	await plain.client.sendMessage('ab12cd34000011112222333344445555', 'now sealed', 'nonce-plain2');
-	assert.strictEqual(await dme2ee.open(plain.posted[plain.posted.length - 1].cipher, plain.theirs), 'now sealed');
+	assert.strictEqual(await dme2ee.open(plain.posted[plain.posted.length - 1].cipher, plain.theirs, toThem('nonce-plain2')), 'now sealed');
 
 	const raced = await messagesSite({ turnedOnMeanwhile: true });
 	await raced.client.sendMessage('ab12cd34000011112222333344445555', 'raced', 'nonce-race01');
 	const sends = raced.posted.filter((p) => p.action === 'send' && p.csrf !== 'token1');
 	assert.deepStrictEqual([sends[0].text, sends[1].text], ['raced', undefined]);
-	assert.strictEqual(await dme2ee.open(sends[1].cipher, raced.theirs), 'raced');
+	assert.strictEqual(await dme2ee.open(sends[1].cipher, raced.theirs, toThem('nonce-race01')), 'raced');
 	assert.strictEqual(sends[1].nonce, sends[0].nonce);
+});
+
+check('a reaction to an encrypted message comes back readable, opened as the conversation\'s', async () => {
+	const { site, store, client } = await messagesSite();
+	await client.sendMessage(THEM, 'sealed words', 'nonce-react1');
+	const reacted = await client.reactMessage(7, '\u{1F44D}', THEM);
+	assert.strictEqual(reacted.message.text, 'sealed words');
+	assert.strictEqual(reacted.message.sealed, false);
+	const fresh = api.createApi({ fetch: site.fetch, dmKeys: { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) } });
+	await fresh.thread(THEM);
+	const again = await fresh.reactMessage(7, '', THEM);
+	assert.strictEqual(again.message.text, 'sealed words', 'opened with this computer\'s key, not only remembered');
 });
 
 check('an encrypted message stays encrypted when edited, even after the conversation is turned off', async () => {
 	const { posted, theirs, client } = await messagesSite({ e2ee: false });
-	await client.editMessage('ab12cd34000011112222333344445555', 5, 'still private', true);
+	await client.editMessage('ab12cd34000011112222333344445555', 5, 'still private', true, 'nonce-orig05');
 	const edit = posted.find((p) => p.action === 'edit');
 	assert.strictEqual(edit.text, undefined);
-	assert.strictEqual(await dme2ee.open(edit.cipher, theirs), 'still private');
+	assert.strictEqual(await dme2ee.open(edit.cipher, theirs, toThem('nonce-orig05')), 'still private', 'bound to the message it edits');
 });
 
 check('an inbox preview follows an edit, and a key the site forgot is handed over again', async () => {
@@ -606,6 +632,102 @@ check('a message is tidied as the site tidies it', () => {
 	assert.ok(!api.isMessageNonce('a1b2c3d'));
 	assert.ok(!api.isMessageNonce('x'.repeat(33)));
 	assert.strictEqual(api.MESSAGE_MAX, 1000);
+});
+
+check('a refusal says its status, so only a 403 closes the conversation', () => {
+	const refused = (reason, status) => { try { api.messagesBody(JSON.stringify({ ok: false, api: 1, reason }), status); } catch (err) { return err; } };
+	assert.deepStrictEqual([refused('unavailable', 403).status, refused('unavailable', 503).status], [403, 503]);
+});
+
+check('control characters and ones that reorder text are taken out, as the site does', () => {
+	assert.strictEqual(api.messageText('a‮b\u0007c﻿'), 'abc');
+});
+
+// A key store as lib/dmkeys.js keeps one, with a keychain that can be made to say no.
+function lockableStore() {
+	const file = path.join(tmp, 'keys-' + Math.random().toString(16).slice(2) + '.json');
+	const keychain = { open: true, isEncryptionAvailable: () => true,
+		encryptString: (t) => Buffer.from('k:' + t), decryptString: (b) => { if (!keychain.open) throw new Error('denied'); return b.toString().slice(2); } };
+	return { keychain, store: require('../lib/dmkeys').createKeyStore(file, keychain) };
+}
+
+check('a key the keychain won\'t open now is kept, not written over', async () => {
+	const { keychain, store } = lockableStore();
+	const first = await dme2ee.newDeviceKey(true);
+	store.save(42, { jwk: await dme2ee.exportPrivate(first.privateKey), publicKey: first.publicKey, device: first.device });
+	assert.strictEqual(store.read(42).status, 'ok');
+	keychain.open = false;
+	assert.strictEqual(store.read(42).status, 'locked');
+	assert.strictEqual(store.load(42), null);
+	const second = await dme2ee.newDeviceKey(true);
+	store.save(42, { jwk: await dme2ee.exportPrivate(second.privateKey), publicKey: second.publicKey, device: second.device });
+	keychain.open = true;
+	assert.strictEqual(store.load(42).device, second.device, 'the new key is the one in use');
+	assert.deepStrictEqual(store.retired(42).map((k) => k.device), [first.device], 'and the old one is still there');
+	assert.strictEqual(store.read(7).status, 'missing');
+});
+
+check('what was sealed for a retired key still opens, from the site\'s word on who sent it', async () => {
+	const { keychain, store } = lockableStore();
+	const old = await dme2ee.newDeviceKey(true);
+	store.save('42', { jwk: await dme2ee.exportPrivate(old.privateKey), publicKey: old.publicKey, device: old.device });
+	const friend = await dme2ee.newDeviceKey(true);
+	const ctx = { sender: THEM, recipient: ME, nonce: 'nonce-from-them' };
+	const forOld = await dme2ee.seal('sealed for the old key', [{ device: old.device, key: old.publicKey }], Object.assign({ from: friend }, ctx));
+	const gets = [];
+	let registered = 0;
+	keychain.open = false;
+	const site = fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 't' })],
+		[/v2\/app\/messages\.php/, (url, init) => {
+			if (init.body) { registered++; return json({ ok: true, api: 1 }); }
+			gets.push(url);
+			return json({ ok: true, api: 1, me: ME, keys: { mine: [], theirs: [] }, e2ee: { on: true }, csrf: 't', device_known: registered > 1 ? true : false,
+				messages: [{ id: 1, from_me: false, nonce: 'nonce-from-them', cipher: forOld }, { id: 2, from_me: false, nonce: 'moved', cipher: forOld }] });
+		}]
+	]);
+	const client = api.createApi({ fetch: site.fetch, dmKeys: store });
+	await client.prepareMessages();
+	assert.notStrictEqual(store.read('42').status, 'ok', 'still locked: a new key was made');
+	keychain.open = true;
+	assert.notStrictEqual(store.load('42').device, old.device);
+	const body = await client.thread(THEM);
+	assert.deepStrictEqual(body.messages.map((m) => [m.text, !!m.sealed]), [['sealed for the old key', false], ["\u{1F512} Can't be read on this computer", true]],
+		'opened by the retired key, and not when said to be another message');
+	assert.ok(gets.every((u) => u.includes('device=')), 'every GET names this computer\'s key');
+	assert.ok(registered >= 2, 'a key the site said it didn\'t have is handed over again');
+});
+
+check('a device that appears in an encrypted conversation is said once', async () => {
+	const book = new Map();
+	const deviceBook = { get: (a, p) => book.get(a + p) || null, set: (a, p, v) => book.set(a + p, v) };
+	let theirs = [{ device: 'a'.repeat(32), key: 'x' }];
+	const site = fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 't' })],
+		[/v2\/app\/messages\.php/, (url, init) => init.body ? json({ ok: true, api: 1 })
+			: json({ ok: true, api: 1, me: ME, messages: [], keys: { mine: [], theirs }, e2ee: { on: true }, csrf: 't' })]
+	]);
+	const store = new Map();
+	const client = api.createApi({ fetch: site.fetch, dmKeys: { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) }, deviceBook });
+	await client.prepareMessages();
+	assert.strictEqual((await client.thread(THEM)).new_devices, undefined, 'nothing the first time');
+	theirs = theirs.concat([{ device: 'b'.repeat(32), key: 'y' }]);
+	assert.deepStrictEqual((await client.thread(THEM)).new_devices, { theirs: 1, mine: 0 });
+	assert.strictEqual((await client.thread(THEM)).new_devices, undefined, 'and then it is known');
+});
+
+check('the first inbox of a launch hands the key over', async () => {
+	let registered = 0;
+	const site = fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 't' })],
+		[/v2\/app\/messages\.php/, (url, init) => { if (init.body) registered++; return json({ ok: true, api: 1, me: ME, conversations: [], csrf: 't' }); }]
+	]);
+	const store = new Map();
+	const client = api.createApi({ fetch: site.fetch, dmKeys: { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) } });
+	await client.conversations();
+	await new Promise((r) => setTimeout(r, 50));
+	await client.conversations();
+	assert.strictEqual(registered, 1);
 });
 
 Promise.all(pending).then(() => {

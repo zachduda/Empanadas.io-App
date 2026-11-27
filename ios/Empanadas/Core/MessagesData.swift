@@ -91,11 +91,14 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
     /// The message this one answers.
     var replyTo: Int?
     var reactions = MessageReactions()
+    /// The sending device's id for it, which its envelope is bound to (and an
+    /// edit of it too).
+    var nonce: String?
 
     var encrypted: Bool { cipher != nil }
 
     enum CodingKeys: String, CodingKey {
-        case id, text, sent, read, cipher, edited, deleted, kind, reactions
+        case id, text, sent, read, cipher, edited, deleted, kind, reactions, nonce
         case fromMe = "from_me"
         case editableUntil = "editable_until"
         case replyTo = "reply_to"
@@ -123,6 +126,7 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
         kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
         replyTo = (try? c.decodeIfPresent(Int.self, forKey: .replyTo)) ?? nil
         reactions = c.lenient(.reactions, MessageReactions())
+        nonce = (try? c.decodeIfPresent(String.self, forKey: .nonce)) ?? nil
     }
 
     private static func date(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Date? {
@@ -202,10 +206,12 @@ struct Conversation: Decodable, Equatable, Identifiable {
         var read = false
         /// The last message's envelope, for AccountAPI to open into `preview`.
         var cipher: String?
+        /// What the envelope is bound to, with who sent it.
+        var nonce: String?
         var deleted = false
 
         enum CodingKeys: String, CodingKey {
-            case id, preview, sent, read, cipher, deleted
+            case id, preview, sent, read, cipher, deleted, nonce
             case fromMe = "from_me"
         }
 
@@ -219,6 +225,7 @@ struct Conversation: Decodable, Equatable, Identifiable {
             sent = (try? c.decodeIfPresent(Double.self, forKey: .sent)).map { Date(timeIntervalSince1970: $0) }
             read = c.lenient(.read, false)
             cipher = (try? c.decodeIfPresent(String.self, forKey: .cipher)) ?? nil
+            nonce = (try? c.decodeIfPresent(String.self, forKey: .nonce)) ?? nil
             deleted = c.lenient(.deleted, false)
             if deleted { preview = "Message deleted" }
         }
@@ -257,10 +264,15 @@ struct Inbox: Decodable, Equatable {
     var maxLength = MessageText.maxLength
     /// The session's token. Blank in a copy kept on disk.
     var csrf = ""
+    /// The account's uuid, as envelopes name players.
+    var me: String?
+    /// With device=: whether the site has this device's key.
+    var deviceKnown: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case conversations, unread, blocked, csrf
+        case conversations, unread, blocked, csrf, me
         case maxLength = "max_length"
+        case deviceKnown = "device_known"
     }
 
     init() {}
@@ -272,7 +284,17 @@ struct Inbox: Decodable, Equatable {
         blocked = c.lenient(.blocked, [Lenient<MessagePerson>]()).compactMap(\.value)
         maxLength = c.lenient(.maxLength, MessageText.maxLength)
         csrf = c.lenient(.csrf, "")
+        me = (try? c.decodeIfPresent(String.self, forKey: .me)) ?? nil
+        deviceKnown = (try? c.decodeIfPresent(Bool.self, forKey: .deviceKnown)) ?? nil
     }
+}
+
+/// Devices a conversation's messages are sealed for that this device hadn't
+/// seen before (AccountAPI's book of them): said in the conversation, since
+/// the site is the one handing out the keys.
+struct NewDevices: Equatable, Sendable {
+    var theirs = 0
+    var mine = 0
 }
 
 /// GET /v2/app/messages.php?with=<id>: one conversation, oldest first.
@@ -303,14 +325,22 @@ struct MessageThread: Decodable, Equatable {
     var typing = false
     /// What a message can be reacted with.
     var reactions = MessageReactions.all
+    /// The account's uuid, as envelopes name players.
+    var me: String?
+    /// With device=: whether the site has this device's key.
+    var deviceKnown: Bool?
+    /// Devices of either player this device hadn't seen (AccountAPI), while
+    /// the conversation is encrypted.
+    var newDevices: NewDevices?
 
     enum CodingKeys: String, CodingKey {
-        case with, reason, blocked, messages, csrf, keys, now, changed, e2ee, typing, reactions
+        case with, reason, blocked, messages, csrf, keys, now, changed, e2ee, typing, reactions, me
         case canMessage = "can_message"
         case hasMore = "has_more"
         case seenUpTo = "seen_up_to"
         case maxLength = "max_length"
         case seenAt = "seen_at"
+        case deviceKnown = "device_known"
     }
 
     init(from decoder: Decoder) throws {
@@ -332,6 +362,8 @@ struct MessageThread: Decodable, Equatable {
         typing = c.lenient(.typing, false)
         let offered = c.lenient(.reactions, [String]())
         reactions = offered.isEmpty ? MessageReactions.all : offered
+        me = (try? c.decodeIfPresent(String.self, forKey: .me)) ?? nil
+        deviceKnown = (try? c.decodeIfPresent(Bool.self, forKey: .deviceKnown)) ?? nil
     }
 }
 
@@ -370,6 +402,8 @@ struct MessageRefusal: LocalizedError, Equatable {
     var e2ee: ConversationEncryption?
     /// With encryption_required: the message being edited was encrypted, so the edit must be.
     var sealed = false
+    /// The HTTP status it came with, when it came from the site.
+    var status: Int?
 
     static let reasons: Set<String> = [
         "not_friends", "blocked", "unavailable", "unverified", "rate_limited", "too_long", "empty", "not_found", "self",
@@ -377,8 +411,10 @@ struct MessageRefusal: LocalizedError, Equatable {
     ]
 
     /// The other player can't be sent anything from here on (the box goes).
+    /// Only the site saying no (403): "unavailable" with a 5xx, from a site
+    /// from before server_error, is its own trouble and a retry away.
     var closesConversation: Bool {
-        ["not_friends", "blocked", "unavailable", "unverified"].contains(reason)
+        ["not_friends", "blocked", "unavailable", "unverified"].contains(reason) && (status ?? 403) == 403
     }
 
     static func == (a: MessageRefusal, b: MessageRefusal) -> Bool {
@@ -446,9 +482,37 @@ enum MessageText {
         var out = text.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\t", with: " ")
+        out = withoutControls(out)
         out = out.replacingOccurrences(of: "[ \u{00A0}]+\n", with: "\n", options: .regularExpression)
         out = out.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// No control characters but the line break, and none of the ones that
+    /// reorder the text around them (they can make a message read as
+    /// something else), as dmBody() leaves it.
+    static func withoutControls(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            let v = scalar.value
+            let drop = v == 0xFEFF || (v <= 0x1F && v != 0x0A) || (0x7F...0x9F).contains(v)
+                || (0x202A...0x202E).contains(v) || (0x2066...0x2069).contains(v)
+            if !drop { scalars.append(scalar) }
+        }
+        return String(scalars)
+    }
+
+    /// An encrypted message as it is shown: the site can't tidy what it
+    /// can't read, so the reader does, and cuts it at the longest the site
+    /// would have taken.
+    static func shown(_ text: String) -> String {
+        let out = cleaned(text)
+        guard !out.isEmpty else { return "\u{2026}" }
+        let scalars = Array(out.unicodeScalars)
+        guard scalars.count > maxLength else { return out }
+        var cut = String.UnicodeScalarView()
+        cut.append(contentsOf: scalars.prefix(maxLength - 1))
+        return String(String(cut).reversed().drop(while: \.isWhitespace).reversed()) + "\u{2026}"
     }
 
     /// How long the site counts a message as: characters, which for the site

@@ -139,7 +139,9 @@ enum SiteURLs {
 
     /// One conversation: its newest page, the page older than message
     /// `before`, or only what is newer than message `after`.
-    static func appMessages(with id: String, before: Int? = nil, after: Int? = nil, since: Date? = nil) -> URL {
+    /// `device`: this device's key id, which keeps it fresh on the site (and
+    /// is answered with whether the site has it).
+    static func appMessages(with id: String, before: Int? = nil, after: Int? = nil, since: Date? = nil, device: String? = nil) -> URL {
         var components = URLComponents(url: appMessages, resolvingAgainstBaseURL: false)!
         var items = [URLQueryItem(name: "with", value: PlayerID.raw(id) ?? id.lowercased())]
         if let before, before > 0 { items.append(URLQueryItem(name: "before", value: String(before))) }
@@ -147,7 +149,16 @@ enum SiteURLs {
         if let after, after > 0, let since, since.timeIntervalSince1970 >= 1 {
             items.append(URLQueryItem(name: "since", value: String(Int(since.timeIntervalSince1970))))
         }
+        if let device, !device.isEmpty { items.append(URLQueryItem(name: "device", value: device)) }
         components.queryItems = items
+        return components.url!
+    }
+
+    /// The inbox, naming this device's key when there is one.
+    static func appMessages(device: String?) -> URL {
+        guard let device, !device.isEmpty else { return appMessages }
+        var components = URLComponents(url: appMessages, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "device", value: device)]
         return components.url!
     }
 

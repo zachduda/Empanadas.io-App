@@ -64,6 +64,8 @@ struct PendingMessage: Identifiable, Equatable, Codable {
     var failed: String?
     /// The message it answers.
     var replyTo: Int?
+    /// Written longer ago than ConversationModel.staleUnsent: waits to be sent by hand.
+    var stale: Bool?
 
     var id: String { nonce }
 }
@@ -180,6 +182,11 @@ final class ConversationModel {
     private var typingSentAt: Date?
     /// What was in the box before an edit took it, put back after.
     private var draftBeforeEdit = ""
+    /// Devices that appeared since this device last looked, while it is encrypted.
+    private(set) var newDevices: NewDevices?
+    /// The messages on their way, one after another, so the site stores them in
+    /// the order they were written.
+    @ObservationIgnored private var sending: Task<Void, Never>?
     /// The site's clock minus this device's, from the last answer.
     private var skew: TimeInterval = 0
     /// The last answer's `now`: a poll asks what changed since.
@@ -190,6 +197,9 @@ final class ConversationModel {
 
     /// How often an open conversation asks for what's new.
     static let pollInterval: Duration = .seconds(4)
+    /// An unsent message older than this waits to be sent by hand rather than
+    /// arriving out of the blue.
+    static let staleUnsent: TimeInterval = 600
 
     init(playerID: String, name: String?) {
         self.playerID = playerID
@@ -289,6 +299,7 @@ final class ConversationModel {
         reactionChoices = thread.reactions
         maxLength = thread.maxLength
         e2ee = thread.e2ee
+        if let fresh = thread.newDevices { newDevices = fresh }
         if let now = thread.now {
             since = now
             skew = now.timeIntervalSinceNow
@@ -329,14 +340,29 @@ final class ConversationModel {
         MessageDrafts.save("", for: playerID)
         pending.append(message)
         UnsentMessages.keep(message, for: playerID)
-        Task { await deliver(message, app: app) }
+        enqueue(message, app: app)
     }
 
     func retry(_ message: PendingMessage, app: AppModel) {
         guard let index = pending.firstIndex(where: { $0.id == message.id }) else { return }
         pending[index].failed = nil
+        pending[index].stale = nil
         let again = pending[index]
-        Task { await deliver(again, app: app) }
+        enqueue(again, app: app)
+    }
+
+    /// The devices note was read.
+    func dismissNewDevices() {
+        newDevices = nil
+    }
+
+    /// After the one before it, sent or not.
+    private func enqueue(_ message: PendingMessage, app: AppModel) {
+        let previous = sending
+        sending = Task { [weak self] in
+            await previous?.value
+            await self?.deliver(message, app: app)
+        }
     }
 
     /// Takes a message that didn't go back off the screen.
@@ -348,10 +374,19 @@ final class ConversationModel {
     /// What didn't go last time, tried again under the same nonce (so the site
     /// keeps it once), once the conversation has loaded.
     private func resendUnsent(app: AppModel) {
+        let stale = Date().addingTimeInterval(-Self.staleUnsent)
         let waiting = UnsentMessages.load(playerID).filter { saved in !pending.contains { $0.nonce == saved.nonce } }
+            .map { saved -> PendingMessage in
+                var message = saved
+                if saved.at < stale {
+                    message.failed = "Not sent yet."
+                    message.stale = true
+                }
+                return message
+            }
         pending += waiting
-        for message in waiting {
-            Task { await deliver(message, app: app) }
+        for message in waiting where message.stale != true {
+            enqueue(message, app: app)
         }
     }
 
@@ -405,7 +440,7 @@ final class ConversationModel {
         messages[index].reactions.mine = emoji.isEmpty ? nil : emoji
         Haptics.play("light")
         do {
-            let updated = try await app.account.react(to: message.id, emoji: emoji)
+            let updated = try await app.account.react(to: message.id, with: playerID, emoji: emoji)
             replace(updated)
         } catch {
             Haptics.play("error")
@@ -483,7 +518,8 @@ final class ConversationModel {
         guard text != message.text, let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         messages[index].text = text
         do {
-            let updated = try await app.account.editMessage(message.id, with: playerID, text: text, encrypted: message.encrypted)
+            let updated = try await app.account.editMessage(message.id, with: playerID, text: text, encrypted: message.encrypted,
+                                                            nonce: message.nonce)
             replace(updated)
             Haptics.play("light")
         } catch {

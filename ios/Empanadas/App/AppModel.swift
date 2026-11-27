@@ -153,6 +153,9 @@ final class AppModel {
         if session == .signedIn { gameCenter.start() }
         updateHomeScreen()
         PushNotifications.shared.app = self
+        // Once a launch, so the site keeps this device's message key fresh (and friends can seal
+        // for it) whether or not Messages is opened.
+        if session == .signedIn { Task { try? await self.account.ownMessageKey() } }
     }
 
     /// A page for a screen of its own (Settings' web rows, the game player).

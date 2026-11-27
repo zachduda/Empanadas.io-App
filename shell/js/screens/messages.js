@@ -21,6 +21,13 @@ const THREAD_POLL = 4000;
 const INBOX_POLL = 20000;
 // A gap this long between two messages gets the time written between them.
 const GAP = 15 * 60;
+// An unsent message older than this (seconds) waits to be sent by hand.
+const STALE_UNSENT = 600;
+
+// How long the site counts a message as: code points, not UTF-16 units.
+function typedLength(text) {
+	return Array.from(String(text).trim()).length;
+}
 
 const REPORT_REASONS = [
 	{ id: 'spam', label: 'Spam' },
@@ -385,7 +392,7 @@ export function mount(container, { app, params, onClose }) {
 		const convo = {
 			id: key(id), raw: String(id), with: preview || null, messages: [], pending: [], hasMore: false, seenUpTo: 0,
 			canMessage: false, reason: null, blocked: false, loaded: false, error: null, since: 0, editing: null,
-			e2ee: { on: false, by: null }, drawn: new Map(), seenShown: 0, landed: new Set(),
+			e2ee: { on: false, by: null }, drawn: new Map(), seenShown: 0, landed: new Set(), sending: Promise.resolve(), newDevices: null,
 			replying: null, typing: false, typingSent: 0, seenAt: null, reacted: new Map()
 		};
 		current = convo;
@@ -414,14 +421,18 @@ export function mount(container, { app, params, onClose }) {
 		}
 		convo.loaded = true;
 		apply(result.data, false);
-		// What didn't go last time is tried again, under the same nonce, so the site keeps it once.
-		const waiting = unsentFor(convo.id).map((m) => ({ id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'pending', reply_to: m.reply_to || null }))
-			.filter((m) => !convo.pending.some((p) => p.nonce === m.nonce));
+		// What didn't go last time is tried again, in order and under the same nonce (so the site
+		// keeps it once); one written more than STALE_UNSENT ago waits to be sent by hand.
+		const stale = Date.now() / 1000 - STALE_UNSENT;
+		const waiting = unsentFor(convo.id).filter((m) => !convo.pending.some((p) => p.nonce === m.nonce))
+			.map((m) => (m.sent || 0) < stale
+				? { id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'failed', error: 'Not sent yet.', stale: true, reply_to: m.reply_to || null }
+				: { id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'pending', reply_to: m.reply_to || null });
 		convo.pending = convo.pending.concat(waiting);
 		drawThread(true);
 		markRead();
 		startThreadPoll();
-		for (const m of waiting) deliver(m);
+		for (const m of waiting) if (m.state === 'pending') deliver(m);
 		if (convo.field) convo.field.focus();
 	}
 
@@ -435,6 +446,7 @@ export function mount(container, { app, params, onClose }) {
 		current.typing = !!data.typing;
 		if (Array.isArray(data.reactions) && data.reactions.length) reactions = data.reactions;
 		if (data.e2ee) current.e2ee = data.e2ee;
+		if (data.new_devices) current.newDevices = data.new_devices;
 		if (typeof data.now === 'number') {
 			current.since = data.now;
 			skew = data.now - Date.now() / 1000;
@@ -444,6 +456,8 @@ export function mount(container, { app, params, onClose }) {
 		if (appendOnly) {
 			const have = new Set(current.messages.map((m) => m.id));
 			for (const m of incoming) if (!have.has(m.id)) current.messages.push(m);
+			// A poll and a send can cross: by id, as the site stored them.
+			current.messages.sort((a, b) => a.id - b.id);
 		} else {
 			current.messages = incoming;
 			current.hasMore = !!data.has_more;
@@ -501,6 +515,17 @@ export function mount(container, { app, params, onClose }) {
 			rows.push(h('div', { class: 'dm-lock' }, icon('lock'), 'End-to-end encryption is on'
 				+ (current.e2ee.by === 'me' ? ' (you turned it on)' : current.e2ee.by === 'them' ? ' (' + name + ' turned it on)' : '')
 				+ '. New messages can only be read by you and ' + name + '.'));
+			// The site hands out the keys: a device that appears is said, not taken without a word.
+			if (current.newDevices) {
+				const n = current.newDevices;
+				const mine = n.mine ? (n.mine === 1 ? 'a new device of yours' : n.mine + ' new devices of yours') + ' can read new messages here' : '';
+				const said = n.theirs ? name + (n.theirs === 1 ? ' has a new device' : ' has ' + n.theirs + ' new devices') + (mine ? ', and ' + mine : '')
+					: mine.charAt(0).toUpperCase() + mine.slice(1);
+				const gotIt = h('button', { type: 'button', class: 'link' }, 'Got It');
+				gotIt.addEventListener('click', () => { current.newDevices = null; drawMessages(false); });
+				rows.push(h('div', { class: 'dm-devices', role: 'status' }, icon('lock'),
+					said + '. New messages are encrypted for ' + (n.theirs + n.mine === 1 ? 'it' : 'them') + " too. If that's unexpected, check with " + name + ' before sending anything private. ', gotIt));
+			}
 		}
 		let nextExpiry = Infinity;
 		const first = !current.primed;
@@ -557,7 +582,7 @@ export function mount(container, { app, params, onClose }) {
 			rows.push(row);
 			if (m.edited && !m.deleted) rows.push(h('div', { class: 'dm-edited' + (m.from_me ? ' me' : ''), title: stamp(m.edited) }, 'Edited'));
 			if (m.state === 'failed') {
-				const retryButton = h('button', { type: 'button', class: 'link' }, 'Try Again');
+				const retryButton = h('button', { type: 'button', class: 'link' }, m.stale ? 'Send' : 'Try Again');
 				retryButton.addEventListener('click', () => retry(m));
 				const discardButton = h('button', { type: 'button', class: 'link' }, 'Delete');
 				discardButton.addEventListener('click', () => discard(m));
@@ -687,7 +712,7 @@ export function mount(container, { app, params, onClose }) {
 		const before = m.reactions || { mine: null, theirs: null };
 		m.reactions = Object.assign({}, before, { mine: emoji || null });
 		drawMessages(false);
-		const result = await window.native.data.act('reactMessage', { message: m.id, emoji });
+		const result = await window.native.data.act('reactMessage', { id: convo.raw, message: m.id, emoji });
 		if (destroyed || current !== convo) return;
 		if (result.ok && result.data && result.data.message) {
 			replaceMessage(result.data.message);
@@ -753,7 +778,8 @@ export function mount(container, { app, params, onClose }) {
 		const result = await window.native.data.act('setEncrypted', { id: convo.raw, on });
 		if (destroyed || current !== convo) return;
 		if (!result.ok) {
-			app.toast(result.error.code === 'no_keys' ? reasonText('no_keys', name) : result.error.message, 'error');
+			app.toast(result.error.code === 'no_keys' ? reasonText('no_keys', name)
+				: result.error.code === 'rate_limited' ? 'Wait a little before changing encryption again.' : result.error.message, 'error');
 			return;
 		}
 		if (result.data && result.data.e2ee) convo.e2ee = result.data.e2ee;
@@ -807,7 +833,7 @@ export function mount(container, { app, params, onClose }) {
 		const before = m.text;
 		m.text = text;
 		drawMessages(false);
-		const result = await window.native.data.act('editMessage', { id: convo.raw, message: m.id, text, encrypted: !!m.encrypted });
+		const result = await window.native.data.act('editMessage', { id: convo.raw, message: m.id, text, encrypted: !!m.encrypted, nonce: m.nonce || '' });
 		if (destroyed || current !== convo) return;
 		if (result.ok && result.data && result.data.message) {
 			replaceMessage(result.data.message);
@@ -871,7 +897,7 @@ export function mount(container, { app, params, onClose }) {
 			field.style.height = 'auto';
 			field.style.height = Math.min(160, field.scrollHeight + 2) + 'px';
 			if (atEnd) box.scrollTop = box.scrollHeight;
-			const left = limit - field.value.trim().length;
+			const left = limit - typedLength(field.value);
 			count.textContent = left < 100 ? String(left) : '';
 			count.classList.toggle('over', left < 0);
 			send.disabled = !field.value.trim() || left < 0;
@@ -912,7 +938,7 @@ export function mount(container, { app, params, onClose }) {
 		const field = current && current.field;
 		if (!field) return;
 		const text = field.value.trim();
-		if (!text || text.length > current.limit) return;
+		if (!text || typedLength(text) > current.limit) return;
 		if (current.editing) {
 			saveEdit(current.editing, text);
 			return;
@@ -937,8 +963,16 @@ export function mount(container, { app, params, onClose }) {
 		deliver(pending);
 	}
 
-	async function deliver(pending) {
+	// One conversation's messages go one after another, so the site stores them in the order they
+	// were written (each waits for the one before, sent or not).
+	function deliver(pending) {
 		const convo = current;
+		convo.sending = convo.sending.then(() => deliverNow(convo, pending)).catch(() => {});
+		return convo.sending;
+	}
+
+	async function deliverNow(convo, pending) {
+		if (pending.state !== 'pending') return;
 		const result = await window.native.data.act('sendMessage', { id: convo.raw, text: pending.text, nonce: pending.nonce, replyTo: pending.reply_to || undefined });
 		// Kept until the site has it; a refusal or network trouble keeps it, to retry or delete.
 		if (result.ok && result.data && result.data.message) dropUnsent(convo.id, pending);
@@ -957,7 +991,8 @@ export function mount(container, { app, params, onClose }) {
 			const error = (result && result.error) || {};
 			pending.state = 'failed';
 			pending.error = error.code === 'network' ? "Couldn't reach Empanadas.io." : (error.message || 'Not sent.');
-			if (['not_friends', 'blocked', 'unavailable', 'unverified'].includes(error.code)) {
+			// Only the site saying no (403) closes the box; its own trouble is a retry away.
+			if (error.status === 403 && ['not_friends', 'blocked', 'unavailable', 'unverified'].includes(error.code)) {
 				convo.canMessage = false;
 				convo.reason = error.code;
 			}
@@ -975,6 +1010,7 @@ export function mount(container, { app, params, onClose }) {
 
 	function retry(m) {
 		m.state = 'pending';
+		m.stale = false;
 		drawMessages(true);
 		deliver(m);
 	}
@@ -1018,11 +1054,11 @@ export function mount(container, { app, params, onClose }) {
 	async function poll() {
 		if (destroyed || !current || !current.loaded || document.hidden) return;
 		const convo = current;
-		const last = convo.messages.length ? convo.messages[convo.messages.length - 1].id : 0;
+		const last = convo.messages.reduce((most, m) => Math.max(most, m.id || 0), 0);
 		const result = await window.native.data.load('messages', { id: convo.raw, after: last, since: convo.since || undefined });
 		if (destroyed || current !== convo || !result.ok) return;
 		const state = () => [convo.messages.length, convo.seenUpTo, convo.seenAt, convo.typing, convo.canMessage, convo.blocked,
-			convo.with && convo.with.label, convo.e2ee.on];
+			convo.with && convo.with.label, convo.e2ee.on, convo.newDevices];
 		const before = state();
 		const changed = (Array.isArray(result.data.changed) ? result.data.changed : []).some((m) => {
 			const had = convo.messages.find((x) => x.id === m.id);
@@ -1084,7 +1120,7 @@ export function mount(container, { app, params, onClose }) {
 		// The site can't read it: the report carries it as this computer opened it.
 		const result = await window.native.data.act('reportMessage', { message: m.id, reason, note, text: m.encrypted && !m.sealed ? m.text : '' });
 		if (!result.ok) {
-			app.toast(result.error.message, 'error');
+			app.toast(result.error.code === 'rate_limited' ? "You've reported a lot today. Try again tomorrow, or write to us from Feedback." : result.error.message, 'error');
 			return;
 		}
 		app.toast('Thanks for telling us. We’ll take a look.', 'success');
