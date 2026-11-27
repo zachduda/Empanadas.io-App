@@ -279,6 +279,8 @@ final class MessagesTests: XCTestCase {
 
     func testASendIsSealedAndCarriesItsNonceAndTheToken() async throws {
         MessagesSite.posted = []
+        MessageKeychain.inMemory = [:]
+        defer { MessageKeychain.inMemory = nil }
         let api = AccountAPI(protocolClasses: [MessagesSite.self])
         let inbox = try await api.conversations()
         XCTAssertEqual(inbox.conversations.count, 0)
@@ -316,7 +318,7 @@ final class MessagesTests: XCTestCase {
 /// what each POST carried.
 private final class MessagesSite: URLProtocol {
     nonisolated(unsafe) static var posted: [[String: String]] = []
-    nonisolated(unsafe) static let theirs = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+    static let theirs = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
