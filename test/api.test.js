@@ -477,6 +477,43 @@ check('a conversation that isn\'t encrypted sends plain text; one turned on mean
 	assert.strictEqual(sends[1].nonce, sends[0].nonce);
 });
 
+check('an encrypted message stays encrypted when edited, even after the conversation is turned off', async () => {
+	const { posted, theirs, client } = await messagesSite({ e2ee: false });
+	await client.editMessage('ab12cd34000011112222333344445555', 5, 'still private', true);
+	const edit = posted.find((p) => p.action === 'edit');
+	assert.strictEqual(edit.text, undefined);
+	assert.strictEqual(await dme2ee.open(edit.cipher, theirs), 'still private');
+});
+
+check('an inbox preview follows an edit, and a key the site forgot is handed over again', async () => {
+	const theirs = await dme2ee.newDeviceKey(true);
+	const store = new Map();
+	let mine = null;
+	let last = null;
+	let registers = 0;
+	const site = fakeFetch([
+		[/v2\/app\/account/, () => json({ ok: true, api: 1, account: { id: 42 }, csrf: 't' })],
+		[/v2\/app\/messages\.php/, async (url, init) => {
+			if (init.body) {
+				const form = Object.fromEntries(new URLSearchParams(init.body));
+				if (form.action === 'register_key') { registers++; mine = { device: await dme2ee.deviceId(form.public_key), key: form.public_key }; }
+				return json({ ok: true, api: 1 });
+			}
+			if (url.includes('with=')) return json({ ok: true, api: 1, messages: [], keys: { mine: [], theirs: [] }, csrf: 't' });
+			return json({ ok: true, api: 1, conversations: [{ with: { id: 'x' }, last: { id: 3, cipher: last } }], csrf: 't' });
+		}]
+	]);
+	const client = api.createApi({ fetch: site.fetch, dmKeys: { load: (a) => store.get(a) || null, save: (a, v) => store.set(a, v) } });
+	await client.prepareMessages();
+	last = await dme2ee.seal('before', [mine, { device: theirs.device, key: theirs.publicKey }]);
+	assert.strictEqual((await client.conversations()).conversations[0].last.preview, 'before');
+	last = await dme2ee.seal('after the edit', [mine]);
+	assert.strictEqual((await client.conversations()).conversations[0].last.preview, 'after the edit');
+	assert.strictEqual(registers, 1);
+	await client.thread('ab12cd34000011112222333344445555');
+	assert.strictEqual(registers, 2, 'the site listed none of this computer\'s keys');
+});
+
 check('a conversation is opened here; an edit is sealed again, and a delete has nothing in it', async () => {
 	const { posted, client } = await messagesSite();
 	const id = 'ab12cd34000011112222333344445555';

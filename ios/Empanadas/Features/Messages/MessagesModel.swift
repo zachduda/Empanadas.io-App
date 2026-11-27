@@ -96,6 +96,8 @@ final class ConversationModel {
     var actionError: String?
     /// One of the viewer's own being edited in the box, while it still can be.
     private(set) var editing: DirectMessage?
+    /// What was in the box before an edit took it, put back after.
+    private var draftBeforeEdit = ""
     /// The site's clock minus this device's, from the last answer.
     private var skew: TimeInterval = 0
     /// The last answer's `now`: a poll asks what changed since.
@@ -306,6 +308,7 @@ final class ConversationModel {
             actionError = MessageRefusal.text("too_late")
             return
         }
+        if editing == nil { draftBeforeEdit = draft }
         editing = message
         draft = message.text
     }
@@ -313,14 +316,15 @@ final class ConversationModel {
     func stopEditing() {
         guard editing != nil else { return }
         editing = nil
-        draft = ""
+        draft = draftBeforeEdit
+        draftBeforeEdit = ""
     }
 
     private func saveEdit(_ message: DirectMessage, text: String, app: AppModel) async {
         guard text != message.text, let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         messages[index].text = text
         do {
-            let updated = try await app.account.editMessage(message.id, with: playerID, text: text)
+            let updated = try await app.account.editMessage(message.id, with: playerID, text: text, encrypted: message.encrypted)
             replace(updated)
             Haptics.play("light")
         } catch {
@@ -329,6 +333,11 @@ final class ConversationModel {
             if (error as? AccountError) == .signedOut { app.observe(.unsure) }
             actionError = (error as? MessageRefusal).map { MessageRefusal.text($0.reason, name: with?.username ?? "") }
                 ?? error.localizedDescription
+            // Not lost: back in the box, to edit again while it still can be, or send as a new one.
+            if editing == nil && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let fresh = messages.first(where: { $0.id == message.id }), canEdit(fresh) { startEditing(fresh) }
+                draft = text
+            }
         }
     }
 

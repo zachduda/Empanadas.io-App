@@ -105,10 +105,10 @@ final class MessagesTests: XCTestCase {
     }
 
     func testWhichRefusalsCloseTheConversation() {
-        for reason in ["not_friends", "blocked", "unavailable", "unverified", "no_keys"] {
+        for reason in ["not_friends", "blocked", "unavailable", "unverified"] {
             XCTAssertTrue(MessageRefusal(reason: reason).closesConversation, reason)
         }
-        for reason in ["rate_limited", "too_long", "empty", "keys_changed", "too_late"] {
+        for reason in ["rate_limited", "too_long", "empty", "keys_changed", "too_late", "no_keys"] {
             XCTAssertFalse(MessageRefusal(reason: reason).closesConversation, reason)
         }
     }

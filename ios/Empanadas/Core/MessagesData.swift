@@ -323,6 +323,8 @@ struct MessageRefusal: LocalizedError, Equatable {
     var keys: MessageKeys?
     /// With encryption_required: the conversation was turned on meanwhile.
     var e2ee: ConversationEncryption?
+    /// With encryption_required: the message being edited was encrypted, so the edit must be.
+    var sealed = false
 
     static let reasons: Set<String> = [
         "not_friends", "blocked", "unavailable", "unverified", "rate_limited", "too_long", "empty", "not_found", "self",
@@ -331,7 +333,7 @@ struct MessageRefusal: LocalizedError, Equatable {
 
     /// The other player can't be sent anything from here on (the box goes).
     var closesConversation: Bool {
-        ["not_friends", "blocked", "unavailable", "unverified", "no_keys"].contains(reason)
+        ["not_friends", "blocked", "unavailable", "unverified"].contains(reason)
     }
 
     static func == (a: MessageRefusal, b: MessageRefusal) -> Bool {
@@ -355,7 +357,7 @@ struct MessageRefusal: LocalizedError, Equatable {
         case "empty": return "Type a message first."
         case "not_found": return "That couldn't be found."
         case "self": return "You can't message yourself."
-        case "no_keys": return (name.isEmpty ? "They haven't" : name + " hasn't") + " set up encrypted messages yet. They need to open Messages on the website or an updated app first."
+        case "no_keys": return (name.isEmpty ? "They have" : name + " has") + " no device set up for encrypted messages right now. They need to open Messages on the website or an updated app, or you can turn encryption off."
         case "keys_changed": return "Their devices changed. Try again."
         case "too_late": return "Messages can only be edited for a minute after they're sent."
         case "deleted": return "That message was deleted."

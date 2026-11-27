@@ -655,6 +655,17 @@ function keepAs(key, params) {
 	return ['account', 'dashboard', 'leaderboard', 'conversations'].includes(key) ? key : null;
 }
 
+// The inbox as kept on disk for offline: an encrypted conversation's last message stays
+// unreadable there, as it is on the site.
+function withoutOpenedPreviews(body) {
+	if (!body || !Array.isArray(body.conversations)) return body;
+	return Object.assign({}, body, {
+		conversations: body.conversations.map((c) => (c && c.last && c.last.encrypted)
+			? Object.assign({}, c, { last: Object.assign({}, c.last, { preview: '\u{1F512} Encrypted message' }) })
+			: c)
+	});
+}
+
 function cachedScreen(key, params) {
 	const kept = keepAs(key, params);
 	const entry = kept ? answers.load(kept) : null;
@@ -668,7 +679,7 @@ async function loadScreen(key, params) {
 	try {
 		const body = await loader(params || {});
 		const kept = keepAs(key, params);
-		if (kept) answers.save(kept, body, generation);
+		if (kept) answers.save(kept, key === 'conversations' ? withoutOpenedPreviews(body) : body, generation);
 		if (key === 'dashboard') afterDashboard(body);
 		if (key === 'account') afterAccount(body);
 		if (key === 'conversations') afterConversations(body);
@@ -691,7 +702,7 @@ const ACTIONS = {
 	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
 	readMessages: (p) => api.readMessages(p.id, p.upTo),
 	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
-	editMessage: (p) => api.editMessage(p.id, p.message, p.text),
+	editMessage: (p) => api.editMessage(p.id, p.message, p.text, p.encrypted === true),
 	deleteMessage: (p) => api.deleteMessage(p.message),
 	prepareMessages: () => api.prepareMessages(),
 	setEncrypted: (p) => api.setEncrypted(p.id, p.on === true),

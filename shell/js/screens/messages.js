@@ -37,7 +37,7 @@ function reasonText(reason, name) {
 	case 'blocked': return 'You blocked ' + who + '. Unblock them to send a message.';
 	case 'unavailable': return "You can't message " + who + ' right now.';
 	case 'unverified': return 'Verify your email address to send messages.';
-	case 'no_keys': return who + " hasn't set up encrypted messages yet. They need to open Messages on the website or an updated app first.";
+	case 'no_keys': return who + ' has no device set up for encrypted messages right now. They need to open Messages on the website or an updated app, or you can turn encryption off.';
 	default: return "You can't message " + who + '.';
 	}
 }
@@ -420,6 +420,7 @@ export function mount(container, { app, params }) {
 			app.toast("Messages can only be edited for a minute after they're sent.", 'error');
 			return;
 		}
+		if (!current.editing) current.draftBeforeEdit = current.field.value;
 		current.editing = m;
 		current.field.value = m.text;
 		current.sync();
@@ -432,7 +433,8 @@ export function mount(container, { app, params }) {
 		if (!current || !current.editing) return;
 		current.editing = null;
 		if (current.field) {
-			current.field.value = '';
+			current.field.value = current.draftBeforeEdit || '';
+			current.draftBeforeEdit = '';
 			current.sync();
 		}
 		drawEditing();
@@ -454,13 +456,20 @@ export function mount(container, { app, params }) {
 		const before = m.text;
 		m.text = text;
 		drawMessages(false);
-		const result = await window.native.data.act('editMessage', { id: convo.raw, message: m.id, text });
+		const result = await window.native.data.act('editMessage', { id: convo.raw, message: m.id, text, encrypted: !!m.encrypted });
 		if (destroyed || current !== convo) return;
 		if (result.ok && result.data && result.data.message) {
 			replaceMessage(result.data.message);
 		} else {
 			m.text = before;
 			app.toast((result.error && result.error.message) || 'Not edited.', 'error');
+			// Not lost: back in the box, to edit again while it still can be, or send as a new one.
+			if (current.field && !current.field.value.trim()) {
+				const fresh = current.messages.find((x) => x.id === m.id);
+				if (canEdit(fresh)) startEditing(fresh);
+				current.field.value = text;
+				current.sync();
+			}
 		}
 		drawMessages(false);
 		loadInbox();
@@ -565,7 +574,7 @@ export function mount(container, { app, params }) {
 			const error = (result && result.error) || {};
 			pending.state = 'failed';
 			pending.error = error.code === 'network' ? "Couldn't reach Empanadas.io." : (error.message || 'Not sent.');
-			if (['not_friends', 'blocked', 'unavailable', 'unverified', 'no_keys'].includes(error.code)) {
+			if (['not_friends', 'blocked', 'unavailable', 'unverified'].includes(error.code)) {
 				convo.canMessage = false;
 				convo.reason = error.code;
 			}
