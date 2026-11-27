@@ -118,6 +118,9 @@ enum MessageCrypto {
 enum MessageKeychain {
     private static let service = "io.empanadas.app.message-key"
 
+    /// Tests only: kept here instead, as an unsigned test host has no Keychain.
+    nonisolated(unsafe) static var inMemory: [Int: Data]?
+
     static func key(for account: Int) -> MessageCrypto.DeviceKey? {
         guard account > 0 else { return nil }
         if let raw = read(account), let key = try? P256.KeyAgreement.PrivateKey(rawRepresentation: raw) {
@@ -135,6 +138,7 @@ enum MessageKeychain {
     }
 
     private static func read(_ account: Int) -> Data? {
+        if let inMemory { return inMemory[account] }
         var q = query(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -144,6 +148,7 @@ enum MessageKeychain {
     }
 
     private static func store(_ raw: Data, for account: Int) -> Bool {
+        if inMemory != nil { inMemory?[account] = raw; return true }
         SecItemDelete(query(account) as CFDictionary)
         var q = query(account)
         q[kSecValueData as String] = raw
