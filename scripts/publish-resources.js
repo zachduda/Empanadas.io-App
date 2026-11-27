@@ -15,7 +15,10 @@
 // Edit the files on the site directly afterwards as much as you like: the
 // site lists them by hash (v2/app/resources.php), so any change is fetched.
 // Run this again after every app release, or the released app keeps using
-// its own, newer, screens rather than the site's older ones.
+// its own, newer, screens rather than the site's older ones. A set published
+// under the same version from other screens is only used by the build those
+// screens came from (its "from"), so a rebuild with changed screens never
+// loses them to an older set.
 //
 // --with-content also copies Content/Images and Content/Fonts as images/ and
 // fonts/, so the pictures and fonts can be changed from the site too.
@@ -39,7 +42,7 @@ if (!fs.existsSync(path.join(siteRoot, 'html', 'Content'))) {
 }
 
 const target = path.join(siteRoot, 'html', 'Content', 'Desktop', 'v' + api);
-const { isSafePath } = require('../lib/resources');
+const { isSafePath, revisionOfDir } = require('../lib/resources');
 
 function copyTree(from, to, prefix, copied) {
 	for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
@@ -67,8 +70,10 @@ if (withContent) {
 	copyTree(path.join(root, 'Content', 'Images'), path.join(target, 'images'), 'images', copied);
 	copyTree(path.join(root, 'Content', 'Fonts'), path.join(target, 'fonts'), 'fonts', copied);
 }
+// from: which screens these are, so a build of the same version with other screens keeps its own
+// (lib/resources.js).
 fs.writeFileSync(path.join(target, '_release.json'), JSON.stringify({
-	app: version, shell: api, publishedAt: new Date().toISOString()
+	app: version, shell: api, from: revisionOfDir(path.join(root, 'shell')), publishedAt: new Date().toISOString()
 }, null, '\t') + '\n');
 
 console.log('Published ' + copied.length + ' files of the ' + version + ' screens to ' + path.relative(process.cwd(), target));

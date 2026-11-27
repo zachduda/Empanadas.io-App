@@ -111,6 +111,18 @@ final class MessagesTests: XCTestCase {
         for reason in ["rate_limited", "too_long", "empty", "keys_changed", "too_late", "no_keys"] {
             XCTAssertFalse(MessageRefusal(reason: reason).closesConversation, reason)
         }
+        // A site from before server_error says unavailable for its own trouble too.
+        XCTAssertFalse(MessageRefusal(reason: "unavailable", status: 503).closesConversation)
+        XCTAssertTrue(MessageRefusal(reason: "unavailable", status: 403).closesConversation)
+        do {
+            _ = try AccountAPI.messagesBody(Data(#"{"ok":false,"api":1,"reason":"unavailable"}"#.utf8), status: 503)
+            XCTFail("not refused")
+        } catch let refusal as MessageRefusal {
+            XCTAssertEqual(refusal.status, 503)
+            XCTAssertFalse(refusal.closesConversation)
+        } catch {
+            XCTFail("not a refusal: \(error)")
+        }
     }
 
     func testTheWordsForEachReason() {
@@ -133,6 +145,80 @@ final class MessagesTests: XCTestCase {
         XCTAssertEqual(key.device, "5da9260c6a62f8190d3450017166de11")
         let sealed = #"{"v":1,"epk":"BMiicLDXtPKmXckn7VOks_2NxkCfomN42KwCvhb0hboel0MOdcP4t_7Bj5JpkfQaDWdh39r_3DvuXpu_nmGXINo","c":"6MuaFPkJ4HedzgZgArUt30XbFS-EoG_HOTqqFeh338e1cv4v7IM","k":{"5da9260c6a62f8190d3450017166de11":"JOQg8DeSu4KcNsh_cZXSjilz521DQLcqgw7YVe0XHR4ejVkJpyp5--lbieslnqV2pWacymdv1v0MpVZJ"}}"#
         XCTAssertEqual(try MessageCrypto.open(sealed, with: key), "vector ✓")
+    }
+
+    /// Sealed by the site's dm_e2ee.js as v2 (from another device, bound to
+    /// who sent it to whom under which nonce): it opens here only as that.
+    func testOpensAV2EnvelopeTheWebsiteSealed() throws {
+        let raw = try XCTUnwrap(Data(base64Encoded: "xbIhL8CDVyBKnqPJQSQ3olt5uxLFezRoNqGa/6JSECA="))
+        let key = MessageCrypto.DeviceKey(privateKey: try P256.KeyAgreement.PrivateKey(rawRepresentation: raw))
+        XCTAssertEqual(key.device, "c08f623b8645a994283c89ca3e418eb0")
+        let sealed = #"{"v":2,"epk":"BOizHQ_GQpmCVSOCAl8JxylsAFBDS5IGMaYbeN8zFJPbfzooq3WRbeEhWvhZkEwqE5tq_oFfcRf8uozJu38flUs","spk":"BAYLP98bebwkt_shBu89px_r85JNClaqTR17sb0vMZT1I5WOmd2WZa16KzOD-YVxXfAxr5Jvhvpd1M1wavl2RRs","c":"GIBKsYPJMttPhcWAMIvLcKYVJ3BJdLuWmDh8ZvQ-yhNEEer50isegBk","k":{"c08f623b8645a994283c89ca3e418eb0":"_PCHVTIqU2V4Kk51RcKK9RfXbuapMcTuCigavlYcMtC02fpjF4N8cyfWZMcCbTEueW2_eo1MBfYY1_Lr"}}"#
+        let context = MessageCrypto.Context(sender: "AB12CD34-0000-1111-2222-333344445555", recipient: "0123456789abcdef0123456789abcdef", nonce: "nonce-vector1")
+        XCTAssertEqual(try MessageCrypto.open(sealed, with: key, context: context), "vector v2 ✓")
+        for wrong in [
+            MessageCrypto.Context(sender: "0123456789abcdef0123456789abcdef", recipient: "ab12cd34000011112222333344445555", nonce: "nonce-vector1"),
+            MessageCrypto.Context(sender: "ab12cd34000011112222333344445555", recipient: "0123456789abcdef0123456789abcdef", nonce: "another-one"),
+        ] {
+            XCTAssertThrowsError(try MessageCrypto.open(sealed, with: key, context: wrong)) {
+                XCTAssertEqual($0 as? MessageCrypto.Failure, .badPayload, "not as another direction or message")
+            }
+        }
+        XCTAssertThrowsError(try MessageCrypto.open(sealed, with: key)) {
+            XCTAssertEqual($0 as? MessageCrypto.Failure, .badPayload, "not without saying what it is")
+        }
+    }
+
+    func testAV2EnvelopeIsFromItsDeviceAndBound() throws {
+        let mine = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+        let theirs = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+        let impostor = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+        let devices = [MessageKeys.Device(device: mine.device, key: mine.publicKey), MessageKeys.Device(device: theirs.device, key: theirs.publicKey)]
+        let context = MessageCrypto.Context(sender: "ab12cd34000011112222333344445555", recipient: "0123456789abcdef0123456789abcdef", nonce: "n-1")
+        let sealed = try MessageCrypto.seal("  hi\u{202E}gnp.exe\r\n\r\n\r\nthere  ", for: devices, from: mine, context: context)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(sealed.utf8)) as? [String: Any])
+        XCTAssertEqual(object["v"] as? Int, 2)
+        XCTAssertEqual(object["spk"] as? String, mine.publicKey)
+        XCTAssertEqual(try MessageCrypto.open(sealed, with: theirs, context: context), "hignp.exe\n\nthere", "tidied as the site tidies plain text")
+        XCTAssertEqual(try MessageCrypto.open(sealed, with: mine, context: context), "hignp.exe\n\nthere")
+        // Another device can't pass its envelope off as this one's.
+        let other = try MessageCrypto.seal("x", for: devices, from: impostor, context: context)
+        var forged = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(other.utf8)) as? [String: Any])
+        forged["spk"] = mine.publicKey
+        let forgedText = String(decoding: try JSONSerialization.data(withJSONObject: forged), as: UTF8.self)
+        XCTAssertThrowsError(try MessageCrypto.open(forgedText, with: theirs, context: context))
+        XCTAssertThrowsError(try MessageCrypto.seal("x", for: devices, from: mine, context: MessageCrypto.Context(sender: "me", recipient: "you", nonce: nil))) {
+            XCTAssertEqual($0 as? MessageCrypto.Failure, .badPayload, "not without both players")
+        }
+    }
+
+    func testWhatOpensIsTidiedAndCut() throws {
+        let key = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+        let devices = [MessageKeys.Device(device: key.device, key: key.publicKey)]
+        // v1, sealed as a client that tidies nothing might.
+        XCTAssertEqual(try MessageCrypto.open(try MessageCrypto.seal("a\u{0007}b\n\n\n\n\nc", for: devices), with: key), "ab\n\nc")
+        XCTAssertEqual(try MessageCrypto.open(try MessageCrypto.seal(" \n ", for: devices), with: key), "\u{2026}")
+        let long = try MessageCrypto.open(try MessageCrypto.seal(String(repeating: "x", count: 3000), for: devices), with: key)
+        XCTAssertEqual(long.unicodeScalars.count, MessageText.maxLength)
+        XCTAssertEqual(MessageText.cleaned("a\u{202E}b\u{FEFF}\u{2066}c"), "abc")
+    }
+
+    func testAKeyIsNeverMadeOverOneTheKeychainWontOpen() {
+        MessageKeychain.inMemory = [:]
+        defer {
+            MessageKeychain.inMemory = nil
+            MessageKeychain.failReads = nil
+        }
+        MessageKeychain.failReads = errSecInteractionNotAllowed
+        XCTAssertNil(MessageKeychain.key(for: 7), "locked: no key for now")
+        XCTAssertNil(MessageKeychain.inMemory?[7], "and none made")
+        MessageKeychain.failReads = nil
+        let first = MessageKeychain.key(for: 7)
+        XCTAssertNotNil(first)
+        MessageKeychain.failReads = errSecInteractionNotAllowed
+        XCTAssertNil(MessageKeychain.key(for: 7))
+        MessageKeychain.failReads = nil
+        XCTAssertEqual(MessageKeychain.key(for: 7)?.device, first?.device, "the same key once the Keychain answers")
     }
 
     func testASealedMessageOpensOnlyOnItsDevices() throws {
@@ -292,9 +378,12 @@ final class MessagesTests: XCTestCase {
         XCTAssertNil(form["text"], "the words never go to the site")
         XCTAssertEqual(form["nonce"], "nonce-abc123")
         XCTAssertEqual(form["csrf"], "inbox-token", "the token the inbox handed out")
-        XCTAssertEqual(try MessageCrypto.open(try XCTUnwrap(form["cipher"]), with: MessagesSite.theirs), "hey\n\nthere")
+        let context = MessageCrypto.Context(sender: MessagesSite.me, recipient: "ab12cd34000011112222333344445555", nonce: "nonce-abc123")
+        XCTAssertEqual(try MessageCrypto.open(try XCTUnwrap(form["cipher"]), with: MessagesSite.theirs, context: context), "hey\n\nthere")
         let own = try await api.ownMessageKey()
-        XCTAssertEqual(try MessageCrypto.open(try XCTUnwrap(form["cipher"]), with: own), "hey\n\nthere", "and for this device")
+        XCTAssertEqual(try MessageCrypto.open(try XCTUnwrap(form["cipher"]), with: own, context: context), "hey\n\nthere", "and for this device")
+        _ = try await api.conversations()
+        XCTAssertTrue(MessagesSite.gets.last?.contains("device=" + own.device) ?? false, "a GET names this device's key once the site has it")
 
         do {
             _ = try await api.sendMessage(to: player, text: " \n ", nonce: "nonce-abc124")
@@ -318,7 +407,9 @@ final class MessagesTests: XCTestCase {
 /// what each POST carried.
 private final class MessagesSite: URLProtocol {
     nonisolated(unsafe) static var posted: [[String: String]] = []
+    nonisolated(unsafe) static var gets: [String] = []
     static let theirs = MessageCrypto.DeviceKey(privateKey: P256.KeyAgreement.PrivateKey())
+    static let me = "0123456789abcdef0123456789abcdef"
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -332,7 +423,8 @@ private final class MessagesSite: URLProtocol {
         } else if request.httpMethod == "POST" {
             let form = Self.form(request)
             Self.posted.append(form)
-            let opened = (form["cipher"]).flatMap { try? MessageCrypto.open($0, with: Self.theirs) }
+            let context = MessageCrypto.Context(sender: Self.me, recipient: form["to"] ?? "", nonce: form["nonce"])
+            let opened = (form["cipher"]).flatMap { try? MessageCrypto.open($0, with: Self.theirs, context: context) }
             if form["action"] == "register_key" {
                 body = #"{"ok":true,"api":1,"device":"x"}"#
             } else if opened == "refuse me" {
@@ -342,9 +434,11 @@ private final class MessagesSite: URLProtocol {
                 body = #"{"ok":true,"api":1,"message":{"id":9,"from_me":true,"text":"locked","cipher":"{}","sent":1764147600,"read":false},"duplicate":false}"#
             }
         } else if SiteURLs.queryValue("with", in: url) != nil {
-            body = #"{"ok":true,"api":1,"with":{"id":"ab12","username":"Jeff"},"messages":[],"keys":{"mine":[],"theirs":[{"device":""# + Self.theirs.device + #"","key":""# + Self.theirs.publicKey + #""}]},"e2ee":{"on":true,"by":"them"},"now":1764147600,"csrf":"inbox-token"}"#
+            Self.gets.append(url.absoluteString)
+            body = #"{"ok":true,"api":1,"with":{"id":"ab12","username":"Jeff"},"messages":[],"keys":{"mine":[],"theirs":[{"device":""# + Self.theirs.device + #"","key":""# + Self.theirs.publicKey + #""}]},"e2ee":{"on":true,"by":"them"},"now":1764147600,"me":""# + Self.me + #"","csrf":"inbox-token"}"#
         } else {
-            body = #"{"ok":true,"api":1,"conversations":[],"unread":0,"blocked":[],"max_length":1000,"csrf":"inbox-token"}"#
+            Self.gets.append(url.absoluteString)
+            body = #"{"ok":true,"api":1,"conversations":[],"unread":0,"blocked":[],"max_length":1000,"me":""# + Self.me + #"","csrf":"inbox-token"}"#
         }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
                                        headerFields: ["Content-Type": "application/json"])!

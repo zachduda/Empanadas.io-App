@@ -42,13 +42,17 @@ struct MessageNotification: Equatable, Sendable {
     /// A reply from the notification that didn't go: the app's own
     /// notification saying so carries it, for the conversation's box.
     let draft: String?
+    /// The message was edited before it was read: this replaces its
+    /// notification, quietly (the site's pushEditPayload()).
+    let edited: Bool
 
-    init(from: String, messageID: Int, name: String? = nil, unread: Int? = nil, draft: String? = nil) {
+    init(from: String, messageID: Int, name: String? = nil, unread: Int? = nil, draft: String? = nil, edited: Bool = false) {
         self.from = from
         self.messageID = messageID
         self.name = name
         self.unread = unread
         self.draft = draft
+        self.edited = edited
     }
 
     /// Nil for a notification that isn't a message's.
@@ -60,6 +64,7 @@ struct MessageNotification: Equatable, Sendable {
         name = (dm["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         unread = (dm["unread"] as? NSNumber)?.intValue
         draft = (dm["draft"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        edited = ((dm["edited"] as? NSNumber)?.intValue ?? 0) == 1
     }
 
     /// As the site writes it, for the app's own notifications.
@@ -378,6 +383,8 @@ final class PushNotifications: NSObject {
         case .message(let message):
             if let unread = message.unread { app?.setUnreadMessages(unread) }
             if let open = app?.openConversation, PlayerID.same(open, message.from) { return [] }
+            // An edit's words in place of the first's: in Notification Center, without a banner.
+            if message.edited { return [.list] }
         case .friend:
             app?.friendsChanged()
         case nil:
@@ -533,6 +540,12 @@ final class PushNotifications: NSObject {
 extension PushNotifications: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        // A message deleted before it was read (the site's pushDeletedPayload()): its
+        // notification goes, and this one, which only stands in for it, isn't shown.
+        if let retraction = MessageRetraction(userInfo: notification.request.content.userInfo) {
+            await retract(retraction)
+            return []
+        }
         let notice = PushNotice(userInfo: notification.request.content.userInfo)
         return await presentation(for: notice)
     }
