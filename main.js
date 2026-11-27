@@ -1245,6 +1245,14 @@ function finishBrowserConnect(link) {
 // page but the browser.
 
 const STATUS_PARTITION = 'statuspage';
+// What the sheet can hold: the status page, and the site's two legal pages,
+// each with the title the sheet shows. The site's pages are public and need
+// nothing of the app's, so they are kept apart in the same way.
+const SHEET_PAGES = {
+	status: { url: STATUS_PAGE, title: 'Server Status' },
+	privacy: { url: EXTERNAL.privacy, title: 'Privacy Policy' },
+	terms: { url: EXTERNAL.terms, title: 'Terms of Service' }
+};
 // How long the page gets to draw before it is shown however far it got: a
 // slow picture should not keep a spinner over the page.
 const STATUS_REVEAL_AFTER = 1500;
@@ -1253,8 +1261,8 @@ const serverStatus = createServerStatus({ fetch: (url, options) => net.fetch(url
 
 // The page's background as it last drew it: what the sheet is painted while
 // the page loads, so it opens in the page's colour rather than changing to it.
-let statusPageColor = null;
-// { view, host, bounds, hasContent, error, revealTimer }
+const statusPageColors = {};
+// { kind, url, view, host, bounds, hasContent, error, revealTimer }
 let statusPage = null;
 
 // Put in on every page of it, so it looks like one of the app's screens. The
@@ -1307,7 +1315,9 @@ function statusPageState() {
 		hasContent: statusPage.hasContent,
 		canGoBack: statusPageBackIndex() >= 0,
 		error: statusPage.error,
-		background: statusPageColor
+		background: statusPageColors[statusPage.kind] || null,
+		kind: statusPage.kind,
+		title: SHEET_PAGES[statusPage.kind].title
 	};
 }
 
@@ -1315,7 +1325,8 @@ function sendStatusPage() {
 	sendToShell('statuspage', statusPageState());
 }
 
-function openStatusPage() {
+function openStatusPage(name) {
+	const kind = Object.prototype.hasOwnProperty.call(SHEET_PAGES, name) ? name : 'status';
 	if (!win || win.isDestroyed() || !showingShell()) return statusPageState();
 	if (statusPage) return statusPageState();
 	const view = new WebContentsView({
@@ -1334,8 +1345,9 @@ function openStatusPage() {
 		}
 	});
 	view.setVisible(false);
-	view.setBackgroundColor(statusPageColor ? cssToHex(statusPageColor) : '#ffffff');
-	statusPage = { view, host: null, bounds: null, hasContent: false, error: null, revealTimer: null };
+	const color = statusPageColors[kind];
+	view.setBackgroundColor(color ? cssToHex(color) : '#ffffff');
+	statusPage = { kind, url: SHEET_PAGES[kind].url, view, host: null, bounds: null, hasContent: false, error: null, revealTimer: null };
 	guardStatusPage(view.webContents);
 	win.contentView.addChildView(view);
 	loadStatusPage();
@@ -1345,7 +1357,7 @@ function openStatusPage() {
 function loadStatusPage() {
 	if (!statusPage) return;
 	statusPage.error = null;
-	statusPage.view.webContents.loadURL(STATUS_PAGE).catch(() => {});
+	statusPage.view.webContents.loadURL(statusPage.url).catch(() => {});
 	sendStatusPage();
 }
 
@@ -1420,7 +1432,7 @@ async function revealStatusPage(contents) {
 	try {
 		const color = await contents.executeJavaScript(STATUS_PAGE_BACKGROUND, false);
 		if (typeof color === 'string' && /^rgb\(\d{1,3}, \d{1,3}, \d{1,3}\)$/.test(color)) {
-			statusPageColor = color;
+			statusPageColors[statusPage.kind] = color;
 			if (statusPage && !contents.isDestroyed()) statusPage.view.setBackgroundColor(cssToHex(color));
 		}
 	} catch (err) {
@@ -1439,7 +1451,7 @@ function cssToHex(color) {
 }
 
 function guardStatusPage(contents) {
-	const pageHost = new URL(STATUS_PAGE).hostname;
+	const pageHost = new URL(statusPage.url).hostname;
 	// The status page's own pages, over https. Before it has drawn anything,
 	// wherever its first load is redirected (nothing on it can have been
 	// clicked yet).
@@ -1501,6 +1513,7 @@ function guardStatusPage(contents) {
 	});
 	contents.on('did-navigate-in-page', () => sendStatusPage());
 	contents.on('dom-ready', () => {
+		if (!statusPage || statusPage.kind !== 'status') return;
 		contents.insertCSS(STATUS_PAGE_CSS, { cssOrigin: 'user' }).catch(() => {});
 	});
 	contents.on('did-finish-load', () => {
@@ -2452,13 +2465,14 @@ function registerIpcHandlers() {
 
 	// The server status light, and the full status page in a sheet.
 	handle('status:get', (force) => serverStatus.get(force === true));
-	handle('status:open', () => openStatusPage());
+	handle('status:open', (name) => openStatusPage(name));
 	handle('status:layout', (rect) => layoutStatusPage(rect));
 	handle('status:back', () => statusPageBack());
 	handle('status:reload', () => reloadStatusPage());
 	handle('status:close', () => closeStatusPage());
-	handle('status:browser', () => {
-		shell.openExternal(STATUS_PAGE).catch(() => {});
+	handle('status:browser', (name) => {
+		const page = SHEET_PAGES[Object.prototype.hasOwnProperty.call(SHEET_PAGES, name) ? name : 'status'];
+		shell.openExternal(page.url).catch(() => {});
 		return true;
 	});
 

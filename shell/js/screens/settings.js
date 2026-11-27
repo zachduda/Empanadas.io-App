@@ -12,6 +12,7 @@ import { num } from '../format.js';
 import { load, staleBanner, errorState, skeleton } from '../data.js';
 import { setting, settingsGroup as group, settingSwitch as toggle } from '../components.js';
 import { mountAppPart } from './appsettings.js';
+import { openStatusSheet } from '../statussheet.js';
 
 // `params.section` 'app' starts at the app's part: empanadas-io://appsettings,
 // from when App Settings was a screen of its own.
@@ -129,8 +130,8 @@ export function mount(container, { app, params = {} }) {
 			group('Empanadas.io', [
 				setting('Send Feedback', 'Ideas, problems, questions.', button('Write', () => app.navigate({ screen: 'feedback' }), { kind: 'small' }), 'message'),
 				setting('Website', null, button('Open', () => window.native.external.open('website'), { kind: 'small', icon: 'external' })),
-				setting('Privacy Policy', null, button('Open', () => window.native.external.open('privacy'), { kind: 'small', icon: 'external' })),
-				setting('Terms of Service', null, button('Open', () => window.native.external.open('terms'), { kind: 'small', icon: 'external' }))
+				setting('Privacy Policy', null, button('Open', () => openStatusSheet('privacy'), { kind: 'small' })),
+				setting('Terms of Service', null, button('Open', () => openStatusSheet('terms'), { kind: 'small' }))
 			]),
 			group(null, [
 				setting('Sign Out', 'Your games stay downloaded on this computer.', button('Sign Out', async (e) => {

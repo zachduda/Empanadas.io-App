@@ -71,16 +71,17 @@ contextBridge.exposeInMainWorld('native', {
 	// page up (off screen until layout() says where the sheet's body is, in
 	// CSS pixels, or null to take it off screen), close() takes it away. Its
 	// state comes as on('statuspage'): { open, hasContent, canGoBack, error,
-	// background }.
+	// background, kind, title }. open(name) takes status (the default), privacy
+	// or terms: the site's legal pages go in the same sheet.
 	status: {
 		get: (force) => invoke('status:get', force === true),
-		open: () => invoke('status:open'),
+		open: (name) => invoke('status:open', name === undefined ? undefined : String(name)),
 		layout: (rect) => invoke('status:layout', rect && typeof rect === 'object'
 			? { x: Number(rect.x), y: Number(rect.y), width: Number(rect.width), height: Number(rect.height) } : null),
 		back: () => invoke('status:back'),
 		reload: () => invoke('status:reload'),
 		close: () => invoke('status:close'),
-		openInBrowser: () => invoke('status:browser')
+		openInBrowser: (name) => invoke('status:browser', name === undefined ? undefined : String(name))
 	},
 	// name: website, privacy, terms, source, updates, status.
 	external: { open: (name) => invoke('external:open', String(name)) },

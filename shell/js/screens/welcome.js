@@ -4,6 +4,7 @@
 // Google/GitHub/Discord already are, and the site hands it back to the app.
 
 import { h, replace, button } from '../dom.js';
+import { openStatusSheet } from '../statussheet.js';
 
 export function mount(container, { session, signin }) {
 	const panel = h('div', { class: 'panel' });
@@ -46,7 +47,7 @@ export function mount(container, { session, signin }) {
 				button('Yup! Log In', () => start('login'), { kind: 'primary large' }),
 				button('Nope. Create One', () => start('create'), { kind: 'ghost large' })),
 			h('p', { class: 'note' }, 'You’ll sign in on empanadas.io in your browser. ',
-				h('a', { href: '#', onclick: (e) => { e.preventDefault(); window.native.external.open('privacy'); } }, 'Privacy Policy')));
+				h('a', { href: '#', onclick: (e) => { e.preventDefault(); openStatusSheet('privacy'); } }, 'Privacy Policy')));
 	};
 
 	async function start(mode) {

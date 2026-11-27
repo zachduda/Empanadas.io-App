@@ -382,9 +382,28 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Section("About") {
             NavigationLink("Send Feedback") { FeedbackView() }
-            NavigationLink("Privacy Policy") { WebDestination(url: SiteURLs.privacy, title: "Privacy Policy") }
-            NavigationLink("Terms of Service") { WebDestination(url: SiteURLs.terms, title: "Terms") }
+            sheetRow("Privacy Policy", url: SiteURLs.privacy)
+            sheetRow("Terms of Service", url: SiteURLs.terms, title: "Terms")
         }
+    }
+
+    /// A row that opens a site page in a sheet with Done, as Server Status
+    /// does, rather than pushing it.
+    private func sheetRow(_ label: String, url: URL, title: String? = nil) -> some View {
+        Button {
+            model.openWeb(url, title: title ?? label)
+        } label: {
+            HStack {
+                Text(label)
+                    .foregroundStyle(Color.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint("Opens in a sheet")
     }
 
     /// The Server Status card from the site's Updates page: a light that
