@@ -41,12 +41,25 @@ const jsonfile = require('./lib/jsonfile');
 const signin = require('./lib/signin');
 const { createApi, ApiError } = require('./lib/api');
 const { createKeyStore } = require('./lib/dmkeys');
+
+// Each conversation's devices as this computer last saw them (lib/api.js deviceBook).
+function createDeviceBook(file) {
+	const keyOf = (account, player) => String(account) + ':' + String(player);
+	return {
+		get: (account, player) => (jsonfile.read(file, {}) || {})[keyOf(account, player)] || null,
+		set(account, player, value) {
+			const all = jsonfile.read(file, {}) || {};
+			all[keyOf(account, player)] = value;
+			jsonfile.write(file, all);
+		}
+	};
+}
 const { createAnswers } = require('./lib/answers');
 const gamebundle = require('./lib/gamebundle');
 const { createGameHandler } = require('./lib/gameprotocol');
 const { createCookieBridge, clearSiteCookies } = require('./lib/cookiebridge');
 const { createImageCache } = require('./lib/imagecache');
-const { createResources } = require('./lib/resources');
+const { createResources, revisionOfDir } = require('./lib/resources');
 const { createServerStatus, PAGE: STATUS_PAGE } = require('./lib/serverstatus');
 const routes = require('./lib/routes');
 
@@ -449,6 +462,8 @@ function setUpSessions() {
 		fetch: (url, init) => main.fetch(url, init),
 		api: SHELL_API,
 		appVersion: app.getVersion(),
+		// So a set published from older screens under this same version doesn't replace this build's.
+		bundledRevision: revisionOfDir(path.join(__dirname, 'shell')),
 		userAgent: () => userAgent,
 		enabled: resourcesSetting === 'off' ? false : (app.isPackaged || resourcesSetting === 'on'),
 		log
@@ -457,7 +472,8 @@ function setUpSessions() {
 		fetch: (url, init) => main.fetch(url, Object.assign({ bypassCustomProtocolHandlers: true }, init)),
 		userAgent: () => userAgent,
 		onSignedOut: () => markSignedOut('expired'),
-		dmKeys: createKeyStore(path.join(userData, 'message-keys.json'), safeStorage)
+		dmKeys: createKeyStore(path.join(userData, 'message-keys.json'), safeStorage),
+		deviceBook: createDeviceBook(path.join(userData, 'message-devices.json'))
 	});
 
 	let lastEmit = 0;
@@ -623,7 +639,7 @@ function markSignedOut(why) {
 // --- Screens' data -----------------------------------------------------------
 
 function errorOf(err) {
-	if (err instanceof ApiError) return { code: err.code, message: err.message };
+	if (err instanceof ApiError) return Object.assign({ code: err.code, message: err.message }, Number.isInteger(err.status) ? { status: err.status } : {});
 	return { code: 'unknown', message: (err && err.message) || 'Something went wrong.' };
 }
 
@@ -702,7 +718,7 @@ const ACTIONS = {
 	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
 	readMessages: (p) => api.readMessages(p.id, p.upTo),
 	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
-	editMessage: (p) => api.editMessage(p.id, p.message, p.text, p.encrypted === true),
+	editMessage: (p) => api.editMessage(p.id, p.message, p.text, p.encrypted === true, typeof p.nonce === 'string' ? p.nonce : ''),
 	deleteMessage: (p) => api.deleteMessage(p.message),
 	prepareMessages: () => api.prepareMessages(),
 	setEncrypted: (p) => api.setEncrypted(p.id, p.on === true),

@@ -50,6 +50,7 @@ function createSite({ app = '2.0.0', shell = 1 } = {}) {
 			if (u.pathname === '/v2/app/resources.php') {
 				const listed = site.list();
 				const body = { ok: true, api: 1, shell: Number(u.searchParams.get('shell')), app: site.app, revision: lib.revisionOf(listed), files: listed };
+				if (site.from) body.from = site.from;
 				if (body.shell !== site.shell) Object.assign(body, { app: '', files: {}, revision: lib.revisionOf({}) });
 				return respond(200, JSON.stringify(body));
 			}
@@ -247,6 +248,35 @@ check('only for the app version it was published from or older', async () => {
 	const result = await newer.check();
 	assert.strictEqual(result.status, 'bundled');
 	assert.ok(!fs.existsSync(path.join(dir, 'files')) || fs.readdirSync(path.join(dir, 'files')).length === 0, 'nothing kept that will not be used');
+});
+
+check('published from the same version: only by the build whose screens it was copied from', async () => {
+	const bundled = 'b'.repeat(64);
+	const other = make(standardSite({ app: '2.0.0' }), { bundledRevision: bundled });
+	assert.strictEqual((await other.check()).status, 'bundled', 'a set from before \"from\" was said: this build\'s own screens');
+	const older = standardSite({ app: '2.0.0' });
+	older.from = 'c'.repeat(64);
+	const r = make(older, { bundledRevision: bundled });
+	assert.strictEqual((await r.check()).status, 'bundled', 'from other screens of the same version: its own');
+	assert.strictEqual(r.begin(), '');
+	const same = standardSite({ app: '2.0.0' });
+	same.from = bundled;
+	const dir = freshDir();
+	assert.strictEqual((await make(same, { dir, bundledRevision: bundled }).check()).status, 'updated', 'from these very screens (and edited on the site since): the site\'s');
+	assert.ok(make(same, { dir, bundledRevision: bundled }).begin());
+	assert.strictEqual(make(same, { dir, bundledRevision: 'd'.repeat(64) }).begin(), '', 'not by a build with other screens');
+	assert.ok(make(same, { dir, appVersion: '1.9.0', bundledRevision: 'd'.repeat(64) }).begin(), 'an older app takes it whatever it was built with');
+});
+
+check('the revision of a folder is the one the site would list for it', () => {
+	const dir = freshDir();
+	fs.mkdirSync(path.join(dir, 'js'), { recursive: true });
+	fs.writeFileSync(path.join(dir, 'index.html'), 'a');
+	fs.writeFileSync(path.join(dir, 'js', 'main.js'), 'b');
+	fs.writeFileSync(path.join(dir, '_release.json'), 'c');
+	const sha = (t) => require('crypto').createHash('sha256').update(t).digest('hex');
+	assert.strictEqual(lib.revisionOfDir(dir), lib.revisionOf({ 'index.html': { sha256: sha('a') }, 'js/main.js': { sha256: sha('b') } }));
+	assert.strictEqual(lib.revisionOfDir(path.join(dir, 'nope')), '');
 });
 
 check('nothing published for these screens: the bundled ones', async () => {
