@@ -1284,6 +1284,11 @@ const STATUS_PAGE_CSS = [
 	'}'
 ].join('\n');
 
+// The site's privacy policy and terms: no navbar or footer, the sheet has
+// its own title bar.
+const LEGAL_PAGE_CSS = '#nav, footer { display: none !important; }';
+const LEGAL_PATHS = new Set(['/privacy', '/privacy.html', '/terms', '/terms.html']);
+
 // The page's background: the body's, or the document's if that is
 // see-through, or white if both are.
 const STATUS_PAGE_BACKGROUND = `(function () {
@@ -1464,6 +1469,10 @@ function guardStatusPage(contents) {
 		}
 		if (target.protocol !== 'https:') return false;
 		if (!statusPage || !statusPage.host) return true;
+		if (statusPage.kind !== 'status') {
+			// The legal pages never leave each other: anything else, the browser.
+			return target.hostname === pageHost && LEGAL_PATHS.has(target.pathname.replace(/\/+$/, '') || '/');
+		}
 		return target.hostname === statusPage.host || target.hostname === pageHost;
 	};
 	const elsewhere = (url) => {
@@ -1513,8 +1522,8 @@ function guardStatusPage(contents) {
 	});
 	contents.on('did-navigate-in-page', () => sendStatusPage());
 	contents.on('dom-ready', () => {
-		if (!statusPage || statusPage.kind !== 'status') return;
-		contents.insertCSS(STATUS_PAGE_CSS, { cssOrigin: 'user' }).catch(() => {});
+		if (!statusPage) return;
+		contents.insertCSS(statusPage.kind === 'status' ? STATUS_PAGE_CSS : LEGAL_PAGE_CSS, { cssOrigin: 'user' }).catch(() => {});
 	});
 	contents.on('did-finish-load', () => {
 		if (!statusPage) return;

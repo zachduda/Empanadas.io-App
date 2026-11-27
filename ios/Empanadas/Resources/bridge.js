@@ -24,6 +24,10 @@
   // so the bar never flashes up; <html> may not exist yet at document start,
   // so wait for it if need be.
   var NATIVE_CSS = '#nav { display: none !important; }';
+  // The privacy policy and terms open in a sheet of their own: no footer.
+  if (/^\/(privacy|terms)(\.html)?\/?$/.test(location.pathname)) {
+    NATIVE_CSS += ' footer { display: none !important; }';
+  }
 
   function mark(root) {
     root.setAttribute('data-native-app', 'ios');

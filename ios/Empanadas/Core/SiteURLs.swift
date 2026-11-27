@@ -68,6 +68,13 @@ enum SiteURLs {
     static let feedback = page("/v2/feedback")
     static let privacy = page("/privacy.html")
     static let terms = page("/terms.html")
+    /// The privacy policy and terms. Opened in a sheet that never leaves
+    /// them: any other link goes to the browser.
+    static let legalPaths: Set<String> = ["/privacy", "/privacy.html", "/terms", "/terms.html"]
+
+    static func isLegalURL(_ url: URL) -> Bool {
+        isPath(url, in: legalPaths)
+    }
     /// The apps' own API on the site: JSON in, JSON out (html/v2/app/ there),
     /// shared with the desktop app. It has to be under /v2/: the session
     /// cookie is scoped to /v2, so AccountAPI sends it nowhere else, and
