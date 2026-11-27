@@ -92,7 +92,8 @@ const MESSAGES_POLL = 60 * 1000;
 // sendMessage, readMessages, blockPlayer and reportMessage).
 // 3: end-to-end encrypted messages, opened here (messages' since, editMessage,
 // deleteMessage, reportMessage's text, prepareMessages, setEncrypted).
-const SHELL_API = 3;
+// 4: replies, reactions and typing (sendMessage's replyTo, reactMessage, typingMessage).
+const SHELL_API = 4;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
 // (the check finishes in the background, for the next launch).
@@ -699,7 +700,9 @@ const ACTIONS = {
 	sendFeedback: (p) => api.sendFeedback(p),
 	restoreSavePoint: (p) => api.restoreSavePoint(p.id),
 	claimDaily: () => api.claimDailyReward(),
-	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
+	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce, p.replyTo),
+	reactMessage: (p) => api.reactMessage(p.message, p.emoji),
+	typingMessage: (p) => api.typingMessage(p.id, p.on === true),
 	readMessages: (p) => api.readMessages(p.id, p.upTo),
 	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
 	editMessage: (p) => api.editMessage(p.id, p.message, p.text, p.encrypted === true),

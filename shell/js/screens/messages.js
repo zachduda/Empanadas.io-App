@@ -63,7 +63,7 @@ function unsentFor(id) {
 
 function setUnsent(id, list) {
 	const all = unsentAll();
-	if (list.length) all[id] = list.map((m) => ({ nonce: m.nonce, text: m.text, sent: m.sent }));
+	if (list.length) all[id] = list.map((m) => ({ nonce: m.nonce, text: m.text, sent: m.sent, reply_to: m.reply_to || 0 }));
 	else delete all[id];
 	try { localStorage.setItem(UNSENT_KEY, JSON.stringify(all)); } catch (err) { /* this session only */ }
 }
@@ -75,6 +75,42 @@ function keepUnsent(id, m) {
 function dropUnsent(id, m) {
 	setUnsent(id, unsentFor(id).filter((x) => x.nonce !== m.nonce));
 }
+
+// What was typed and not sent yet, by conversation, until sign-out (main.js).
+export const DRAFTS_KEY = 'dm-drafts';
+
+function draftsAll() {
+	try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}') || {}; } catch (err) { return {}; }
+}
+
+function draftFor(id) {
+	const text = draftsAll()[id];
+	return typeof text === 'string' ? text : '';
+}
+
+function setDraft(id, text) {
+	const all = draftsAll();
+	if (String(text).trim()) all[id] = String(text).slice(0, 1200);
+	else delete all[id];
+	try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); } catch (err) { /* this session only */ }
+}
+
+const oneLine = (text) => String(text || '').replace(/\s+/g, ' ').trim();
+
+// "Seen" with when: just now, the time today, yesterday, or the date.
+function seenWhen(seconds) {
+	if (!seconds) return '';
+	const d = new Date(seconds * 1000);
+	const now = new Date();
+	if (now - d < 60000) return ' just now';
+	if (d.toDateString() === now.toDateString()) return ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+	const yesterday = new Date(now);
+	yesterday.setDate(now.getDate() - 1);
+	if (d.toDateString() === yesterday.toDateString()) return ' yesterday';
+	return ' ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+const TYPING_EVERY = 3000;
 
 // A note that one of them turned encryption on or off.
 function eventText(m, name) {
@@ -153,6 +189,8 @@ export function mount(container, { app, params, onClose }) {
 	let threadTimer = null;
 	let editTimer = null;
 	let destroyed = false;
+	let reactions = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F525}'];
+	let popover = null;
 	// What the inbox showed last: each conversation's newest message and unread count.
 	const inboxSeen = new Map();
 	let inboxFresh = true;
@@ -203,7 +241,9 @@ export function mount(container, { app, params, onClose }) {
 				h('div', { class: 'top' },
 					h('span', { class: 'name' }, p.username || 'Player'),
 					h('span', { class: 'when', title: stamp(c.last && c.last.sent) }, shortStamp(c.last && c.last.sent))),
-				h('div', { class: 'preview' }, (c.last && c.last.from_me ? 'You: ' : '') + ((c.last && c.last.preview) || ''))),
+				draftFor(key(p.id)) && !(current && current.id === key(p.id))
+					? h('div', { class: 'preview' }, h('span', { class: 'dm-draft' }, 'Draft: '), oneLine(draftFor(key(p.id))))
+					: h('div', { class: 'preview' }, (c.last && c.last.from_me ? 'You: ' : '') + ((c.last && c.last.preview) || ''))),
 			c.unread ? h('span', { class: 'count' + (!inboxFresh && (!was || unread > was.unread) ? ' pop' : ''), 'aria-label': c.unread + ' unread' }, String(c.unread)) : null);
 			row.addEventListener('click', () => open(p.id, p));
 			return row;
@@ -345,9 +385,11 @@ export function mount(container, { app, params, onClose }) {
 		const convo = {
 			id: key(id), raw: String(id), with: preview || null, messages: [], pending: [], hasMore: false, seenUpTo: 0,
 			canMessage: false, reason: null, blocked: false, loaded: false, error: null, since: 0, editing: null,
-			e2ee: { on: false, by: null }, drawn: new Map(), seenShown: 0, landed: new Set()
+			e2ee: { on: false, by: null }, drawn: new Map(), seenShown: 0, landed: new Set(),
+			replying: null, typing: false, typingSent: 0, seenAt: null, reacted: new Map()
 		};
 		current = convo;
+		popover = null;
 		const head = h('header', { class: 'dm-head' });
 		const scroller = h('div', { class: 'dm-scroll selectable' });
 		const footer = h('div', { class: 'dm-foot' });
@@ -355,6 +397,7 @@ export function mount(container, { app, params, onClose }) {
 		pill.addEventListener('click', () => { pill.hidden = true; scroller.scrollTo({ top: scroller.scrollHeight, behavior: calm() ? 'auto' : 'smooth' }); });
 		scroller.addEventListener('scroll', () => {
 			if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60) pill.hidden = true;
+			closePopover();
 		}, { passive: true });
 		Object.assign(convo, { head, scroller, footer, pill, footerMode: null, field: null });
 		const thread = h('div', { class: 'dm-thread' }, head, scroller, pill, footer);
@@ -372,7 +415,7 @@ export function mount(container, { app, params, onClose }) {
 		convo.loaded = true;
 		apply(result.data, false);
 		// What didn't go last time is tried again, under the same nonce, so the site keeps it once.
-		const waiting = unsentFor(convo.id).map((m) => ({ id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'pending' }))
+		const waiting = unsentFor(convo.id).map((m) => ({ id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'pending', reply_to: m.reply_to || null }))
 			.filter((m) => !convo.pending.some((p) => p.nonce === m.nonce));
 		convo.pending = convo.pending.concat(waiting);
 		drawThread(true);
@@ -388,6 +431,9 @@ export function mount(container, { app, params, onClose }) {
 		current.reason = data.reason || null;
 		current.blocked = !!data.blocked;
 		current.seenUpTo = Number(data.seen_up_to) || 0;
+		current.seenAt = Number(data.seen_at) || null;
+		current.typing = !!data.typing;
+		if (Array.isArray(data.reactions) && data.reactions.length) reactions = data.reactions;
 		if (data.e2ee) current.e2ee = data.e2ee;
 		if (typeof data.now === 'number') {
 			current.since = data.now;
@@ -424,7 +470,7 @@ export function mount(container, { app, params, onClose }) {
 			p.pfp ? avatar(p.pfp, null, p.state ? presenceOf(p.state) : null) : null,
 			h('div', { class: 'main' },
 				h('div', { class: 'name' }, p.username || '…'),
-				p.label ? h('div', { class: 'sub' }, p.label) : null));
+				current.typing ? h('div', { class: 'sub' }, 'typing\u2026') : p.label ? h('div', { class: 'sub' }, p.label) : null));
 		who.addEventListener('click', openProfile);
 		const lock = current.loaded ? button(current.e2ee.on ? 'Encrypted' : 'Encrypt', () => setEncrypted(!current.e2ee.on),
 			{ kind: 'small' + (current.e2ee.on ? ' primary' : ''), icon: current.e2ee.on ? 'lock' : 'unlock',
@@ -496,7 +542,11 @@ export function mount(container, { app, params, onClose }) {
 			const bubble = h('div', { class: 'dm-bubble', title: stamp(m.sent) }, m.text);
 			const classes = 'dm-row' + (m.from_me ? ' me' : '') + (m.state ? ' ' + m.state : '') + (m.deleted ? ' deleted' : '')
 				+ (m.sealed ? ' sealed' : '') + (current.editing && current.editing.id === m.id ? ' editing' : '');
-			const row = h('div', { class: classes }, bubble,
+			const live = m.id && !m.deleted && current.canMessage;
+			const row = h('div', { class: classes, 'data-id': m.id || null },
+				h('div', { class: 'dm-stack' }, quoteOf(m), bubble, reactionsOf(m)),
+				live ? iconButton('smile', 'React', (e) => pickReaction(m, e.currentTarget), { class: 'dm-more' }) : null,
+				live ? iconButton('reply', 'Reply', () => startReplying(m), { class: 'dm-more' }) : null,
 				m.id && !m.deleted ? iconButton('more', 'Message options', () => messageMenu(m), { class: 'dm-more' }) : null);
 			motion(m, i, row);
 			if (m.id && current.landed.has(mkey(m))) {
@@ -519,7 +569,13 @@ export function mount(container, { app, params, onClose }) {
 		if (newest && newest.from_me && current.seenUpTo >= newest.id && !current.pending.length) {
 			const fresh = current.seenShown !== newest.id && !first;
 			current.seenShown = newest.id;
-			rows.push(h('div', { class: 'dm-status dm-seen' + (fresh ? ' fresh' : '') }, icon('check'), 'Seen'));
+			rows.push(h('div', { class: 'dm-status dm-seen' + (fresh ? ' fresh' : ''), title: current.seenAt ? stamp(current.seenAt) : null },
+				icon('check'), 'Seen' + seenWhen(current.seenAt)));
+		}
+		if (current.typing) {
+			const who = (current.with && current.with.username) || 'They';
+			rows.push(h('div', { class: 'dm-row dm-typing dm-enter', role: 'status', 'aria-label': who + ' is typing' },
+				h('div', { class: 'dm-stack' }, h('div', { class: 'dm-bubble' }, h('span', { class: 'dm-dots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'))))));
 		}
 		if (!all.length && current.loaded) {
 			rows.push(h('div', { class: 'dm-hello muted' }, current.canMessage ? 'Say hi to ' + (current.with && current.with.username) + '!' : 'No messages yet.'));
@@ -540,6 +596,143 @@ export function mount(container, { app, params, onClose }) {
 		clearTimeout(editTimer);
 		if (nextExpiry !== Infinity) {
 			editTimer = setTimeout(() => { if (!destroyed && current) drawMessages(false); }, Math.max(500, (nextExpiry - serverNow()) * 1000 + 250));
+		}
+	}
+
+	// --- Replies, reactions and typing -----------------------------------------------
+
+	// The message one answers, above its bubble.
+	function quoteOf(m) {
+		if (!m.reply_to || m.deleted) return null;
+		const target = current.messages.find((x) => x.id === m.reply_to);
+		const name = (current.with && current.with.username) || 'Them';
+		const quote = h('button', { type: 'button', class: 'dm-quote', title: 'Show the message this answers' },
+			h('b', null, icon('reply'), target ? (target.from_me ? 'You' : name) : 'Reply'),
+			h('span', null, target ? oneLine(target.text) : 'An earlier message'));
+		quote.addEventListener('click', () => jumpTo(m.reply_to));
+		return quote;
+	}
+
+	function jumpTo(id) {
+		const row = current && current.scroller.querySelector('.dm-row[data-id="' + Number(id) + '"]');
+		if (!row) {
+			app.toast(current && current.hasMore ? 'That message is further back. Load earlier messages to see it.' : "That message isn't here any more.", 'info');
+			return;
+		}
+		row.scrollIntoView({ block: 'center', behavior: calm() ? 'auto' : 'smooth' });
+		row.classList.remove('flash');
+		void row.offsetWidth;
+		row.classList.add('flash');
+	}
+
+	// Each player's reaction, under the bubble. Yours takes it off; theirs adds the same.
+	function reactionsOf(m) {
+		if (!m.id) return null;
+		const k = mkey(m);
+		const r = m.reactions || {};
+		if (m.deleted || (!r.mine && !r.theirs)) {
+			current.reacted.delete(k);
+			return null;
+		}
+		const sig = (r.mine || '') + '|' + (r.theirs || '');
+		const pop = current.primed && current.reacted.get(k) !== sig;
+		current.reacted.set(k, sig);
+		const name = (current.with && current.with.username) || 'They';
+		const pill = (emoji, mine, both) => {
+			const who = both ? 'You and ' + name : mine ? 'You' : name;
+			const b = h('button', { type: 'button', class: 'dm-react' + (mine ? ' mine' : '') + (pop ? ' pop' : ''),
+				title: who + ' reacted ' + emoji + (mine ? '. Click to take it off.' : ''), 'aria-label': who + ' reacted ' + emoji },
+			emoji, both ? h('small', null, '2') : null);
+			b.addEventListener('click', () => react(m, mine ? '' : emoji));
+			return b;
+		};
+		return h('div', { class: 'dm-reacts' }, r.mine && r.mine === r.theirs ? pill(r.mine, true, true)
+			: [r.theirs ? pill(r.theirs, false, false) : null, r.mine ? pill(r.mine, true, false) : null]);
+	}
+
+	function closePopover() {
+		if (popover) popover.remove();
+		popover = null;
+	}
+
+	function pickReaction(m, anchor) {
+		const again = popover && popover.dataset.id === String(m.id);
+		closePopover();
+		if (again) return;
+		const mine = m.reactions && m.reactions.mine;
+		const pop = h('div', { class: 'dm-pop', role: 'menu', 'aria-label': 'React', 'data-id': m.id }, reactions.map((emoji) => {
+			const b = h('button', { type: 'button', role: 'menuitem', class: emoji === mine ? 'mine' : null, 'aria-label': emoji === mine ? 'Take off ' + emoji : 'React ' + emoji }, emoji);
+			b.addEventListener('click', () => { closePopover(); react(m, emoji === mine ? '' : emoji); });
+			return b;
+		}));
+		main.appendChild(pop);
+		const box = main.getBoundingClientRect();
+		const at = anchor.getBoundingClientRect();
+		const left = Math.min(Math.max(8, at.left - box.left + at.width / 2 - pop.offsetWidth / 2), box.width - pop.offsetWidth - 8);
+		let top = at.top - box.top - pop.offsetHeight - 6;
+		if (top < 8) top = at.bottom - box.top + 6;
+		pop.style.left = left + 'px';
+		pop.style.top = top + 'px';
+		popover = pop;
+		pop.querySelector('button').focus();
+	}
+
+	const onPointer = (e) => { if (popover && !popover.contains(e.target) && !e.target.closest('.dm-more')) closePopover(); };
+	const onKey = (e) => { if (e.key === 'Escape' && popover) { e.preventDefault(); e.stopPropagation(); closePopover(); } };
+	document.addEventListener('mousedown', onPointer);
+	document.addEventListener('keydown', onKey, true);
+
+	async function react(m, emoji) {
+		const convo = current;
+		const before = m.reactions || { mine: null, theirs: null };
+		m.reactions = Object.assign({}, before, { mine: emoji || null });
+		drawMessages(false);
+		const result = await window.native.data.act('reactMessage', { message: m.id, emoji });
+		if (destroyed || current !== convo) return;
+		if (result.ok && result.data && result.data.message) {
+			replaceMessage(result.data.message);
+		} else {
+			m.reactions = before;
+			app.toast((result.error && result.error.message) || "Couldn't react to that.", 'error');
+		}
+		drawMessages(false);
+	}
+
+	function startReplying(m) {
+		if (!current.field) return;
+		if (current.editing) stopEditing();
+		current.replying = m;
+		drawReplying();
+		current.field.focus();
+	}
+
+	function stopReplying() {
+		if (!current || !current.replying) return;
+		current.replying = null;
+		drawReplying();
+	}
+
+	function drawReplying() {
+		if (!current || !current.replyBar) return;
+		const m = current.replying;
+		const name = (current.with && current.with.username) || 'them';
+		const cancel = h('button', { type: 'button', class: 'link' }, 'Cancel');
+		cancel.addEventListener('click', stopReplying);
+		replace(current.replyBar, m ? [icon('reply'), h('span', { class: 'text' }, h('b', null, 'Replying to ' + (m.from_me ? 'yourself' : name) + ': '), oneLine(m.text)), cancel] : []);
+		current.replyBar.hidden = !m;
+	}
+
+	// That this player is typing, at most every few seconds, and that they stopped once the box is empty.
+	function noteTyping(text) {
+		const convo = current;
+		if (!convo || !convo.canMessage) return;
+		if (text.trim()) {
+			if (Date.now() - convo.typingSent < TYPING_EVERY) return;
+			convo.typingSent = Date.now();
+			window.native.data.act('typingMessage', { id: convo.raw, on: true });
+		} else if (convo.typingSent) {
+			convo.typingSent = 0;
+			window.native.data.act('typingMessage', { id: convo.raw, on: false });
 		}
 	}
 
@@ -577,6 +770,7 @@ export function mount(container, { app, params, onClose }) {
 			app.toast("Messages can only be edited for a minute after they're sent.", 'error');
 			return;
 		}
+		stopReplying();
 		if (!current.editing) current.draftBeforeEdit = current.field.value;
 		current.editing = m;
 		current.field.value = m.text;
@@ -670,6 +864,7 @@ export function mount(container, { app, params, onClose }) {
 		const count = h('span', { class: 'dm-count', 'aria-live': 'polite' });
 		const send = iconButton('send', 'Send', () => sendNow(), { class: 'dm-send' });
 		const editBar = h('div', { class: 'dm-editing', hidden: true });
+		const replyBar = h('div', { class: 'dm-replying', hidden: true });
 		const sync = () => {
 			const box = current.scroller;
 			const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -682,10 +877,17 @@ export function mount(container, { app, params, onClose }) {
 			send.disabled = !field.value.trim() || left < 0;
 		};
 		field.addEventListener('input', sync);
+		field.addEventListener('input', () => {
+			if (current.editing) return;
+			setDraft(current.id, field.value);
+			noteTyping(field.value);
+		});
+		field.value = draftFor(current.id);
 		// Return sends, Shift+Return is a new line; not while an input method is composing.
 		field.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendNow(); }
 			if (e.key === 'Escape' && current.editing) { e.preventDefault(); e.stopPropagation(); stopEditing(); }
+			else if (e.key === 'Escape' && current.replying) { e.preventDefault(); e.stopPropagation(); stopReplying(); }
 			// Up in an empty box edits your last message, while it still can be.
 			if (e.key === 'ArrowUp' && !field.value && !current.editing) {
 				const last = [...current.messages].reverse().find((m) => m.from_me && !m.deleted && !m.kind);
@@ -699,9 +901,11 @@ export function mount(container, { app, params, onClose }) {
 		current.sync = sync;
 		current.limit = limit;
 		current.editBar = editBar;
-		replace(current.footer, editBar, h('div', { class: 'dm-compose' }, field, count, send));
+		current.replyBar = replyBar;
+		replace(current.footer, replyBar, editBar, h('div', { class: 'dm-compose' }, field, count, send));
 		sync();
 		drawEditing();
+		drawReplying();
 	}
 
 	function sendNow() {
@@ -715,7 +919,11 @@ export function mount(container, { app, params, onClose }) {
 		}
 		field.value = '';
 		current.sync();
-		const pending = { id: 0, nonce: nonce(), from_me: true, text, sent: Math.floor(Date.now() / 1000), state: 'pending' };
+		const pending = { id: 0, nonce: nonce(), from_me: true, text, sent: Math.floor(Date.now() / 1000), state: 'pending',
+			reply_to: current.replying ? current.replying.id : null };
+		stopReplying();
+		setDraft(current.id, '');
+		current.typingSent = 0;
 		current.pending.push(pending);
 		keepUnsent(current.id, pending);
 		const send = current.send;
@@ -731,7 +939,7 @@ export function mount(container, { app, params, onClose }) {
 
 	async function deliver(pending) {
 		const convo = current;
-		const result = await window.native.data.act('sendMessage', { id: convo.raw, text: pending.text, nonce: pending.nonce });
+		const result = await window.native.data.act('sendMessage', { id: convo.raw, text: pending.text, nonce: pending.nonce, replyTo: pending.reply_to || undefined });
 		// Kept until the site has it; a refusal or network trouble keeps it, to retry or delete.
 		if (result.ok && result.data && result.data.message) dropUnsent(convo.id, pending);
 		if (destroyed) return;
@@ -813,13 +1021,15 @@ export function mount(container, { app, params, onClose }) {
 		const last = convo.messages.length ? convo.messages[convo.messages.length - 1].id : 0;
 		const result = await window.native.data.load('messages', { id: convo.raw, after: last, since: convo.since || undefined });
 		if (destroyed || current !== convo || !result.ok) return;
-		const before = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label, convo.e2ee.on];
+		const state = () => [convo.messages.length, convo.seenUpTo, convo.seenAt, convo.typing, convo.canMessage, convo.blocked,
+			convo.with && convo.with.label, convo.e2ee.on];
+		const before = state();
 		const changed = (Array.isArray(result.data.changed) ? result.data.changed : []).some((m) => {
 			const had = convo.messages.find((x) => x.id === m.id);
-			return had && (had.deleted !== m.deleted || had.edited !== m.edited);
+			return had && (had.deleted !== m.deleted || had.edited !== m.edited || JSON.stringify(had.reactions || null) !== JSON.stringify(m.reactions || null));
 		});
 		apply(result.data, true);
-		const after = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label, convo.e2ee.on];
+		const after = state();
 		if (changed || before.some((v, i) => v !== after[i])) {
 			drawThread(false);
 			markRead();
@@ -840,6 +1050,7 @@ export function mount(container, { app, params, onClose }) {
 
 	function messageMenu(m) {
 		const items = m.sealed ? [] : [{ id: 'copy', label: 'Copy' }];
+		if (m.id && !m.deleted && current.canMessage) items.unshift({ id: 'reply', label: 'Reply' });
 		if (m.from_me && m.id && !m.deleted) {
 			if (canEdit(m)) items.push({ id: 'edit', label: 'Edit' });
 			items.push({ id: 'delete', label: 'Delete…' });
@@ -849,7 +1060,8 @@ export function mount(container, { app, params, onClose }) {
 			for (const r of REPORT_REASONS) items.push({ id: 'report:' + r.id, label: 'Report as ' + r.label + '…' });
 		}
 		app.contextMenu(items, (choice) => {
-			if (choice === 'edit') startEditing(m);
+			if (choice === 'reply') startReplying(m);
+			else if (choice === 'edit') startEditing(m);
 			else if (choice === 'delete') deleteMessage(m);
 			else if (choice === 'copy') {
 				navigator.clipboard.writeText(m.text).then(() => app.toast('Copied.', 'success')).catch(() => {});
@@ -936,6 +1148,8 @@ export function mount(container, { app, params, onClose }) {
 			clearTimeout(editTimer);
 			clearInterval(inboxTimer);
 			document.removeEventListener('visibilitychange', onVisible);
+			document.removeEventListener('mousedown', onPointer);
+			document.removeEventListener('keydown', onKey, true);
 			offConversations();
 		}
 	};

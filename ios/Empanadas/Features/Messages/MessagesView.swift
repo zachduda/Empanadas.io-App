@@ -65,6 +65,16 @@ enum MessageTime {
 
     /// A gap this long between two messages gets the time written between them.
     static let gapAfter: TimeInterval = 15 * 60
+
+    /// Seen, and when: just now, the time today, yesterday, or the date.
+    static func seen(_ date: Date?, now: Date = Date()) -> String {
+        guard let date else { return "Seen" }
+        let calendar = Calendar.current
+        if now.timeIntervalSince(date) < 60 { return "Seen just now" }
+        if calendar.isDate(date, inSameDayAs: now) { return "Seen " + date.formatted(date: .omitted, time: .shortened) }
+        if calendar.isDateInYesterday(date) { return "Seen yesterday" }
+        return "Seen " + date.formatted(.dateTime.month(.abbreviated).day())
+    }
 }
 
 // MARK: - The inbox
@@ -75,6 +85,8 @@ struct MessagesView: View {
     @State private var inbox = InboxModel()
     @State private var composing = false
     @State private var picked: MessagePerson?
+    /// What was typed and not sent, by conversation.
+    @State private var drafts: [String: String] = [:]
 
     var body: some View {
         List {
@@ -89,7 +101,8 @@ struct MessagesView: View {
                         ForEach(data.conversations) { conversation in
                             NavigationLink(value: MessagesRoute.conversation(id: conversation.with.playerID,
                                                                              name: conversation.with.username)) {
-                                ConversationRow(conversation: conversation)
+                                ConversationRow(conversation: conversation,
+                                                draft: drafts[MessageDrafts.conversation(conversation.with.playerID)])
                             }
                             .disabled(conversation.with.playerID.isEmpty)
                         }
@@ -133,6 +146,7 @@ struct MessagesView: View {
             }
         }
         .refreshable { await inbox.load(app: model) }
+        .onAppear { drafts = MessageDrafts.all() }
         // While it shows and the app is in front: now, then every 20 seconds.
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
@@ -197,6 +211,7 @@ struct MessagesView: View {
 
 private struct ConversationRow: View {
     let conversation: Conversation
+    var draft: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -214,10 +229,22 @@ private struct ConversationRow: View {
                     }
                 }
                 HStack(alignment: .top) {
-                    Text(verbatim: (conversation.last.fromMe ? "You: " : "") + conversation.last.preview)
-                        .font(.subheadline.weight(conversation.unread > 0 ? .semibold : .regular))
-                        .foregroundStyle(conversation.unread > 0 ? Color.primary : Color.secondary)
-                        .lineLimit(2)
+                    if let draft, !draft.isEmpty {
+                        HStack(alignment: .firstTextBaseline, spacing: 0) {
+                            Text("Draft: ")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.red)
+                            Text(verbatim: draft.split(whereSeparator: \.isNewline).joined(separator: " "))
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.subheadline)
+                        .lineLimit(1)
+                    } else {
+                        Text(verbatim: (conversation.last.fromMe ? "You: " : "") + conversation.last.preview)
+                            .font(.subheadline.weight(conversation.unread > 0 ? .semibold : .regular))
+                            .foregroundStyle(conversation.unread > 0 ? Color.primary : Color.secondary)
+                            .lineLimit(2)
+                    }
                     Spacer(minLength: 6)
                     if conversation.unread > 0 {
                         Text("\(conversation.unread)")
@@ -461,6 +488,7 @@ struct ConversationView: View {
         case message(DirectMessage)
         case pending(PendingMessage)
         case seen
+        case typing
 
         var id: String {
             switch self {
@@ -470,6 +498,7 @@ struct ConversationView: View {
             case .message(let message): "m-\(message.id)"
             case .pending(let message): "p-\(message.id)"
             case .seen: "seen"
+            case .typing: "typing"
             }
         }
     }
@@ -489,6 +518,7 @@ struct ConversationView: View {
         }
         out += conversation.pending.map { Row.pending($0) }
         if conversation.seenMessageID != nil { out.append(.seen) }
+        if conversation.theyAreTyping { out.append(.typing) }
         return out
     }
 
@@ -541,6 +571,9 @@ struct ConversationView: View {
         }
         .onChange(of: conversation.messages.count) { _, _ in
             PushNotifications.shared.conversationOpened(with: conversation.playerID)
+        }
+        .onChange(of: conversation.draft) { _, _ in
+            conversation.draftChanged(app: model)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { footer }
         .background(Color(uiColor: .systemBackground))
@@ -696,40 +729,16 @@ struct ConversationView: View {
                 .padding(.bottom, 4)
         case .message(let message):
             VStack(alignment: message.fromMe ? .trailing : .leading, spacing: 2) {
+                if let replyTo = message.replyTo, !message.deleted {
+                    quote(replyTo, fromMe: message.fromMe)
+                }
                 Bubble(text: message.shownText, fromMe: message.fromMe, sent: message.sent, faded: false, sender: name,
                        muted: message.deleted || message.sealed,
                        highlighted: conversation.editing?.id == message.id)
-                    .contextMenu {
-                        if !message.deleted && !message.sealed {
-                            Button {
-                                UIPasteboard.general.string = message.text
-                            } label: {
-                                Label("Copy", systemImage: "doc.on.doc")
-                            }
-                        }
-                        if message.fromMe && !message.deleted {
-                            if conversation.canEdit(message) {
-                                Button {
-                                    conversation.startEditing(message)
-                                    typing = true
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                            }
-                            Button(role: .destructive) { deleting = message } label: {
-                                Label("Delete…", systemImage: "trash")
-                            }
-                        }
-                        if !message.fromMe && !message.deleted {
-                            Menu {
-                                ForEach(ReportReason.allCases) { reason in
-                                    Button(reason.title) { reporting = (message, reason) }
-                                }
-                            } label: {
-                                Label("Report…", systemImage: "exclamationmark.bubble")
-                            }
-                        }
-                    }
+                    .contextMenu { messageActions(message) }
+                if !message.deleted && !message.reactions.isEmpty {
+                    reactionsView(message)
+                }
                 if message.edited != nil && !message.deleted {
                     Text("Edited")
                         .font(.caption2)
@@ -740,6 +749,9 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity, alignment: message.fromMe ? .trailing : .leading)
         case .pending(let message):
             VStack(alignment: .trailing, spacing: 3) {
+                if let replyTo = message.replyTo {
+                    quote(replyTo, fromMe: true)
+                }
                 Bubble(text: message.text, fromMe: true, sent: message.at, faded: message.failed == nil, sender: name)
                 if let failed = message.failed {
                     HStack(spacing: 10) {
@@ -755,12 +767,127 @@ struct ConversationView: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .seen:
-            Label("Seen", systemImage: "checkmark")
+            Label(MessageTime.seen(conversation.seenAt), systemImage: "checkmark")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 4)
+        case .typing:
+            TypingBubble()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("\(name) is typing")
         }
+    }
+
+    /// What a long press on a message offers.
+    @ViewBuilder
+    private func messageActions(_ message: DirectMessage) -> some View {
+        if conversation.canMessage && !message.deleted {
+            Button {
+                conversation.startReplying(message)
+                typing = true
+            } label: {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+            }
+            Menu {
+                ForEach(conversation.reactionChoices, id: \.self) { emoji in
+                    Button(message.reactions.mine == emoji ? "\(emoji) (Take Off)" : emoji) {
+                        Task { await conversation.react(message, emoji: message.reactions.mine == emoji ? "" : emoji, app: model) }
+                    }
+                }
+            } label: {
+                Label("React", systemImage: "face.smiling")
+            }
+        }
+        if !message.deleted && !message.sealed {
+            Button {
+                UIPasteboard.general.string = message.text
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+        }
+        if message.fromMe && !message.deleted {
+            if conversation.canEdit(message) {
+                Button {
+                    conversation.startEditing(message)
+                    typing = true
+                } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+            }
+            Button(role: .destructive) { deleting = message } label: {
+                Label("Delete…", systemImage: "trash")
+            }
+        }
+        if !message.fromMe && !message.deleted {
+            Menu {
+                ForEach(ReportReason.allCases) { reason in
+                    Button(reason.title) { reporting = (message, reason) }
+                }
+            } label: {
+                Label("Report…", systemImage: "exclamationmark.bubble")
+            }
+        }
+    }
+
+    /// The message a reply answers, above its bubble.
+    private func quote(_ id: Int, fromMe: Bool) -> some View {
+        let target = conversation.message(id)
+        let who = target.map { $0.fromMe ? "You" : name } ?? "Reply"
+        let words = target.map { $0.shownText.split(whereSeparator: \.isNewline).joined(separator: " ") } ?? "An earlier message"
+        return VStack(alignment: .leading, spacing: 1) {
+            Label(who, systemImage: "arrowshape.turn.up.left.fill")
+                .font(.caption2.weight(.semibold))
+            Text(verbatim: words)
+                .font(.caption)
+                .lineLimit(1)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(maxWidth: 280, alignment: fromMe ? .trailing : .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Replying to \(who): \(words)")
+    }
+
+    /// Each player's reaction, under the bubble. A tap on the viewer's takes it off; on theirs, adds the same.
+    private func reactionsView(_ message: DirectMessage) -> some View {
+        let r = message.reactions
+        let both = r.mine != nil && r.mine == r.theirs
+        return HStack(spacing: 4) {
+            if both, let emoji = r.mine {
+                reactionPill(message, emoji: emoji, mine: true, count: 2)
+            } else {
+                if let emoji = r.theirs { reactionPill(message, emoji: emoji, mine: false, count: 1) }
+                if let emoji = r.mine { reactionPill(message, emoji: emoji, mine: true, count: 1) }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, -6)
+    }
+
+    private func reactionPill(_ message: DirectMessage, emoji: String, mine: Bool, count: Int) -> some View {
+        let who = count > 1 ? "You and \(name)" : (mine ? "You" : name)
+        return Button {
+            Task { await conversation.react(message, emoji: mine ? "" : emoji, app: model) }
+        } label: {
+            HStack(spacing: 2) {
+                Text(verbatim: emoji)
+                if count > 1 {
+                    Text("\(count)").font(.caption2.weight(.bold))
+                }
+            }
+            .font(.footnote)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(mine ? Color.accentColor.opacity(0.18) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .disabled(!conversation.canMessage)
+        .accessibilityLabel("\(who) reacted \(emoji)")
+        .accessibilityHint(mine ? "Takes your reaction off" : "Adds the same reaction")
     }
 
     /// A note that one of them turned encryption on or off.
@@ -820,6 +947,24 @@ struct ConversationView: View {
                 .background(.bar)
         } else if conversation.loaded {
             VStack(alignment: .trailing, spacing: 2) {
+                if let replying = conversation.replying {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrowshape.turn.up.left")
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: "Replying to \(replying.fromMe ? "yourself" : name):")
+                            .fontWeight(.semibold)
+                            .layoutPriority(1)
+                        Text(verbatim: replying.shownText.split(whereSeparator: \.isNewline).joined(separator: " "))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 6)
+                        Button("Cancel") { conversation.stopReplying() }
+                            .font(.caption.weight(.semibold))
+                    }
+                    .font(.caption)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 4)
+                }
                 if conversation.editing != nil {
                     HStack(spacing: 6) {
                         Label("Editing Message", systemImage: "pencil")
@@ -867,6 +1012,29 @@ struct ConversationView: View {
     }
 }
 
+/// Three dots that rise and fall while the other player is typing.
+private struct TypingBubble: View {
+    @Environment(\.accessibilityReduceMotion) private var calm
+    @State private var up = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .frame(width: 7, height: 7)
+                    .opacity(up ? 0.9 : 0.35)
+                    .offset(y: up ? -2 : 1)
+                    .animation(calm ? nil : .easeInOut(duration: 0.5).repeatForever().delay(Double(index) * 0.15), value: up)
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onAppear { up = !calm }
+    }
+}
+
 /// One message, on its side: the player's own in the accent colour on the
 /// right, the other player's in grey on the left.
 private struct Bubble: View {
@@ -886,7 +1054,6 @@ private struct Bubble: View {
             if fromMe { Spacer(minLength: 48) }
             Text(verbatim: text)
                 .italic(muted)
-                .textSelection(.enabled)
                 .padding(.horizontal, 13)
                 .padding(.vertical, 8)
                 .foregroundStyle(muted ? Color.secondary : (fromMe ? Color.white : Color.primary))
