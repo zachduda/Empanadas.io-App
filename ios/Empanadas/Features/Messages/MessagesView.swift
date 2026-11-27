@@ -115,7 +115,7 @@ struct MessagesView: View {
                                 Avatar(url: person.pictureURL, size: 36)
                                 Text(person.username)
                                     .lineLimit(1)
-                                Spacer(minLength: 8)
+                                Spacer(minLength: 12)
                                 if inbox.working == person.playerID {
                                     ProgressView()
                                 } else {
@@ -245,7 +245,7 @@ private struct ConversationRow: View {
                             .foregroundStyle(conversation.unread > 0 ? Color.primary : Color.secondary)
                             .lineLimit(2)
                     }
-                    Spacer(minLength: 6)
+                    Spacer(minLength: 10)
                     if conversation.unread > 0 {
                         Text("\(conversation.unread)")
                             .font(.caption.weight(.bold))
@@ -291,7 +291,7 @@ private struct NotificationsCard: View {
     @State private var asking = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Label("Know when friends message you", systemImage: "bell.badge.fill")
                 .font(.headline)
                 .symbolRenderingMode(.multicolor)
@@ -310,8 +310,9 @@ private struct NotificationsCard: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(asking)
+            .padding(.top, 4)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
     }
 }
 
@@ -575,7 +576,7 @@ struct ConversationView: View {
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 12)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -754,14 +755,17 @@ struct ConversationView: View {
                 .multilineTextAlignment(.center)
                 .padding(.bottom, 6)
         case .devices(let fresh):
-            VStack(spacing: 6) {
+            VStack(spacing: 12) {
                 Label(devicesNote(fresh), systemImage: "lock.trianglebadge.exclamationmark")
                     .font(.caption)
                     .multilineTextAlignment(.center)
                 Button("Got It") { conversation.dismissNewDevices() }
                     .font(.caption.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
             }
-            .padding(10)
+            .padding(14)
             .frame(maxWidth: .infinity)
             .background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .padding(.bottom, 6)
@@ -783,7 +787,7 @@ struct ConversationView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 4)
         case .message(let message):
-            VStack(alignment: message.fromMe ? .trailing : .leading, spacing: 2) {
+            VStack(alignment: message.fromMe ? .trailing : .leading, spacing: 4) {
                 if let replyTo = message.replyTo, !message.deleted {
                     quote(replyTo, fromMe: message.fromMe)
                 }
@@ -803,21 +807,29 @@ struct ConversationView: View {
             }
             .frame(maxWidth: .infinity, alignment: message.fromMe ? .trailing : .leading)
         case .pending(let message):
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 4) {
                 if let replyTo = message.replyTo {
                     quote(replyTo, fromMe: true)
                 }
                 Bubble(text: message.text, fromMe: true, sent: message.at, faded: message.failed == nil, sender: name)
                 if let failed = message.failed {
-                    HStack(spacing: 10) {
-                        Text(failed)
+                    VStack(alignment: .trailing, spacing: 8) {
+                        Label(failed, systemImage: "exclamationmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
-                        Button(message.stale == true ? "Send" : "Try Again") { conversation.retry(message, app: model) }
-                            .fontWeight(.semibold)
-                        Button("Delete", role: .destructive) { conversation.discard(message) }
+                        HStack(spacing: 10) {
+                            Button("Delete", role: .destructive) { conversation.discard(message) }
+                                .buttonStyle(.bordered)
+                            Button(message.stale == true ? "Send" : "Try Again") { conversation.retry(message, app: model) }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .padding(.top, 4)
+                    .padding(.trailing, 4)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -919,7 +931,6 @@ struct ConversationView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.top, -6)
     }
 
     private func reactionPill(_ message: DirectMessage, emoji: String, mine: Bool, count: Int) -> some View {
@@ -1011,43 +1022,33 @@ struct ConversationView: View {
                 .padding()
                 .background(.bar)
         } else if conversation.loaded {
-            VStack(alignment: .trailing, spacing: 2) {
+            VStack(alignment: .trailing, spacing: 8) {
                 if let replying = conversation.replying {
-                    HStack(spacing: 6) {
+                    composerBar(cancelLabel: "Cancel Reply", cancel: { conversation.stopReplying() }) {
                         Image(systemName: "arrowshape.turn.up.left")
                             .foregroundStyle(.secondary)
-                        Text(verbatim: "Replying to \(replying.fromMe ? "yourself" : name):")
-                            .fontWeight(.semibold)
-                            .layoutPriority(1)
-                        Text(verbatim: replying.shownText.split(whereSeparator: \.isNewline).joined(separator: " "))
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 6)
-                        Button("Cancel") { conversation.stopReplying() }
-                            .font(.caption.weight(.semibold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: "Replying to \(replying.fromMe ? "yourself" : name)")
+                                .fontWeight(.semibold)
+                            Text(verbatim: replying.shownText.split(whereSeparator: \.isNewline).joined(separator: " "))
+                                .foregroundStyle(.secondary)
+                        }
+                        .lineLimit(1)
                     }
-                    .font(.caption)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 4)
                 }
                 if conversation.editing != nil {
-                    HStack(spacing: 6) {
+                    composerBar(cancelLabel: "Cancel Edit", cancel: { conversation.stopEditing() }) {
                         Label("Editing Message", systemImage: "pencil")
-                            .font(.caption.weight(.semibold))
+                            .fontWeight(.semibold)
                             .foregroundStyle(.orange)
-                        Spacer()
-                        Button("Cancel") { conversation.stopEditing() }
-                            .font(.caption.weight(.semibold))
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 4)
                 }
-                HStack(alignment: .bottom, spacing: 8) {
+                HStack(alignment: .bottom, spacing: 10) {
                     TextField("Message \(name)", text: $conversation.draft, axis: .vertical)
                         .lineLimit(1...6)
                         .focused($typing)
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
+                        .padding(.vertical, 10)
                         .background(Color(uiColor: .secondarySystemBackground),
                                     in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     Button {
@@ -1057,6 +1058,7 @@ struct ConversationView: View {
                             .font(.system(size: 34))
                             .symbolRenderingMode(.hierarchical)
                     }
+                    .padding(.bottom, 4)
                     .disabled(!conversation.canSend || !model.isOnline)
                     .accessibilityLabel(conversation.editing == nil ? "Send" : "Save Edit")
                 }
@@ -1064,16 +1066,42 @@ struct ConversationView: View {
                     Text("\(left)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(left < 0 ? Color.red : Color.secondary)
-                        .padding(.trailing, 48)
+                        .padding(.trailing, 58)
                         .accessibilityLabel(left < 0 ? "\(-left) characters over" : "\(left) characters left")
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
             .readableWidth(ReadableWidth.narrow)
             .frame(maxWidth: .infinity)
             .background(.bar)
         }
+    }
+
+    /// Above the box: what the next send does (a reply, an edit), with a
+    /// button to call it off, clear of the words.
+    private func composerBar<Content: View>(cancelLabel: String, cancel: @escaping () -> Void,
+                                            @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 10) {
+            content()
+            Spacer(minLength: 12)
+            Button(action: cancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(cancelLabel)
+        }
+        .font(.caption)
+        .padding(.leading, 12)
+        .padding(.trailing, 2)
+        .padding(.vertical, 2)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
