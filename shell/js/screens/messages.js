@@ -87,6 +87,38 @@ function nonce() {
 	return crypto.randomUUID().replace(/-/g, '');
 }
 
+function mkey(m) {
+	return m.id ? 'i' + m.id : 'n' + m.nonce;
+}
+
+function version(m) {
+	return (m.edited || 0) + (m.deleted ? 'd' : '') + (m.sealed ? 's' : '');
+}
+
+const calm = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// The part of a name that matches what was typed, marked.
+function highlight(name, q) {
+	const text = String(name || '');
+	const at = q ? text.toLowerCase().indexOf(q) : -1;
+	if (at < 0) return text;
+	return [text.slice(0, at), h('mark', null, text.slice(at, at + q.length)), text.slice(at + q.length)];
+}
+
+// Rows that come in one after another.
+function stagger(rows, step = 28, max = 12) {
+	rows.forEach((row, i) => {
+		if (!row || !row.classList) return;
+		row.classList.add('dm-enter');
+		row.style.setProperty('--d', Math.min(i, max) * step + 'ms');
+	});
+	return rows;
+}
+
+function bubbles() {
+	return h('div', { class: 'dm-bubbles', 'aria-hidden': 'true' }, [0, 1, 2, 3, 4].map((i) => h('span', { class: 'bubble b' + i })));
+}
+
 function stamp(seconds) {
 	return seconds ? new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
 }
@@ -101,12 +133,13 @@ function shortStamp(seconds) {
 	return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function mount(container, { app, params }) {
+export function mount(container, { app, params, onClose }) {
 	const list = h('div', { class: 'dm-list', role: 'list' });
 	const side = h('aside', { class: 'dm-side', 'aria-label': 'Conversations' },
 		h('div', { class: 'dm-side-head' },
 			h('h1', null, 'Messages'),
-			iconButton('pencil', 'New Message', () => startPicking())),
+			iconButton('pencil', 'New Message', () => startPicking(), { class: 'dm-new' }),
+			onClose ? iconButton('close', 'Close Messages', onClose, { class: 'dm-close' }) : null),
 		list);
 	const main = h('section', { class: 'dm-main', 'aria-live': 'polite' });
 	const root = h('div', { class: 'dm' }, side, main);
@@ -119,6 +152,9 @@ export function mount(container, { app, params }) {
 	let threadTimer = null;
 	let editTimer = null;
 	let destroyed = false;
+	// What the inbox showed last: each conversation's newest message and unread count.
+	const inboxSeen = new Map();
+	let inboxFresh = true;
 	// Server time minus this computer's, from the last conversation answer.
 	let skew = 0;
 	const serverNow = () => Date.now() / 1000 + skew;
@@ -151,10 +187,15 @@ export function mount(container, { app, params }) {
 		const blocked = Array.isArray(inbox.blocked) ? inbox.blocked : [];
 		const rows = conversations.map((c) => {
 			const p = c.with || {};
+			const was = inboxSeen.get(key(p.id));
+			const sent = (c.last && c.last.sent) || 0;
+			const unread = Number(c.unread) || 0;
+			inboxSeen.set(key(p.id), { sent, unread });
+			const fresh = !inboxFresh && (!was || sent > was.sent);
 			const row = h('button', {
 				type: 'button',
 				role: 'listitem',
-				class: 'dm-conv' + (current && current.id === key(p.id) ? ' active' : '') + (c.unread ? ' unread' : '')
+				class: 'dm-conv' + (current && current.id === key(p.id) ? ' active' : '') + (c.unread ? ' unread' : '') + (fresh ? ' bump' : '')
 			},
 			avatar(p.pfp, 'md', p.state ? presenceOf(p.state) : null),
 			h('div', { class: 'main' },
@@ -162,10 +203,12 @@ export function mount(container, { app, params }) {
 					h('span', { class: 'name' }, p.username || 'Player'),
 					h('span', { class: 'when', title: stamp(c.last && c.last.sent) }, shortStamp(c.last && c.last.sent))),
 				h('div', { class: 'preview' }, (c.last && c.last.from_me ? 'You: ' : '') + ((c.last && c.last.preview) || ''))),
-			c.unread ? h('span', { class: 'count', 'aria-label': c.unread + ' unread' }, String(c.unread)) : null);
+			c.unread ? h('span', { class: 'count' + (!inboxFresh && (!was || unread > was.unread) ? ' pop' : ''), 'aria-label': c.unread + ' unread' }, String(c.unread)) : null);
 			row.addEventListener('click', () => open(p.id, p));
 			return row;
 		});
+		if (inboxFresh) stagger(rows, 32);
+		inboxFresh = false;
 		replace(list,
 			inboxError ? h('div', { class: 'banner warn small' }, icon(inboxError.error && inboxError.error.code === 'network' ? 'offline' : 'alert'),
 				h('span', null, "Couldn't check for new messages.")) : null,
@@ -183,10 +226,10 @@ export function mount(container, { app, params }) {
 
 	async function startPicking() {
 		const field = h('input', { class: 'field', type: 'search', placeholder: 'Search friends and players', 'aria-label': 'Search friends and players', spellcheck: 'false', autocomplete: 'off' });
-		const results = h('div', null, skeleton(4, 36));
-		picking = { friends: null, field, results, others: [], searched: '', timer: null, seq: 0 };
-		replace(list, h('div', { class: 'dm-picker' },
-			h('div', { class: 'search-field' }, icon('search'), field),
+		const results = h('div', { class: 'dm-results' }, skeleton(4, 36));
+		const wrap = h('div', { class: 'search-field' }, icon('search'), field);
+		picking = { friends: null, field, wrap, results, others: [], searched: '', timer: null, seq: 0, shown: '' };
+		replace(list, h('div', { class: 'dm-picker' }, wrap,
 			button('Cancel', () => stopPicking(), { kind: 'quiet small' })), results);
 		field.addEventListener('input', () => {
 			drawFriends();
@@ -219,11 +262,14 @@ export function mount(container, { app, params }) {
 		if (q.length < 2) {
 			p.others = [];
 			p.searched = q.toLowerCase();
+			p.wrap.classList.remove('busy');
 			drawFriends();
 			return;
 		}
+		p.wrap.classList.add('busy');
 		const result = await window.native.data.load('search', { q });
 		if (picking !== p || seq !== p.seq) return;
+		p.wrap.classList.remove('busy');
 		const ids = new Set((p.friends || []).map((f) => key(f.id)));
 		p.others = (result.ok && Array.isArray(result.data.results) ? result.data.results : [])
 			.filter((r) => !r.private && r.relation !== 'self' && r.relation !== 'friends' && !ids.has(key(r.id)));
@@ -231,19 +277,19 @@ export function mount(container, { app, params }) {
 		drawFriends();
 	}
 
-	function friendRow(f) {
+	function friendRow(f, q) {
 		const row = h('button', { type: 'button', class: 'dm-conv' },
 			avatar(f.pfp, 'md', f.state ? presenceOf(f.state) : null),
-			h('div', { class: 'main' }, h('div', { class: 'name' }, f.username), f.label ? h('div', { class: 'preview' }, f.label) : null));
+			h('div', { class: 'main' }, h('div', { class: 'name' }, highlight(f.username, q)), f.label ? h('div', { class: 'preview' }, f.label) : null));
 		row.addEventListener('click', () => { stopPicking(); open(f.id, f); });
 		return row;
 	}
 
-	function otherRow(p) {
+	function otherRow(p, q) {
 		const note = p.relation === 'outgoing' ? 'Friend request sent' : p.relation === 'incoming' ? 'Wants to be friends' : 'Not a friend yet · View profile';
 		const row = h('button', { type: 'button', class: 'dm-conv' },
 			avatar(p.pfp, 'md'),
-			h('div', { class: 'main' }, h('div', { class: 'name' }, p.username), h('div', { class: 'preview' }, note)));
+			h('div', { class: 'main' }, h('div', { class: 'name' }, highlight(p.username, q)), h('div', { class: 'preview' }, note)));
 		row.addEventListener('click', () => { stopPicking(); app.navigate({ screen: 'profile', id: p.id }); });
 		return row;
 	}
@@ -253,8 +299,13 @@ export function mount(container, { app, params }) {
 		const q = picking.field.value.trim().toLowerCase();
 		const shown = picking.friends.filter((f) => !q || String(f.username).toLowerCase().includes(q));
 		const others = picking.searched === q ? picking.others : [];
+		// Rows come in again only when what they are changes, not on every key.
+		const sig = shown.map((f) => f.id).concat(['|'], others.map((o) => o.id)).join(',');
+		const again = sig !== picking.shown;
+		picking.shown = sig;
+		const rows = (list) => again ? stagger(list, 22, 8) : list;
 		if (others.length) {
-			replace(picking.results, shown.map(friendRow), h('div', { class: 'dm-section' }, 'Other Players'), others.map(otherRow));
+			replace(picking.results, rows([...shown.map((f) => friendRow(f, q)), h('div', { class: 'dm-section' }, 'Other Players'), ...others.map((o) => otherRow(o, q))]));
 			return;
 		}
 		if (!picking.friends.length && !q) {
@@ -263,12 +314,15 @@ export function mount(container, { app, params }) {
 				button('Find Friends', () => app.navigate({ screen: 'friends', search: true }), { kind: 'primary small', icon: 'search' })));
 			return;
 		}
-		replace(picking.results, shown.length ? shown.map(friendRow)
-			: h('div', { class: 'list-empty' }, picking.searched === q ? 'Nobody by that name.' : 'Searching…'));
+		replace(picking.results, shown.length ? rows(shown.map((f) => friendRow(f, q)))
+			: picking.searched === q
+				? h('div', { class: 'list-empty dm-nobody' }, icon('search'), h('div', null, 'Nobody by that name.'))
+				: h('div', { class: 'list-empty dm-searching' }, h('span', { class: 'dm-dots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('div', null, 'Searching')));
 	}
 
 	function stopPicking() {
 		if (picking) clearTimeout(picking.timer);
+		if (picking) inboxFresh = true;
 		picking = null;
 		drawInbox();
 	}
@@ -276,8 +330,8 @@ export function mount(container, { app, params }) {
 	// --- A conversation -------------------------------------------------------
 
 	function placeholder() {
-		replace(main, h('div', { class: 'empty-state dm-empty' },
-			icon('message'),
+		replace(main, bubbles(), h('div', { class: 'empty-state dm-empty' },
+			h('div', { class: 'dm-empty-icon' }, icon('message')),
 			h('h2', null, 'Your Messages'),
 			h('p', null, 'Pick a conversation, or start one with a friend.'),
 			h('div', { class: 'actions' }, button('New Message', () => startPicking(), { kind: 'primary', icon: 'pencil' }))));
@@ -288,14 +342,20 @@ export function mount(container, { app, params }) {
 		const convo = {
 			id: key(id), raw: String(id), with: preview || null, messages: [], pending: [], hasMore: false, seenUpTo: 0,
 			canMessage: false, reason: null, blocked: false, loaded: false, error: null, since: 0, editing: null,
-			e2ee: { on: false, by: null }
+			e2ee: { on: false, by: null }, drawn: new Map(), seenShown: 0, landed: new Set()
 		};
 		current = convo;
 		const head = h('header', { class: 'dm-head' });
 		const scroller = h('div', { class: 'dm-scroll selectable' });
 		const footer = h('div', { class: 'dm-foot' });
-		Object.assign(convo, { head, scroller, footer, footerMode: null, field: null });
-		replace(main, head, scroller, footer);
+		const pill = h('button', { type: 'button', class: 'dm-pill', hidden: true }, 'New message', icon('back'));
+		pill.addEventListener('click', () => { pill.hidden = true; scroller.scrollTo({ top: scroller.scrollHeight, behavior: calm() ? 'auto' : 'smooth' }); });
+		scroller.addEventListener('scroll', () => {
+			if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60) pill.hidden = true;
+		}, { passive: true });
+		Object.assign(convo, { head, scroller, footer, pill, footerMode: null, field: null });
+		const thread = h('div', { class: 'dm-thread' }, head, scroller, pill, footer);
+		replace(main, thread);
 		drawThread(true);
 		if (!picking) drawInbox();
 
@@ -394,12 +454,38 @@ export function mount(container, { app, params }) {
 				+ '. New messages can only be read by you and ' + name + '.'));
 		}
 		let nextExpiry = Infinity;
+		const first = !current.primed;
+		const cascadeFrom = all.length - 14;
+		let arrivedTheirs = false;
+		let arrivedMine = false;
+		const drawn = new Map();
+		const motion = (m, i, el) => {
+			const k = mkey(m);
+			const was = current.drawn.get(k);
+			drawn.set(k, version(m));
+			if (first) {
+				if (i >= cascadeFrom) {
+					el.classList.add('dm-enter');
+					el.style.setProperty('--d', (i - Math.max(0, cascadeFrom)) * 24 + 'ms');
+				}
+			} else if (was === undefined) {
+				el.classList.add(m.from_me ? 'arrive-me' : 'arrive-them');
+				if (m.from_me) arrivedMine = true;
+				else arrivedTheirs = true;
+			} else if (was !== version(m)) {
+				el.classList.add(m.deleted ? 'poof' : 'changed');
+			}
+		};
+		let i = -1;
 		for (const m of all) {
+			i++;
 			if (!previous || (m.sent && previous.sent && m.sent - previous.sent > GAP)) {
 				rows.push(h('div', { class: 'dm-gap' }, stamp(m.sent)));
 			}
 			if (m.kind) {
-				rows.push(h('div', { class: 'dm-event', title: stamp(m.sent) }, icon('lock'), eventText(m, current.with && current.with.username)));
+				const note = h('div', { class: 'dm-event', title: stamp(m.sent) }, icon('lock'), eventText(m, current.with && current.with.username));
+				motion(m, i, note);
+				rows.push(note);
 				previous = m;
 				continue;
 			}
@@ -409,6 +495,11 @@ export function mount(container, { app, params }) {
 				+ (m.sealed ? ' sealed' : '') + (current.editing && current.editing.id === m.id ? ' editing' : '');
 			const row = h('div', { class: classes }, bubble,
 				m.id && !m.deleted ? iconButton('more', 'Message options', () => messageMenu(m), { class: 'dm-more' }) : null);
+			motion(m, i, row);
+			if (m.id && current.landed.has(mkey(m))) {
+				row.classList.add('landed');
+				current.landed.delete(mkey(m));
+			}
 			if (m.id && !m.deleted) row.addEventListener('contextmenu', (e) => { e.preventDefault(); messageMenu(m); });
 			rows.push(row);
 			if (m.edited && !m.deleted) rows.push(h('div', { class: 'dm-edited' + (m.from_me ? ' me' : ''), title: stamp(m.edited) }, 'Edited'));
@@ -423,13 +514,26 @@ export function mount(container, { app, params }) {
 		}
 		const newest = [...current.messages].reverse().find((m) => !m.kind);
 		if (newest && newest.from_me && current.seenUpTo >= newest.id && !current.pending.length) {
-			rows.push(h('div', { class: 'dm-status' }, 'Seen'));
+			const fresh = current.seenShown !== newest.id && !first;
+			current.seenShown = newest.id;
+			rows.push(h('div', { class: 'dm-status dm-seen' + (fresh ? ' fresh' : '') }, icon('check'), 'Seen'));
 		}
 		if (!all.length && current.loaded) {
 			rows.push(h('div', { class: 'dm-hello muted' }, current.canMessage ? 'Say hi to ' + (current.with && current.with.username) + '!' : 'No messages yet.'));
 		}
 		replace(box, rows);
-		box.scrollTop = (toEnd || nearEnd) ? box.scrollHeight : kept;
+		if (current.loaded) {
+			current.drawn = drawn;
+			current.primed = true;
+		}
+		const follow = toEnd || nearEnd || arrivedMine;
+		if (follow && !first && (arrivedMine || arrivedTheirs) && !calm()) {
+			box.scrollTop = kept;
+			box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+		} else {
+			box.scrollTop = follow ? box.scrollHeight : kept;
+		}
+		if (arrivedTheirs && !follow) current.pill.hidden = false;
 		clearTimeout(editTimer);
 		if (nextExpiry !== Infinity) {
 			editTimer = setTimeout(() => { if (!destroyed && current) drawMessages(false); }, Math.max(500, (nextExpiry - serverNow()) * 1000 + 250));
@@ -585,7 +689,10 @@ export function mount(container, { app, params }) {
 				if (canEdit(last)) { e.preventDefault(); startEditing(last); }
 			}
 		});
+		field.addEventListener('focus', () => field.parentNode.classList.add('focused'));
+		field.addEventListener('blur', () => field.parentNode.classList.remove('focused'));
 		current.field = field;
+		current.send = send;
 		current.sync = sync;
 		current.limit = limit;
 		current.editBar = editBar;
@@ -608,6 +715,12 @@ export function mount(container, { app, params }) {
 		const pending = { id: 0, nonce: nonce(), from_me: true, text, sent: Math.floor(Date.now() / 1000), state: 'pending' };
 		current.pending.push(pending);
 		keepUnsent(current.id, pending);
+		const send = current.send;
+		if (send) {
+			send.classList.remove('launch');
+			void send.offsetWidth;
+			send.classList.add('launch');
+		}
 		drawMessages(true);
 		field.focus();
 		deliver(pending);
@@ -621,6 +734,12 @@ export function mount(container, { app, params }) {
 		if (destroyed) return;
 		if (result.ok && result.data && result.data.message) {
 			convo.pending = convo.pending.filter((m) => m !== pending);
+			// The same bubble, now sent: it doesn't come in again.
+			const k = mkey(result.data.message);
+			if (!convo.drawn.has(k)) {
+				convo.drawn.set(k, version(result.data.message));
+				convo.landed.add(k);
+			}
 			if (!convo.messages.some((m) => m.id === result.data.message.id)) convo.messages.push(result.data.message);
 			convo.messages.sort((a, b) => a.id - b.id);
 		} else {
@@ -663,7 +782,9 @@ export function mount(container, { app, params }) {
 		}
 		const box = convo.scroller;
 		const fromEnd = box.scrollHeight - box.scrollTop;
-		convo.messages = (result.data.messages || []).concat(convo.messages);
+		const older = result.data.messages || [];
+		for (const m of older) convo.drawn.set(mkey(m), version(m));
+		convo.messages = older.concat(convo.messages);
 		convo.hasMore = !!result.data.has_more;
 		drawMessages(false);
 		box.scrollTop = box.scrollHeight - fromEnd;
@@ -798,6 +919,10 @@ export function mount(container, { app, params }) {
 
 	return {
 		title: 'Messages',
+		openConversation(id) {
+			if (picking) stopPicking();
+			if (!current || current.id !== key(id)) open(id);
+		},
 		refresh() {
 			if (current && current.loaded) poll();
 			return loadInbox();
