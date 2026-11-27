@@ -80,6 +80,7 @@ const ICONS = {
 	send: 'M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z',
 	fullscreen: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 	exitFullscreen: 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
+	lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',
 	pencil: 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4',
 	clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
 	history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',

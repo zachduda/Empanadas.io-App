@@ -210,6 +210,8 @@ final class AppModel {
             updateHomeScreen()
             PushNotifications.shared.signedIn()
             Task { await self.refreshTheme() }
+            // So friends' messages are sealed for this device from now on.
+            Task { try? await self.account.ownMessageKey() }
         case .signedOut:
             activeGame = nil
             popup = nil
@@ -223,6 +225,9 @@ final class AppModel {
             messagesPath = NavigationPath()
             leaderboardGame = .spin
             account.forgetToken()
+            account.forgetMessages()
+            // The last account's unsent messages aren't the next one's.
+            UnsentMessages.clear()
             // What was saved describes this account; the next one must not
             // open on it.
             dashboard.reset()

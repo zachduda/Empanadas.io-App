@@ -46,16 +46,31 @@ struct MessagePerson: Decodable, Equatable, Hashable {
 }
 
 /// One message (dmMessage()). `read`: the one it was sent to has read it.
+/// An encrypted one comes with its envelope in `cipher`, which AccountAPI
+/// opens into `text` (or marks `sealed` when this device can't).
 struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
     var id = 0
     var fromMe = false
     var text = ""
     var sent: Date?
     var read = false
+    var cipher: String?
+    var edited: Date?
+    var deleted = false
+    /// Until when the sender can edit it; nil for someone else's.
+    var editableUntil: Date?
+    /// Encrypted, and not for this device (sent before it had a key).
+    var sealed = false
+    /// Not a message but a note in the conversation: "e2ee_on" or "e2ee_off",
+    /// one of them turned encryption on or off.
+    var kind: String?
+
+    var encrypted: Bool { cipher != nil }
 
     enum CodingKeys: String, CodingKey {
-        case id, text, sent, read
+        case id, text, sent, read, cipher, edited, deleted, kind
         case fromMe = "from_me"
+        case editableUntil = "editable_until"
     }
 
     init(id: Int, fromMe: Bool, text: String, sent: Date?, read: Bool = false) {
@@ -71,8 +86,79 @@ struct DirectMessage: Decodable, Equatable, Identifiable, Hashable {
         id = try c.decode(Int.self, forKey: .id)
         fromMe = c.lenient(.fromMe, false)
         text = c.lenient(.text, "")
-        sent = (try? c.decodeIfPresent(Double.self, forKey: .sent)).map { Date(timeIntervalSince1970: $0) }
+        sent = Self.date(c, .sent)
         read = c.lenient(.read, false)
+        cipher = (try? c.decodeIfPresent(String.self, forKey: .cipher)) ?? nil
+        edited = Self.date(c, .edited)
+        deleted = c.lenient(.deleted, false)
+        editableUntil = Self.date(c, .editableUntil)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+    }
+
+    private static func date(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Date? {
+        guard let seconds = (try? c.decodeIfPresent(Double.self, forKey: key)) ?? nil else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// What the bubble says.
+    var shownText: String {
+        if deleted { return "Message deleted" }
+        if sealed { return "\u{1F512} Can't be read on this device" }
+        return text
+    }
+
+    /// Still the sender's to edit, by the site's clock (`serverNow`).
+    func canEdit(serverNow: Date) -> Bool {
+        guard kind == nil, fromMe, id > 0, !deleted, !sealed, let editableUntil else { return false }
+        return serverNow < editableUntil
+    }
+}
+
+/// Whether a conversation is end-to-end encrypted: off until either player
+/// turns it on, then on for both. `by`: "me" or "them", whoever last changed it.
+struct ConversationEncryption: Decodable, Equatable {
+    var on = false
+    var by: String?
+
+    enum CodingKeys: String, CodingKey { case on, by }
+
+    init(on: Bool = false, by: String? = nil) {
+        self.on = on
+        self.by = by
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        on = c.lenient(.on, false)
+        by = (try? c.decodeIfPresent(String.self, forKey: .by)) ?? nil
+    }
+}
+
+/// POST action=e2ee: the conversation's encryption now.
+struct EncryptionChange: Decodable {
+    var e2ee: ConversationEncryption
+}
+
+/// Every device a message is sealed for: both players' (GET ?with=).
+struct MessageKeys: Decodable, Equatable {
+    struct Device: Decodable, Equatable, Hashable {
+        var device: String
+        var key: String
+    }
+
+    var mine: [Device] = []
+    var theirs: [Device] = []
+
+    var all: [Device] { mine + theirs }
+
+    enum CodingKeys: String, CodingKey { case mine, theirs }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mine = c.lenient(.mine, [Lenient<Device>]()).compactMap(\.value)
+        theirs = c.lenient(.theirs, [Lenient<Device>]()).compactMap(\.value)
     }
 }
 
@@ -84,9 +170,12 @@ struct Conversation: Decodable, Equatable, Identifiable {
         var preview = ""
         var sent: Date?
         var read = false
+        /// The last message's envelope, for AccountAPI to open into `preview`.
+        var cipher: String?
+        var deleted = false
 
         enum CodingKeys: String, CodingKey {
-            case id, preview, sent, read
+            case id, preview, sent, read, cipher, deleted
             case fromMe = "from_me"
         }
 
@@ -99,6 +188,9 @@ struct Conversation: Decodable, Equatable, Identifiable {
             preview = c.lenient(.preview, "")
             sent = (try? c.decodeIfPresent(Double.self, forKey: .sent)).map { Date(timeIntervalSince1970: $0) }
             read = c.lenient(.read, false)
+            cipher = (try? c.decodeIfPresent(String.self, forKey: .cipher)) ?? nil
+            deleted = c.lenient(.deleted, false)
+            if deleted { preview = "Message deleted" }
         }
     }
 
@@ -167,9 +259,17 @@ struct MessageThread: Decodable, Equatable {
     var seenUpTo = 0
     var maxLength = MessageText.maxLength
     var csrf = ""
+    /// Both players' devices, to seal the next message for.
+    var keys = MessageKeys()
+    var e2ee = ConversationEncryption()
+    /// The site's clock when it answered: the next poll's `since`, and when
+    /// an edit is still allowed.
+    var now: Date?
+    /// With `since`: messages edited or deleted since then.
+    var changed: [DirectMessage] = []
 
     enum CodingKeys: String, CodingKey {
-        case with, reason, blocked, messages, csrf
+        case with, reason, blocked, messages, csrf, keys, now, changed, e2ee
         case canMessage = "can_message"
         case hasMore = "has_more"
         case seenUpTo = "seen_up_to"
@@ -187,7 +287,16 @@ struct MessageThread: Decodable, Equatable {
         seenUpTo = c.lenient(.seenUpTo, 0)
         maxLength = c.lenient(.maxLength, MessageText.maxLength)
         csrf = c.lenient(.csrf, "")
+        keys = c.lenient(.keys, MessageKeys())
+        e2ee = c.lenient(.e2ee, ConversationEncryption())
+        now = (try? c.decodeIfPresent(Double.self, forKey: .now)).map { Date(timeIntervalSince1970: $0) }
+        changed = c.lenient(.changed, [Lenient<DirectMessage>]()).compactMap(\.value)
     }
+}
+
+/// POST action=edit or delete: the message as it is now.
+struct ChangedMessage: Decodable {
+    var message: DirectMessage
 }
 
 /// POST action=send: the message as the site stored it.
@@ -209,18 +318,30 @@ struct SentMessage: Decodable {
 /// say instead.
 struct MessageRefusal: LocalizedError, Equatable {
     /// The site's reason: not_friends, blocked, unavailable, unverified,
-    /// rate_limited, too_long, empty, not_found, self.
+    /// rate_limited, too_long, empty, not_found, self, no_keys, keys_changed,
+    /// too_late, deleted, encryption_required, invalid.
     let reason: String
     var name = ""
     var maxLength = MessageText.maxLength
+    /// With keys_changed, no_keys and encryption_required: the devices there are now.
+    var keys: MessageKeys?
+    /// With encryption_required: the conversation was turned on meanwhile.
+    var e2ee: ConversationEncryption?
+    /// With encryption_required: the message being edited was encrypted, so the edit must be.
+    var sealed = false
 
     static let reasons: Set<String> = [
         "not_friends", "blocked", "unavailable", "unverified", "rate_limited", "too_long", "empty", "not_found", "self",
+        "no_keys", "keys_changed", "too_late", "deleted", "encryption_required", "invalid",
     ]
 
     /// The other player can't be sent anything from here on (the box goes).
     var closesConversation: Bool {
         ["not_friends", "blocked", "unavailable", "unverified"].contains(reason)
+    }
+
+    static func == (a: MessageRefusal, b: MessageRefusal) -> Bool {
+        a.reason == b.reason && a.name == b.name && a.maxLength == b.maxLength
     }
 
     var errorDescription: String? {
@@ -240,6 +361,12 @@ struct MessageRefusal: LocalizedError, Equatable {
         case "empty": return "Type a message first."
         case "not_found": return "That couldn't be found."
         case "self": return "You can't message yourself."
+        case "no_keys": return (name.isEmpty ? "They have" : name + " has") + " no device set up for encrypted messages right now. They need to open Messages on the website or an updated app, or you can turn encryption off."
+        case "keys_changed": return "Their devices changed. Try again."
+        case "too_late": return "Messages can only be edited for a minute after they're sent."
+        case "deleted": return "That message was deleted."
+        case "encryption_required": return "This conversation is end-to-end encrypted now. Try again."
+        case "invalid": return "That message couldn't be sent. Try again."
         default: return "You can't message \(who)."
         }
     }

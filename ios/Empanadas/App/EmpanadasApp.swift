@@ -70,6 +70,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         PushNotifications.shared.didRegister(deviceToken)
     }
 
+    /// A notification with nothing to show (content-available): a deleted
+    /// message's, to take off the lock screen.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard let retraction = MessageRetraction(userInfo: userInfo) else { return .noData }
+        await PushNotifications.shared.retract(retraction)
+        return .newData
+    }
+
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // No token this time (a simulator, no connection): asked again at the
         // next launch or return to the front.

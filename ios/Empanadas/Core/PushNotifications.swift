@@ -14,6 +14,22 @@ import UserNotifications
 
 /// What a message's notification carries for the app ("dm" beside "aps":
 /// pushMessagePayload() in the site's v2/_push.php).
+/// A deleted message's silent notification ("dm": retract, badge, unread).
+struct MessageRetraction: Equatable, Sendable {
+    let messageID: Int
+    let badge: Int?
+    let unread: Int?
+
+    /// Nil for anything else.
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let dm = userInfo["dm"] as? [String: Any],
+              let id = (dm["retract"] as? NSNumber)?.intValue, id > 0 else { return nil }
+        messageID = id
+        badge = (dm["badge"] as? NSNumber)?.intValue
+        unread = (dm["unread"] as? NSNumber)?.intValue
+    }
+}
+
 struct MessageNotification: Equatable, Sendable {
     /// The sender's player id.
     let from: String
@@ -321,6 +337,15 @@ final class PushNotifications: NSObject {
         Task { await Self.setBadge(count) }
     }
 
+    /// A silent notification (the site's pushRetractPayload()): a message was
+    /// deleted, so its notification comes off the lock screen and Notification
+    /// Center, and the badge is what still waits.
+    func retract(_ retraction: MessageRetraction) async {
+        await Self.removeDelivered(message: retraction.messageID)
+        if let badge = retraction.badge { await Self.setBadge(badge) }
+        if let unread = retraction.unread { app?.setUnreadMessages(unread) }
+    }
+
     /// A conversation is on screen: its notifications have been seen.
     func conversationOpened(with playerID: String) {
         let thread = MessageNotification.threadID(for: playerID)
@@ -467,6 +492,15 @@ final class PushNotifications: NSObject {
         }
         let ids = await center.deliveredNotifications()
             .filter { $0.request.content.threadIdentifier == thread }
+            .map(\.request.identifier)
+        if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+    }
+
+    /// One message's notification, by its id ("dm" "message").
+    private nonisolated static func removeDelivered(message id: Int) async {
+        let center = UNUserNotificationCenter.current()
+        let ids = await center.deliveredNotifications()
+            .filter { (($0.request.content.userInfo["dm"] as? [String: Any])?["message"] as? NSNumber)?.intValue == id }
             .map(\.request.identifier)
         if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
     }

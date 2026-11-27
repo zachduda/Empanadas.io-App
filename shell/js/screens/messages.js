@@ -2,7 +2,10 @@
 // /v2/app/messages.php (the conversations and messages screens' data in
 // main.js). Friends only, as the site decides. An open conversation asks for
 // what's new every few seconds; the inbox every twenty. Everything a player
-// wrote goes on the page as text.
+// wrote goes on the page as text. A conversation can be end-to-end encrypted,
+// off until either player turns it on and then on for both: the main process
+// seals and opens them (lib/api.js), so text here is already plain. Your own
+// messages can be edited for a minute and deleted any time.
 //
 // { screen: 'messages' } opens the inbox, { screen: 'messages', id } the
 // conversation with that player (a profile's Message button,
@@ -34,6 +37,7 @@ function reasonText(reason, name) {
 	case 'blocked': return 'You blocked ' + who + '. Unblock them to send a message.';
 	case 'unavailable': return "You can't message " + who + ' right now.';
 	case 'unverified': return 'Verify your email address to send messages.';
+	case 'no_keys': return who + ' has no device set up for encrypted messages right now. They need to open Messages on the website or an updated app, or you can turn encryption off.';
 	default: return "You can't message " + who + '.';
 	}
 }
@@ -41,6 +45,42 @@ function reasonText(reason, name) {
 // A player's id however it came (dashed or not, any case), for comparing.
 function key(id) {
 	return String(id || '').toLowerCase().replace(/-/g, '');
+}
+
+// Messages not sent yet, kept on this computer by conversation until the site has
+// them or they're deleted, so closing the app doesn't lose them. Cleared at
+// sign-out (main.js).
+export const UNSENT_KEY = 'dm-unsent';
+
+function unsentAll() {
+	try { return JSON.parse(localStorage.getItem(UNSENT_KEY) || '{}') || {}; } catch (err) { return {}; }
+}
+
+function unsentFor(id) {
+	const list = unsentAll()[id];
+	return Array.isArray(list) ? list.filter((m) => m && typeof m.text === 'string' && typeof m.nonce === 'string') : [];
+}
+
+function setUnsent(id, list) {
+	const all = unsentAll();
+	if (list.length) all[id] = list.map((m) => ({ nonce: m.nonce, text: m.text, sent: m.sent }));
+	else delete all[id];
+	try { localStorage.setItem(UNSENT_KEY, JSON.stringify(all)); } catch (err) { /* this session only */ }
+}
+
+function keepUnsent(id, m) {
+	setUnsent(id, unsentFor(id).filter((x) => x.nonce !== m.nonce).concat([m]));
+}
+
+function dropUnsent(id, m) {
+	setUnsent(id, unsentFor(id).filter((x) => x.nonce !== m.nonce));
+}
+
+// A note that one of them turned encryption on or off.
+function eventText(m, name) {
+	const who = m.from_me ? 'You' : (name || 'They');
+	return m.kind === 'e2ee_on' ? who + ' turned on end-to-end encryption. New messages are encrypted.'
+		: who + " turned off end-to-end encryption. New messages aren't encrypted.";
 }
 
 function nonce() {
@@ -77,7 +117,12 @@ export function mount(container, { app, params }) {
 	let picking = null;
 	let current = null;
 	let threadTimer = null;
+	let editTimer = null;
 	let destroyed = false;
+	// Server time minus this computer's, from the last conversation answer.
+	let skew = 0;
+	const serverNow = () => Date.now() / 1000 + skew;
+	const canEdit = (m) => !!(m && m.from_me && m.id && !m.deleted && !m.sealed && m.editable_until && serverNow() < m.editable_until);
 
 	// --- The inbox ----------------------------------------------------------
 
@@ -137,13 +182,17 @@ export function mount(container, { app, params }) {
 	// --- New message: one of your friends ---------------------------------------
 
 	async function startPicking() {
-		const field = h('input', { class: 'field', type: 'search', placeholder: 'Search your friends', 'aria-label': 'Search your friends', spellcheck: 'false', autocomplete: 'off' });
+		const field = h('input', { class: 'field', type: 'search', placeholder: 'Search friends and players', 'aria-label': 'Search friends and players', spellcheck: 'false', autocomplete: 'off' });
 		const results = h('div', null, skeleton(4, 36));
-		picking = { friends: null, field, results };
+		picking = { friends: null, field, results, others: [], searched: '', timer: null, seq: 0 };
 		replace(list, h('div', { class: 'dm-picker' },
 			h('div', { class: 'search-field' }, icon('search'), field),
 			button('Cancel', () => stopPicking(), { kind: 'quiet small' })), results);
-		field.addEventListener('input', drawFriends);
+		field.addEventListener('input', () => {
+			drawFriends();
+			clearTimeout(picking.timer);
+			picking.timer = setTimeout(searchPlayers, 300);
+		});
 		field.addEventListener('keydown', (e) => {
 			if (e.key === 'Escape') { e.stopPropagation(); stopPicking(); }
 		});
@@ -160,26 +209,66 @@ export function mount(container, { app, params }) {
 		});
 	}
 
+	// Players with a public profile who aren't friends, after the friends.
+	// Only friends can be messaged, so they open the profile.
+	async function searchPlayers() {
+		if (!picking) return;
+		const p = picking;
+		const q = p.field.value.trim();
+		const seq = ++p.seq;
+		if (q.length < 2) {
+			p.others = [];
+			p.searched = q.toLowerCase();
+			drawFriends();
+			return;
+		}
+		const result = await window.native.data.load('search', { q });
+		if (picking !== p || seq !== p.seq) return;
+		const ids = new Set((p.friends || []).map((f) => key(f.id)));
+		p.others = (result.ok && Array.isArray(result.data.results) ? result.data.results : [])
+			.filter((r) => !r.private && r.relation !== 'self' && r.relation !== 'friends' && !ids.has(key(r.id)));
+		p.searched = q.toLowerCase();
+		drawFriends();
+	}
+
+	function friendRow(f) {
+		const row = h('button', { type: 'button', class: 'dm-conv' },
+			avatar(f.pfp, 'md', f.state ? presenceOf(f.state) : null),
+			h('div', { class: 'main' }, h('div', { class: 'name' }, f.username), f.label ? h('div', { class: 'preview' }, f.label) : null));
+		row.addEventListener('click', () => { stopPicking(); open(f.id, f); });
+		return row;
+	}
+
+	function otherRow(p) {
+		const note = p.relation === 'outgoing' ? 'Friend request sent' : p.relation === 'incoming' ? 'Wants to be friends' : 'Not a friend yet · View profile';
+		const row = h('button', { type: 'button', class: 'dm-conv' },
+			avatar(p.pfp, 'md'),
+			h('div', { class: 'main' }, h('div', { class: 'name' }, p.username), h('div', { class: 'preview' }, note)));
+		row.addEventListener('click', () => { stopPicking(); app.navigate({ screen: 'profile', id: p.id }); });
+		return row;
+	}
+
 	function drawFriends() {
 		if (!picking || !picking.friends) return;
 		const q = picking.field.value.trim().toLowerCase();
 		const shown = picking.friends.filter((f) => !q || String(f.username).toLowerCase().includes(q));
-		if (!picking.friends.length) {
+		const others = picking.searched === q ? picking.others : [];
+		if (others.length) {
+			replace(picking.results, shown.map(friendRow), h('div', { class: 'dm-section' }, 'Other Players'), others.map(otherRow));
+			return;
+		}
+		if (!picking.friends.length && !q) {
 			replace(picking.results, h('div', { class: 'list-empty' },
 				h('p', null, 'Once you have friends, you can message them here.'),
 				button('Find Friends', () => app.navigate({ screen: 'friends', search: true }), { kind: 'primary small', icon: 'search' })));
 			return;
 		}
-		replace(picking.results, shown.length ? shown.map((f) => {
-			const row = h('button', { type: 'button', class: 'dm-conv' },
-				avatar(f.pfp, 'md', f.state ? presenceOf(f.state) : null),
-				h('div', { class: 'main' }, h('div', { class: 'name' }, f.username), f.label ? h('div', { class: 'preview' }, f.label) : null));
-			row.addEventListener('click', () => { stopPicking(); open(f.id, f); });
-			return row;
-		}) : h('div', { class: 'list-empty' }, 'No friends by that name.'));
+		replace(picking.results, shown.length ? shown.map(friendRow)
+			: h('div', { class: 'list-empty' }, picking.searched === q ? 'Nobody by that name.' : 'Searching…'));
 	}
 
 	function stopPicking() {
+		if (picking) clearTimeout(picking.timer);
 		picking = null;
 		drawInbox();
 	}
@@ -198,7 +287,8 @@ export function mount(container, { app, params }) {
 		stopThreadPoll();
 		const convo = {
 			id: key(id), raw: String(id), with: preview || null, messages: [], pending: [], hasMore: false, seenUpTo: 0,
-			canMessage: false, reason: null, blocked: false, loaded: false, error: null
+			canMessage: false, reason: null, blocked: false, loaded: false, error: null, since: 0, editing: null,
+			e2ee: { on: false, by: null }
 		};
 		current = convo;
 		const head = h('header', { class: 'dm-head' });
@@ -218,9 +308,14 @@ export function mount(container, { app, params }) {
 		}
 		convo.loaded = true;
 		apply(result.data, false);
+		// What didn't go last time is tried again, under the same nonce, so the site keeps it once.
+		const waiting = unsentFor(convo.id).map((m) => ({ id: 0, nonce: m.nonce, from_me: true, text: m.text, sent: m.sent, state: 'pending' }))
+			.filter((m) => !convo.pending.some((p) => p.nonce === m.nonce));
+		convo.pending = convo.pending.concat(waiting);
 		drawThread(true);
 		markRead();
 		startThreadPoll();
+		for (const m of waiting) deliver(m);
 		if (convo.field) convo.field.focus();
 	}
 
@@ -230,6 +325,12 @@ export function mount(container, { app, params }) {
 		current.reason = data.reason || null;
 		current.blocked = !!data.blocked;
 		current.seenUpTo = Number(data.seen_up_to) || 0;
+		if (data.e2ee) current.e2ee = data.e2ee;
+		if (typeof data.now === 'number') {
+			current.since = data.now;
+			skew = data.now - Date.now() / 1000;
+		}
+		for (const m of Array.isArray(data.changed) ? data.changed : []) replaceMessage(m);
 		const incoming = Array.isArray(data.messages) ? data.messages : [];
 		if (appendOnly) {
 			const have = new Set(current.messages.map((m) => m.id));
@@ -238,6 +339,13 @@ export function mount(container, { app, params }) {
 			current.messages = incoming;
 			current.hasMore = !!data.has_more;
 		}
+	}
+
+	// An edit or delete, from here or the other side.
+	function replaceMessage(m) {
+		const at = current.messages.findIndex((x) => x.id === m.id);
+		if (at >= 0) current.messages[at] = m;
+		if (m.deleted && current.editing && current.editing.id === m.id) stopEditing();
 	}
 
 	function drawThread(toEnd) {
@@ -255,15 +363,20 @@ export function mount(container, { app, params }) {
 				h('div', { class: 'name' }, p.username || '…'),
 				p.label ? h('div', { class: 'sub' }, p.label) : null));
 		who.addEventListener('click', openProfile);
+		const lock = current.loaded ? button(current.e2ee.on ? 'Encrypted' : 'Encrypt', () => setEncrypted(!current.e2ee.on),
+			{ kind: 'small' + (current.e2ee.on ? ' primary' : ''), icon: 'lock',
+				title: current.e2ee.on ? 'End-to-end encryption is on. Turn it off' : 'Turn on end-to-end encryption' }) : null;
 		const more = current.loaded ? iconButton('more', 'More', () => app.contextMenu([
 			{ id: 'profile', label: 'View Profile' },
+			{ id: 'e2ee', label: current.e2ee.on ? 'Turn Off End-to-End Encryption…' : 'Turn On End-to-End Encryption…' },
 			{ type: 'separator' },
 			{ id: 'block', label: current.blocked ? 'Unblock ' + p.username : 'Block ' + p.username + '…' }
 		], (choice) => {
 			if (choice === 'profile') openProfile();
+			if (choice === 'e2ee') setEncrypted(!current.e2ee.on);
 			if (choice === 'block') setBlocked(current.with, !current.blocked);
 		})) : null;
-		replace(current.head, who, h('div', { class: 'spacer' }), more);
+		replace(current.head, who, h('div', { class: 'spacer' }), lock, more);
 	}
 
 	function drawMessages(toEnd) {
@@ -274,23 +387,41 @@ export function mount(container, { app, params }) {
 		if (current.hasMore) rows.push(h('div', { class: 'dm-older' }, button('Load Earlier Messages', loadOlder, { kind: 'small' })));
 		let previous = null;
 		const all = current.messages.concat(current.pending);
+		if (current.loaded && current.e2ee.on) {
+			const name = (current.with && current.with.username) || 'they';
+			rows.push(h('div', { class: 'dm-lock' }, icon('lock'), 'End-to-end encryption is on'
+				+ (current.e2ee.by === 'me' ? ' (you turned it on)' : current.e2ee.by === 'them' ? ' (' + name + ' turned it on)' : '')
+				+ '. New messages can only be read by you and ' + name + '.'));
+		}
+		let nextExpiry = Infinity;
 		for (const m of all) {
 			if (!previous || (m.sent && previous.sent && m.sent - previous.sent > GAP)) {
 				rows.push(h('div', { class: 'dm-gap' }, stamp(m.sent)));
 			}
+			if (m.kind) {
+				rows.push(h('div', { class: 'dm-event', title: stamp(m.sent) }, icon('lock'), eventText(m, current.with && current.with.username)));
+				previous = m;
+				continue;
+			}
+			if (canEdit(m)) nextExpiry = Math.min(nextExpiry, m.editable_until);
 			const bubble = h('div', { class: 'dm-bubble', title: stamp(m.sent) }, m.text);
-			const row = h('div', { class: 'dm-row' + (m.from_me ? ' me' : '') + (m.state ? ' ' + m.state : '') }, bubble,
-				!m.from_me && m.id ? iconButton('more', 'Message options', () => messageMenu(m), { class: 'dm-more' }) : null);
-			row.addEventListener('contextmenu', (e) => { e.preventDefault(); messageMenu(m); });
+			const classes = 'dm-row' + (m.from_me ? ' me' : '') + (m.state ? ' ' + m.state : '') + (m.deleted ? ' deleted' : '')
+				+ (m.sealed ? ' sealed' : '') + (current.editing && current.editing.id === m.id ? ' editing' : '');
+			const row = h('div', { class: classes }, bubble,
+				m.id && !m.deleted ? iconButton('more', 'Message options', () => messageMenu(m), { class: 'dm-more' }) : null);
+			if (m.id && !m.deleted) row.addEventListener('contextmenu', (e) => { e.preventDefault(); messageMenu(m); });
 			rows.push(row);
+			if (m.edited && !m.deleted) rows.push(h('div', { class: 'dm-edited' + (m.from_me ? ' me' : ''), title: stamp(m.edited) }, 'Edited'));
 			if (m.state === 'failed') {
 				const retryButton = h('button', { type: 'button', class: 'link' }, 'Try Again');
 				retryButton.addEventListener('click', () => retry(m));
-				rows.push(h('div', { class: 'dm-status error' }, (m.error || 'Not sent.') + ' ', retryButton));
+				const discardButton = h('button', { type: 'button', class: 'link' }, 'Delete');
+				discardButton.addEventListener('click', () => discard(m));
+				rows.push(h('div', { class: 'dm-status error' }, (m.error || 'Not sent.') + ' ', retryButton, ' · ', discardButton));
 			}
 			previous = m;
 		}
-		const newest = current.messages[current.messages.length - 1];
+		const newest = [...current.messages].reverse().find((m) => !m.kind);
 		if (newest && newest.from_me && current.seenUpTo >= newest.id && !current.pending.length) {
 			rows.push(h('div', { class: 'dm-status' }, 'Seen'));
 		}
@@ -299,6 +430,119 @@ export function mount(container, { app, params }) {
 		}
 		replace(box, rows);
 		box.scrollTop = (toEnd || nearEnd) ? box.scrollHeight : kept;
+		clearTimeout(editTimer);
+		if (nextExpiry !== Infinity) {
+			editTimer = setTimeout(() => { if (!destroyed && current) drawMessages(false); }, Math.max(500, (nextExpiry - serverNow()) * 1000 + 250));
+		}
+	}
+
+	// --- End-to-end encryption, for both -------------------------------------------
+
+	async function setEncrypted(on) {
+		const convo = current;
+		const name = (convo.with && convo.with.username) || 'them';
+		const ok = await app.confirm({
+			title: on ? 'Turn on end-to-end encryption?' : 'Turn off end-to-end encryption?',
+			message: on
+				? 'New messages between you and ' + name + ' can only be read on your devices, not by Empanadas.io. It\'s turned on for ' + name + ' too, and either of you can turn it off.'
+				: 'New messages between you and ' + name + ' will be sent as plain text, for both of you. Messages already encrypted stay encrypted.',
+			confirm: on ? 'Turn On' : 'Turn Off',
+			danger: !on
+		});
+		if (!ok) return;
+		const result = await window.native.data.act('setEncrypted', { id: convo.raw, on });
+		if (destroyed || current !== convo) return;
+		if (!result.ok) {
+			app.toast(result.error.code === 'no_keys' ? reasonText('no_keys', name) : result.error.message, 'error');
+			return;
+		}
+		if (result.data && result.data.e2ee) convo.e2ee = result.data.e2ee;
+		app.toast(on ? 'End-to-end encryption is on.' : 'End-to-end encryption is off.', 'success');
+		drawThread(false);
+		// The note it left in the conversation.
+		poll();
+	}
+
+	// --- Editing and deleting your own --------------------------------------------
+
+	function startEditing(m) {
+		if (!canEdit(m) || !current.field) {
+			app.toast("Messages can only be edited for a minute after they're sent.", 'error');
+			return;
+		}
+		if (!current.editing) current.draftBeforeEdit = current.field.value;
+		current.editing = m;
+		current.field.value = m.text;
+		current.sync();
+		drawEditing();
+		drawMessages(false);
+		current.field.focus();
+	}
+
+	function stopEditing() {
+		if (!current || !current.editing) return;
+		current.editing = null;
+		if (current.field) {
+			current.field.value = current.draftBeforeEdit || '';
+			current.draftBeforeEdit = '';
+			current.sync();
+		}
+		drawEditing();
+		drawMessages(false);
+	}
+
+	function drawEditing() {
+		if (!current || !current.editBar) return;
+		const cancel = h('button', { type: 'button', class: 'link' }, 'Cancel');
+		cancel.addEventListener('click', stopEditing);
+		replace(current.editBar, current.editing ? [icon('pencil'), h('span', null, 'Editing message'), cancel] : []);
+		current.editBar.hidden = !current.editing;
+	}
+
+	async function saveEdit(m, text) {
+		const convo = current;
+		stopEditing();
+		if (text === m.text) return;
+		const before = m.text;
+		m.text = text;
+		drawMessages(false);
+		const result = await window.native.data.act('editMessage', { id: convo.raw, message: m.id, text, encrypted: !!m.encrypted });
+		if (destroyed || current !== convo) return;
+		if (result.ok && result.data && result.data.message) {
+			replaceMessage(result.data.message);
+		} else {
+			m.text = before;
+			app.toast((result.error && result.error.message) || 'Not edited.', 'error');
+			// Not lost: back in the box, to edit again while it still can be, or send as a new one.
+			if (current.field && !current.field.value.trim()) {
+				const fresh = current.messages.find((x) => x.id === m.id);
+				if (canEdit(fresh)) startEditing(fresh);
+				current.field.value = text;
+				current.sync();
+			}
+		}
+		drawMessages(false);
+		loadInbox();
+	}
+
+	async function deleteMessage(m) {
+		const ok = await app.confirm({
+			title: 'Delete this message?',
+			message: 'It will be deleted for you and ' + ((current.with && current.with.username) || 'them') + '.',
+			confirm: 'Delete',
+			danger: true
+		});
+		if (!ok) return;
+		const convo = current;
+		const result = await window.native.data.act('deleteMessage', { message: m.id });
+		if (destroyed || current !== convo) return;
+		if (!result.ok) {
+			app.toast(result.error.message, 'error');
+			return;
+		}
+		replaceMessage(result.data.message);
+		drawMessages(false);
+		loadInbox();
 	}
 
 	function drawFooter() {
@@ -318,6 +562,7 @@ export function mount(container, { app, params }) {
 		const field = h('textarea', { class: 'field dm-field', rows: '1', placeholder: 'Message ' + current.with.username, 'aria-label': 'Message ' + current.with.username, spellcheck: 'true' });
 		const count = h('span', { class: 'dm-count', 'aria-live': 'polite' });
 		const send = iconButton('send', 'Send', () => sendNow(), { class: 'dm-send' });
+		const editBar = h('div', { class: 'dm-editing', hidden: true });
 		const sync = () => {
 			const box = current.scroller;
 			const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -333,12 +578,20 @@ export function mount(container, { app, params }) {
 		// Return sends, Shift+Return is a new line; not while an input method is composing.
 		field.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendNow(); }
+			if (e.key === 'Escape' && current.editing) { e.preventDefault(); e.stopPropagation(); stopEditing(); }
+			// Up in an empty box edits your last message, while it still can be.
+			if (e.key === 'ArrowUp' && !field.value && !current.editing) {
+				const last = [...current.messages].reverse().find((m) => m.from_me && !m.deleted && !m.kind);
+				if (canEdit(last)) { e.preventDefault(); startEditing(last); }
+			}
 		});
 		current.field = field;
 		current.sync = sync;
 		current.limit = limit;
-		replace(current.footer, h('div', { class: 'dm-compose' }, field, count, send));
+		current.editBar = editBar;
+		replace(current.footer, editBar, h('div', { class: 'dm-compose' }, field, count, send));
 		sync();
+		drawEditing();
 	}
 
 	function sendNow() {
@@ -346,10 +599,15 @@ export function mount(container, { app, params }) {
 		if (!field) return;
 		const text = field.value.trim();
 		if (!text || text.length > current.limit) return;
+		if (current.editing) {
+			saveEdit(current.editing, text);
+			return;
+		}
 		field.value = '';
 		current.sync();
 		const pending = { id: 0, nonce: nonce(), from_me: true, text, sent: Math.floor(Date.now() / 1000), state: 'pending' };
 		current.pending.push(pending);
+		keepUnsent(current.id, pending);
 		drawMessages(true);
 		field.focus();
 		deliver(pending);
@@ -358,6 +616,8 @@ export function mount(container, { app, params }) {
 	async function deliver(pending) {
 		const convo = current;
 		const result = await window.native.data.act('sendMessage', { id: convo.raw, text: pending.text, nonce: pending.nonce });
+		// Kept until the site has it; a refusal or network trouble keeps it, to retry or delete.
+		if (result.ok && result.data && result.data.message) dropUnsent(convo.id, pending);
 		if (destroyed) return;
 		if (result.ok && result.data && result.data.message) {
 			convo.pending = convo.pending.filter((m) => m !== pending);
@@ -374,6 +634,13 @@ export function mount(container, { app, params }) {
 		}
 		if (current === convo) drawThread(true);
 		loadInbox();
+	}
+
+	// A message that didn't go, taken back off the screen and this computer.
+	function discard(m) {
+		current.pending = current.pending.filter((x) => x !== m);
+		dropUnsent(current.id, m);
+		drawMessages(false);
 	}
 
 	function retry(m) {
@@ -420,12 +687,16 @@ export function mount(container, { app, params }) {
 		if (destroyed || !current || !current.loaded || document.hidden) return;
 		const convo = current;
 		const last = convo.messages.length ? convo.messages[convo.messages.length - 1].id : 0;
-		const result = await window.native.data.load('messages', { id: convo.raw, after: last });
+		const result = await window.native.data.load('messages', { id: convo.raw, after: last, since: convo.since || undefined });
 		if (destroyed || current !== convo || !result.ok) return;
-		const before = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label];
+		const before = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label, convo.e2ee.on];
+		const changed = (Array.isArray(result.data.changed) ? result.data.changed : []).some((m) => {
+			const had = convo.messages.find((x) => x.id === m.id);
+			return had && (had.deleted !== m.deleted || had.edited !== m.edited);
+		});
 		apply(result.data, true);
-		const after = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label];
-		if (before.some((v, i) => v !== after[i])) {
+		const after = [convo.messages.length, convo.seenUpTo, convo.canMessage, convo.blocked, convo.with && convo.with.label, convo.e2ee.on];
+		if (changed || before.some((v, i) => v !== after[i])) {
 			drawThread(false);
 			markRead();
 		}
@@ -444,13 +715,19 @@ export function mount(container, { app, params }) {
 	// --- Copy, report and block -----------------------------------------------
 
 	function messageMenu(m) {
-		const items = [{ id: 'copy', label: 'Copy' }];
+		const items = m.sealed ? [] : [{ id: 'copy', label: 'Copy' }];
+		if (m.from_me && m.id && !m.deleted) {
+			if (canEdit(m)) items.push({ id: 'edit', label: 'Edit' });
+			items.push({ id: 'delete', label: 'Delete…' });
+		}
 		if (!m.from_me && m.id) {
 			items.push({ type: 'separator' });
 			for (const r of REPORT_REASONS) items.push({ id: 'report:' + r.id, label: 'Report as ' + r.label + '…' });
 		}
 		app.contextMenu(items, (choice) => {
-			if (choice === 'copy') {
+			if (choice === 'edit') startEditing(m);
+			else if (choice === 'delete') deleteMessage(m);
+			else if (choice === 'copy') {
 				navigator.clipboard.writeText(m.text).then(() => app.toast('Copied.', 'success')).catch(() => {});
 			} else if (String(choice).startsWith('report:')) {
 				report(m, String(choice).slice(7));
@@ -468,7 +745,8 @@ export function mount(container, { app, params }) {
 			input: { placeholder: 'Anything to add? (optional)' }
 		});
 		if (note === null) return;
-		const result = await window.native.data.act('reportMessage', { message: m.id, reason, note });
+		// The site can't read it: the report carries it as this computer opened it.
+		const result = await window.native.data.act('reportMessage', { message: m.id, reason, note, text: m.encrypted && !m.sealed ? m.text : '' });
 		if (!result.ok) {
 			app.toast(result.error.message, 'error');
 			return;
@@ -527,6 +805,7 @@ export function mount(container, { app, params }) {
 		destroy() {
 			destroyed = true;
 			stopThreadPoll();
+			clearTimeout(editTimer);
 			clearInterval(inboxTimer);
 			document.removeEventListener('visibilitychange', onVisible);
 			offConversations();

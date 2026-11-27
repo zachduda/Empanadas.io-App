@@ -57,13 +57,54 @@ final class InboxModel {
 /// A message on its way: shown at once, greyed until the site has it, and
 /// with Try Again (under the same nonce, so the site keeps it once) if it
 /// didn't go.
-struct PendingMessage: Identifiable, Equatable {
+struct PendingMessage: Identifiable, Equatable, Codable {
     let nonce: String
     let text: String
     let at: Date
     var failed: String?
 
     var id: String { nonce }
+}
+
+/// Messages not sent yet, kept on this device by conversation until the site
+/// has them or they're deleted, so closing the app doesn't lose them. Cleared
+/// at sign-out (AppModel).
+enum UnsentMessages {
+    static let key = "unsentMessages"
+
+    private static func all() -> [String: [PendingMessage]] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: [PendingMessage]].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    private static func conversation(_ playerID: String) -> String {
+        PlayerID.raw(playerID) ?? playerID.lowercased()
+    }
+
+    static func load(_ playerID: String) -> [PendingMessage] {
+        (all()[conversation(playerID)] ?? []).map { PendingMessage(nonce: $0.nonce, text: $0.text, at: $0.at) }
+    }
+
+    static func keep(_ message: PendingMessage, for playerID: String) {
+        var list = load(playerID).filter { $0.nonce != message.nonce }
+        list.append(PendingMessage(nonce: message.nonce, text: message.text, at: message.at))
+        save(list, for: playerID)
+    }
+
+    static func drop(_ message: PendingMessage, for playerID: String) {
+        save(load(playerID).filter { $0.nonce != message.nonce }, for: playerID)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    private static func save(_ list: [PendingMessage], for playerID: String) {
+        var everything = all()
+        everything[conversation(playerID)] = list.isEmpty ? nil : list
+        if let data = try? JSONEncoder().encode(everything) { UserDefaults.standard.set(data, forKey: key) }
+    }
 }
 
 /// State behind one conversation: its messages, oldest first, what the viewer
@@ -84,6 +125,8 @@ final class ConversationModel {
     private(set) var reason: String?
     /// The viewer blocked them.
     private(set) var blocked = false
+    /// End-to-end encryption, the same for both of them.
+    private(set) var e2ee = ConversationEncryption()
     private(set) var maxLength = MessageText.maxLength
     private(set) var isLoading = false
     private(set) var isLoadingOlder = false
@@ -92,6 +135,17 @@ final class ConversationModel {
     private(set) var working = false
     var draft = ""
     var actionError: String?
+    /// One of the viewer's own being edited in the box, while it still can be.
+    private(set) var editing: DirectMessage?
+    /// What was in the box before an edit took it, put back after.
+    private var draftBeforeEdit = ""
+    /// The site's clock minus this device's, from the last answer.
+    private var skew: TimeInterval = 0
+    /// The last answer's `now`: a poll asks what changed since.
+    private var since: Date?
+
+    /// Now, by the site's clock: when an edit is still allowed.
+    var serverNow: Date { Date().addingTimeInterval(skew) }
 
     /// How often an open conversation asks for what's new.
     static let pollInterval: Duration = .seconds(4)
@@ -109,7 +163,7 @@ final class ConversationModel {
     /// What the box can send now: something, and not too much.
     var canSend: Bool {
         let length = MessageText.length(draft)
-        return canMessage && length > 0 && length <= maxLength
+        return (canMessage || editing != nil) && length > 0 && length <= maxLength
     }
 
     /// Shown under the box as the limit nears.
@@ -120,7 +174,7 @@ final class ConversationModel {
 
     /// The viewer's newest message, when the other player has read it.
     var seenMessageID: Int? {
-        guard pending.isEmpty, let newest = messages.last, newest.fromMe, seenUpTo >= newest.id else { return nil }
+        guard pending.isEmpty, let newest = messages.last(where: { $0.kind == nil }), newest.fromMe, seenUpTo >= newest.id else { return nil }
         return newest.id
     }
 
@@ -136,6 +190,7 @@ final class ConversationModel {
             hasMore = thread.hasMore
             loaded = true
             error = nil
+            resendUnsent(app: app)
             await markRead(app: app)
         } catch {
             guard !Task.isCancelled else { return }
@@ -149,8 +204,9 @@ final class ConversationModel {
     func poll(app: AppModel) async {
         guard loaded, app.session == .signedIn, app.isOnline, !isLoading else { return }
         do {
-            let thread = try await app.account.thread(with: playerID, after: messages.last?.id)
+            let thread = try await app.account.thread(with: playerID, after: messages.last?.id, since: since)
             apply(thread)
+            for message in thread.changed { replace(message) }
             let known = Set(messages.map(\.id))
             let fresh = thread.messages.filter { !known.contains($0.id) }
             if !fresh.isEmpty {
@@ -187,6 +243,18 @@ final class ConversationModel {
         blocked = thread.blocked
         seenUpTo = thread.seenUpTo
         maxLength = thread.maxLength
+        e2ee = thread.e2ee
+        if let now = thread.now {
+            since = now
+            skew = now.timeIntervalSinceNow
+        }
+    }
+
+    /// An edit or delete, from this device or the other side's.
+    private func replace(_ message: DirectMessage) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index] = message
+        if message.deleted, editing?.id == message.id { stopEditing() }
     }
 
     /// Marks what they sent read, once it's been seen here.
@@ -203,9 +271,16 @@ final class ConversationModel {
 
     func send(app: AppModel) {
         guard canSend else { return }
+        if let editing {
+            let text = MessageText.cleaned(draft)
+            stopEditing()
+            Task { await saveEdit(editing, text: text, app: app) }
+            return
+        }
         let message = PendingMessage(nonce: MessageText.nonce(), text: MessageText.cleaned(draft), at: Date())
         draft = ""
         pending.append(message)
+        UnsentMessages.keep(message, for: playerID)
         Task { await deliver(message, app: app) }
     }
 
@@ -219,11 +294,23 @@ final class ConversationModel {
     /// Takes a message that didn't go back off the screen.
     func discard(_ message: PendingMessage) {
         pending.removeAll { $0.id == message.id }
+        UnsentMessages.drop(message, for: playerID)
+    }
+
+    /// What didn't go last time, tried again under the same nonce (so the site
+    /// keeps it once), once the conversation has loaded.
+    private func resendUnsent(app: AppModel) {
+        let waiting = UnsentMessages.load(playerID).filter { saved in !pending.contains { $0.nonce == saved.nonce } }
+        pending += waiting
+        for message in waiting {
+            Task { await deliver(message, app: app) }
+        }
     }
 
     private func deliver(_ message: PendingMessage, app: AppModel) async {
         do {
             let sent = try await app.account.sendMessage(to: playerID, text: message.text, nonce: message.nonce)
+            UnsentMessages.drop(message, for: playerID)
             pending.removeAll { $0.id == message.id }
             if !messages.contains(where: { $0.id == sent.message.id }) {
                 messages.append(sent.message)
@@ -243,6 +330,87 @@ final class ConversationModel {
             if let index = pending.firstIndex(where: { $0.id == message.id }) {
                 pending[index].failed = words
             }
+        }
+    }
+
+    // MARK: - End-to-end encryption
+
+    /// On or off for both of them.
+    func setEncrypted(_ on: Bool, app: AppModel) async {
+        guard !working else { return }
+        working = true
+        defer { working = false }
+        do {
+            e2ee = try await app.account.setEncrypted(on, with: playerID)
+            Haptics.play("success")
+            // The note it left in the conversation.
+            await poll(app: app)
+        } catch {
+            Haptics.play("error")
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = (error as? MessageRefusal).map { MessageRefusal.text($0.reason, name: with?.username ?? "") }
+                ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - Editing and deleting the viewer's own
+
+    func canEdit(_ message: DirectMessage) -> Bool {
+        message.canEdit(serverNow: serverNow)
+    }
+
+    /// Puts one of the viewer's own in the box to change it.
+    func startEditing(_ message: DirectMessage) {
+        guard canEdit(message) else {
+            actionError = MessageRefusal.text("too_late")
+            return
+        }
+        if editing == nil { draftBeforeEdit = draft }
+        editing = message
+        draft = message.text
+    }
+
+    func stopEditing() {
+        guard editing != nil else { return }
+        editing = nil
+        draft = draftBeforeEdit
+        draftBeforeEdit = ""
+    }
+
+    private func saveEdit(_ message: DirectMessage, text: String, app: AppModel) async {
+        guard text != message.text, let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        messages[index].text = text
+        do {
+            let updated = try await app.account.editMessage(message.id, with: playerID, text: text, encrypted: message.encrypted)
+            replace(updated)
+            Haptics.play("light")
+        } catch {
+            Haptics.play("error")
+            if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index].text = message.text }
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = (error as? MessageRefusal).map { MessageRefusal.text($0.reason, name: with?.username ?? "") }
+                ?? error.localizedDescription
+            // Not lost: back in the box, to edit again while it still can be, or send as a new one.
+            if editing == nil && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let fresh = messages.first(where: { $0.id == message.id }), canEdit(fresh) { startEditing(fresh) }
+                draft = text
+            }
+        }
+    }
+
+    /// Deleted for both of them.
+    func delete(_ message: DirectMessage, app: AppModel) async {
+        guard !working else { return }
+        working = true
+        defer { working = false }
+        do {
+            let updated = try await app.account.deleteMessage(message.id)
+            replace(updated)
+            Haptics.play("success")
+        } catch {
+            Haptics.play("error")
+            if (error as? AccountError) == .signedOut { app.observe(.unsure) }
+            actionError = error.localizedDescription
         }
     }
 
@@ -271,7 +439,9 @@ final class ConversationModel {
         working = true
         defer { working = false }
         do {
-            try await app.account.reportMessage(message.id, reason: reason, note: note)
+            // The site can't read it: the report carries it as this device opened it.
+            try await app.account.reportMessage(message.id, reason: reason, note: note,
+                                                text: message.encrypted && !message.sealed ? message.text : "")
             Haptics.play("success")
             return true
         } catch {

@@ -23,7 +23,7 @@
 
 const {
 	app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification,
-	powerMonitor, protocol, screen, shell, session, systemPreferences, Tray
+	powerMonitor, protocol, safeStorage, screen, shell, session, systemPreferences, Tray
 } = require('electron');
 const fs = require('fs');
 const os = require('os');
@@ -40,6 +40,7 @@ const background = require('./lib/background');
 const jsonfile = require('./lib/jsonfile');
 const signin = require('./lib/signin');
 const { createApi, ApiError } = require('./lib/api');
+const { createKeyStore } = require('./lib/dmkeys');
 const { createAnswers } = require('./lib/answers');
 const gamebundle = require('./lib/gamebundle');
 const { createGameHandler } = require('./lib/gameprotocol');
@@ -89,7 +90,9 @@ const MESSAGES_POLL = 60 * 1000;
 // field of one), and publish the screens to the site's new folder for it.
 // 2: the Messages screen (the conversations and messages screens' data,
 // sendMessage, readMessages, blockPlayer and reportMessage).
-const SHELL_API = 2;
+// 3: end-to-end encrypted messages, opened here (messages' since, editMessage,
+// deleteMessage, reportMessage's text, prepareMessages, setEncrypted).
+const SHELL_API = 3;
 // How long the loading screen waits for the site's list of the screens'
 // files, and for any that changed, before carrying on with what is on disk
 // (the check finishes in the background, for the next launch).
@@ -453,7 +456,8 @@ function setUpSessions() {
 	api = createApi({
 		fetch: (url, init) => main.fetch(url, Object.assign({ bypassCustomProtocolHandlers: true }, init)),
 		userAgent: () => userAgent,
-		onSignedOut: () => markSignedOut('expired')
+		onSignedOut: () => markSignedOut('expired'),
+		dmKeys: createKeyStore(path.join(userData, 'message-keys.json'), safeStorage)
 	});
 
 	let lastEmit = 0;
@@ -634,7 +638,7 @@ function forShell(body) {
 const LOADERS = {
 	account: () => api.account(),
 	conversations: () => api.conversations(),
-	messages: (params) => api.thread(params && params.id, { before: params && params.before, after: params && params.after }),
+	messages: (params) => api.thread(params && params.id, { before: params && params.before, after: params && params.after, since: params && params.since }),
 	dashboard: () => api.dashboard(),
 	leaderboard: () => api.leaderboard(),
 	profile: (params) => api.profile(params && params.id),
@@ -651,6 +655,17 @@ function keepAs(key, params) {
 	return ['account', 'dashboard', 'leaderboard', 'conversations'].includes(key) ? key : null;
 }
 
+// The inbox as kept on disk for offline: an encrypted conversation's last message stays
+// unreadable there, as it is on the site.
+function withoutOpenedPreviews(body) {
+	if (!body || !Array.isArray(body.conversations)) return body;
+	return Object.assign({}, body, {
+		conversations: body.conversations.map((c) => (c && c.last && c.last.encrypted)
+			? Object.assign({}, c, { last: Object.assign({}, c.last, { preview: '\u{1F512} Encrypted message' }) })
+			: c)
+	});
+}
+
 function cachedScreen(key, params) {
 	const kept = keepAs(key, params);
 	const entry = kept ? answers.load(kept) : null;
@@ -664,7 +679,7 @@ async function loadScreen(key, params) {
 	try {
 		const body = await loader(params || {});
 		const kept = keepAs(key, params);
-		if (kept) answers.save(kept, body, generation);
+		if (kept) answers.save(kept, key === 'conversations' ? withoutOpenedPreviews(body) : body, generation);
 		if (key === 'dashboard') afterDashboard(body);
 		if (key === 'account') afterAccount(body);
 		if (key === 'conversations') afterConversations(body);
@@ -687,7 +702,11 @@ const ACTIONS = {
 	sendMessage: (p) => api.sendMessage(p.id, p.text, p.nonce),
 	readMessages: (p) => api.readMessages(p.id, p.upTo),
 	blockPlayer: (p) => api.blockPlayer(p.id, p.block === true),
-	reportMessage: (p) => api.reportMessage(p.message, p.reason, p.note),
+	editMessage: (p) => api.editMessage(p.id, p.message, p.text, p.encrypted === true),
+	deleteMessage: (p) => api.deleteMessage(p.message),
+	prepareMessages: () => api.prepareMessages(),
+	setEncrypted: (p) => api.setEncrypted(p.id, p.on === true),
+	reportMessage: (p) => api.reportMessage(p.message, p.reason, p.note, p.text),
 	deleteAccount: (p) => api.deleteAccount(p.confirmation)
 };
 
@@ -743,17 +762,31 @@ function setUnreadMessages(count) {
 // The inbox's answer: the badge, and a notification for a message newer than
 // any it has shown, while the window isn't in front. One conversation's is
 // its sender and words; more than one, how many.
+// The notifications shown for one message, by its id, so one deleted since comes off again.
+const messageNotes = new Map();
+
 function afterConversations(body) {
 	const list = body && Array.isArray(body.conversations) ? body.conversations : null;
 	if (!list) return;
 	if (Number.isInteger(body.unread)) setUnreadMessages(body.unread);
+	for (const c of list) {
+		const note = c && c.last && c.last.deleted ? messageNotes.get(Number(c.last.id)) : null;
+		if (note) {
+			try { note.close(); } catch (err) { /* already gone */ }
+			messageNotes.delete(Number(c.last.id));
+		}
+	}
 	const incoming = list.filter((c) => c && c.with && c.last && !c.last.from_me && Number(c.unread) > 0);
 	const newest = incoming.reduce((most, c) => Math.max(most, Number(c.last.id) || 0), 0);
 	if (lastMessageId !== null && newest > lastMessageId && prefs.get().notifications !== false &&
 		(!win || win.isDestroyed() || !win.isFocused())) {
 		const fresh = incoming.filter((c) => Number(c.last.id) > lastMessageId);
 		if (fresh.length === 1) {
-			notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
+			const note = notify(String(fresh[0].with.username || 'New message'), String(fresh[0].last.preview || ''), { screen: 'messages', id: fresh[0].with.id });
+			if (note) {
+				messageNotes.set(Number(fresh[0].last.id), note);
+				if (messageNotes.size > 50) messageNotes.delete(messageNotes.keys().next().value);
+			}
 		} else if (fresh.length > 1) {
 			notify('New messages', 'From ' + fresh.length + ' friends.', { screen: 'messages' });
 		}
@@ -782,8 +815,10 @@ function notify(title, body, route) {
 			if (route) goTo(route);
 		});
 		note.show();
+		return note;
 	} catch (err) {
 		// The badge says so too.
+		return null;
 	}
 }
 
