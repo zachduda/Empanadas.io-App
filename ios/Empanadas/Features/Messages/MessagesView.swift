@@ -490,7 +490,7 @@ struct ConversationView: View {
         return out
     }
 
-    var body: some View {
+    private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -521,6 +521,10 @@ struct ConversationView: View {
                 if focused { withAnimation(.smooth) { proxy.scrollTo("end", anchor: .bottom) } }
             }
         }
+    }
+
+    private var screen: some View {
+        messageList
         // Its notifications aren't shown while it is on screen, and the ones
         // already delivered have been seen.
         .onAppear {
@@ -541,32 +545,7 @@ struct ConversationView: View {
         .navigationTitle(conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { showingProfile = true } label: {
-                        Label("View Profile", systemImage: "person.crop.circle")
-                    }
-                    if conversation.loaded {
-                        Button { confirmingEncryption = true } label: {
-                            Label(conversation.e2ee.on ? "Turn Off End-to-End Encryption" : "Turn On End-to-End Encryption",
-                                  systemImage: conversation.e2ee.on ? "lock.open" : "lock")
-                        }
-                        if conversation.blocked {
-                            Button { Task { await conversation.setBlocked(false, app: model) } } label: {
-                                Label("Unblock \(name)", systemImage: "hand.raised.slash")
-                            }
-                        } else {
-                            Button(role: .destructive) { confirmingBlock = true } label: {
-                                Label("Block \(name)", systemImage: "hand.raised")
-                            }
-                        }
-                    }
-                } label: {
-                    PresenceAvatar(person: conversation.with ?? MessagePerson(playerID: conversation.playerID, username: ""), size: 30)
-                }
-                .accessibilityLabel("\(name), more")
-                .disabled(conversation.working)
-            }
+            ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
         .navigationDestination(isPresented: $showingProfile) {
             ProfileView(id: conversation.playerID, name: conversation.with?.username)
@@ -586,6 +565,10 @@ struct ConversationView: View {
                 await conversation.poll(app: model)
             }
         }
+    }
+
+    private var dialogs: some View {
+        screen
         .confirmationDialog(conversation.e2ee.on ? "Turn Off End-to-End Encryption?" : "Turn On End-to-End Encryption?",
                             isPresented: $confirmingEncryption, titleVisibility: .visible) {
             let on = !conversation.e2ee.on
@@ -614,6 +597,10 @@ struct ConversationView: View {
         } message: {
             Text("You won't be able to message each other or send friend requests, and you'll no longer be friends. They won't be told.")
         }
+    }
+
+    private var alerts: some View {
+        dialogs
         .alert("Report This Message?", isPresented: Binding(
             get: { reporting != nil },
             set: { if !$0 { reporting = nil } }
@@ -647,6 +634,37 @@ struct ConversationView: View {
         } message: {
             Text(conversation.actionError ?? "")
         }
+    }
+
+    var body: some View {
+        alerts
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button { showingProfile = true } label: {
+                Label("View Profile", systemImage: "person.crop.circle")
+            }
+            if conversation.loaded {
+                Button { confirmingEncryption = true } label: {
+                    Label(conversation.e2ee.on ? "Turn Off End-to-End Encryption" : "Turn On End-to-End Encryption",
+                          systemImage: conversation.e2ee.on ? "lock.open" : "lock")
+                }
+                if conversation.blocked {
+                    Button { Task { await conversation.setBlocked(false, app: model) } } label: {
+                        Label("Unblock \(name)", systemImage: "hand.raised.slash")
+                    }
+                } else {
+                    Button(role: .destructive) { confirmingBlock = true } label: {
+                        Label("Block \(name)", systemImage: "hand.raised")
+                    }
+                }
+            }
+        } label: {
+            PresenceAvatar(person: conversation.with ?? MessagePerson(playerID: conversation.playerID, username: ""), size: 30)
+        }
+        .accessibilityLabel("\(name), more")
+        .disabled(conversation.working)
     }
 
     @ViewBuilder
